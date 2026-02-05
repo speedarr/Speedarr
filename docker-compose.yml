@@ -1,0 +1,19 @@
+services:
+  speedarr:
+    image: ghcr.io/speedarr/speedarr:latest
+    container_name: speedarr
+    ports:
+      - "9494:9494"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9494/api/status/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Set to your local DNS server/router IP to resolve local hostnames (.lan, .local, etc.)
+    #dns:
+    #  - 192.168.10.1
+    restart: unless-stopped
+

@@ -1,0 +1,3 @@
+"""
+API routes for Speedarr.
+"""

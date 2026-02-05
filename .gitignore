@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Database
+*.db
+*.db-journal
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDEs & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Environment
+.env
+backend/.env
+
+# Data directory (bind mount)
+data/
+
+# Test scripts
+test_*.sh
+check_*.sh
+
+# Development notes
+docs/todo.md

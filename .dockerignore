@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Data (database and secrets)
+data/
+
+# Environment files
+.env
+.env.*
+
+# Documentation
+*.md
+docs/
+
+# Logs
+*.log
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# Node modules (installed fresh in build)
+node_modules
+
+# IDE and OS files
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Docker files
+Dockerfile*
+docker-compose*
+
+# Test scripts
+test_*.sh
+check_*.sh
+
+# Claude/AI assistant files
+.claude

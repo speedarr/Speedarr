@@ -1,0 +1,32 @@
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database (SQLite for single-container)
+sqlalchemy==2.0.25
+aiosqlite==0.20.0
+
+# HTTP Client
+aiohttp==3.9.1
+
+# Configuration
+pydantic==2.5.3
+pydantic-settings==2.1.0
+pyyaml==6.0.1
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# SNMP
+pysnmp-lextudio==6.3.0
+pyasn1==0.5.1
+
+# Scheduling
+apscheduler==3.10.4
+
+# Logging
+loguru==0.7.2
+
