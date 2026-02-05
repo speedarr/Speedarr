@@ -3,9 +3,24 @@ set -e
 
 echo "=== Speedarr Starting ==="
 
-# Verify data directory is writable
-if [ ! -w "/data" ]; then
-    echo "ERROR: /data is not writable. Check volume permissions."
-    exit 1
+# Default PUID/PGID to 99:100 (Unraid's nobody:users)
+PUID=${PUID:-99}
+PGID=${PGID:-100}
+
+echo "Running with UID: $PUID, GID: $PGID"
+
+# Update speedarr group GID if different
+if [ "$(id -g speedarr)" != "$PGID" ]; then
+    groupmod -o -g "$PGID" speedarr
 fi
-exec "$@"
+
+# Update speedarr user UID if different
+if [ "$(id -u speedarr)" != "$PUID" ]; then
+    usermod -o -u "$PUID" speedarr
+fi
+
+# Ensure /data is owned by speedarr
+chown -R speedarr:speedarr /data
+
+# Switch to speedarr user and run command
+exec gosu speedarr "$@"

@@ -24,6 +24,7 @@ FROM python:3.11.7-slim-bookworm AS base
 RUN apt-get update && apt-get install -y \
     gcc \
     supervisor \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -66,7 +67,8 @@ EXPOSE 9494
 # Volume for persistent data (SQLite database)
 VOLUME ["/data"]
 
-USER speedarr
+# Note: Container starts as root, entrypoint switches to speedarr user
+# after applying PUID/PGID settings
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
