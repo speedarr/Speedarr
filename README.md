@@ -5,7 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/speedarr/Speedarr/releases/latest"><img src="https://img.shields.io/github/v/release/speedarr/Speedarr?style=flat-square&color=blue" alt="Release"></a>
-  <a href="https://github.com/speedarr/Speedarr/pkgs/container/speedarr"><img src="https://img.shields.io/badge/GHCR-speedarr-blue?style=flat-square&logo=docker" alt="Docker"></a>
+  <a href="https://hub.docker.com/r/speedarr/speedarr"><img src="https://img.shields.io/docker/pulls/speedarr/speedarr?style=flat-square" alt="Docker Pulls"></a>
 </p>
 
 <h3 align="center">Dynamic bandwidth management for Plex and download clients</h3>
@@ -124,7 +124,6 @@ Configure alerts in **Settings** → **Notifications** for any combination of:
 ## Support
 
 - [GitHub Issues](https://github.com/speedarr/Speedarr/issues) — Bug reports and feature requests
-- [Discord](https://discord.gg/PLACEHOLDER) — Community chat
 
 
 ## License
