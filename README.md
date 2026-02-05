@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/speedarr/Speedarr/main/frontend/public/speedarr.svg" alt="Speedarr" width="200">
+  <img src="https://raw.githubusercontent.com/speedarr/Speedarr/main/docs/logos/speedarr_banner_clean.png" alt="Speedarr" width="200">
 </p>
 
 
@@ -33,6 +33,10 @@
 - Restoration delays based on media type — episodes restore faster than movies
 - SNMP monitoring for real WAN bandwidth from your router (Unifi currently, more coming soon)
 - Notifications via Discord, Pushover, Telegram, Gotify, ntfy, and custom webhooks
+
+## ⚠️ Disclaimer ⚠️
+
+> **This project is entirely vibe coded using AI (Claude).** While I have found it works well and is actively used and I have thoroughly tested, the codebase has not been manually reviewed line-by-line. Use at your own discretion and please report any issues you encounter.
 
 ## Quick Start
 
@@ -121,6 +125,7 @@ Configure alerts in **Settings** → **Notifications** for any combination of:
 
 - [GitHub Issues](https://github.com/speedarr/Speedarr/issues) — Bug reports and feature requests
 - [Discord](https://discord.gg/PLACEHOLDER) — Community chat
+
 
 ## License
 
