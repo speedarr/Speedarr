@@ -22,8 +22,5 @@ fi
 # Ensure /data is owned by speedarr
 chown -R speedarr:speedarr /data
 
-# Fix permissions on stdout/stderr for logging
-chmod 777 /dev/stdout /dev/stderr 2>/dev/null || true
-
-# Switch to speedarr user and run command
-exec gosu speedarr "$@"
+# Run command (supervisor runs as root, but spawns backend as speedarr user)
+exec "$@"
