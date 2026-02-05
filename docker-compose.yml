@@ -1,6 +1,6 @@
 services:
   speedarr:
-    image: ghcr.io/speedarr/speedarr:latest
+    image: speedarr/speedarr:latest
     container_name: speedarr
     ports:
       - "9494:9494"
