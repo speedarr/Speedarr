@@ -361,6 +361,10 @@ class SNMPMonitor:
             if in_octets is None and self._use_64bit:
                 logger.info("64-bit counters unavailable, falling back to 32-bit")
                 self._use_64bit = False
+                # Reset baseline to avoid incorrect delta between different counter types
+                self._last_in_octets = None
+                self._last_out_octets = None
+                self._last_poll_time = None
                 in_oid = IF_IN_OCTETS
                 out_oid = IF_OUT_OCTETS
                 results = await self._get_multiple_oids([in_oid, out_oid], self.config.interface)
@@ -406,10 +410,10 @@ class SNMPMonitor:
             download_mbps = (in_delta / time_diff) * 8 / 1_000_000
             upload_mbps = (out_delta / time_diff) * 8 / 1_000_000
 
-            # Sanity check: reject unreasonably high values (> 10 Gbps)
-            # This catches counter wrap-around issues or calculation errors
+            # Sanity check: reject negative or unreasonably high values (> 10 Gbps)
+            # This catches counter wrap-around issues, counter type switching, or calculation errors
             MAX_REASONABLE_MBPS = 10000  # 10 Gbps
-            if download_mbps > MAX_REASONABLE_MBPS or upload_mbps > MAX_REASONABLE_MBPS:
+            if download_mbps < 0 or upload_mbps < 0 or download_mbps > MAX_REASONABLE_MBPS or upload_mbps > MAX_REASONABLE_MBPS:
                 logger.warning(
                     f"SNMP: Rejecting unreasonable values - {download_mbps:.2f} Mbps down, {upload_mbps:.2f} Mbps up "
                     f"(in_delta={in_delta}, out_delta={out_delta}, time_diff={time_diff:.2f}s). "
