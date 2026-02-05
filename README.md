@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/speedarr/Speedarr/main/docs/logos/speedarr_banner_clean.png" alt="Speedarr" width="200">
+  <img src="https://raw.githubusercontent.com/speedarr/Speedarr/main/docs/logos/speedarr_banner_clean.png" alt="Speedarr" width="300">
 </p>
 
 
@@ -125,6 +125,9 @@ Configure alerts in **Settings** → **Notifications** for any combination of:
 
 - [GitHub Issues](https://github.com/speedarr/Speedarr/issues) — Bug reports and feature requests
 
+## Security
+
+To report a security vulnerability, please use [GitHub's private vulnerability reporting](https://github.com/speedarr/Speedarr/security/advisories/new) instead of opening a public issue.
 
 ## License
 
