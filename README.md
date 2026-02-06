@@ -36,7 +36,25 @@
 
 ## ⚠️ Disclaimer ⚠️
 
-> **This project is entirely vibe coded using AI (Claude).** While I have found it works well and is actively used and I have thoroughly tested, the codebase has not been manually reviewed line-by-line. Use at your own discretion and please report any issues you encounter.
+> **This project is entirely vibe coded using AI (Claude).** While I have found it works well, is actively used and I have thoroughly tested, the codebase has not been manually reviewed line-by-line. Use at your own discretion and please report any issues you encounter.
+
+## How does it work?
+
+The goal of Speedarr is to help you achieve the following:
+- Maximum download speed if you have multiple download clients
+- Maximum upload speed for seeding while reserving ample bandwidth for plex streams
+
+### Single Usenet based client
+
+This really doesn't add much value for you, except maybe graphing the download speeds, you could use it for alternate speed limits but you're probably better off doing this natively.
+
+### Single Torrent based client
+
+Okay now we're talking, Speedarr can help you! Configure the max download bandwidth you want the torrent client to use and then the max upload bandwidth too, strongly recommend 10-20% lower than your actual internet speed to allow some bandwidth for other devices on your network. For arguments sake let's say you have 100Mbps upload, so you configure 80Mbps in Speedarr, what will happen is: If there are no plex WAN streams your torrent client will be allowed to upload at 80Mbps, within a few seconds of a plex stream starting Speedarr will then "rate limit" the torrent upload. For example; An 8 Mbps stream with 100% overhead = 16.0 Mbps reserved leaving 64Mbps for torrent upload (80Mbps - 16Mbps)
+
+### Multiple Clients (All usenet, all torrent or a mix)
+
+Now we're getting into the really cool (in my opinion, and yes I mean mine not Claude). Let's assume a 1000Mbps/100Mbps internet plan. You configure 900Mbps/80Mbps in Speedarr, let's go with qBit and sab and you then set the downloads allocation split of 70/30 for qBit/sab. While the download clients are idle they will evenly split the download bandwidth, Eg 450Mbps/450Mbps, If one download client starts downloading it will get 95% of the configured bandwidth or 855Mbps, this leaves 45Mbps for the other download client to start. Now if a download starts on the other client your configured split above will come into play and one client will get 630Mbps and the other will get 270Mbps. This isn't just limited to 2 clients either, you can have 2 or more and Speedarr will follow the same principles. 
 
 ## Quick Start
 
@@ -91,35 +109,19 @@ The Wizard will configure the mandatory settings but other options are configura
 - **Notifications** — Per-platform setup with event filtering and thresholds
 - **Failsafe** — Plex timeout behavior, shutdown speeds
 
+## Why double protocol overhead?
 
-## SNMP Monitoring
+Plex have an excellent write-up on **Bitrates and How They Matter** located [here](https://support.plex.tv/articles/227715247-server-settings-bandwidth-and-transcoding-limits/), I would recomened reading this before continuing but I will provide a summary below.
 
-Measure actual WAN bandwidth from your router, this is more of a nice-to-have rather than requirement:
+In the below screenshot there are 2 plex streams totalling 21Mbps but as you can see the bandwidth fluctuates greatly. For the most part it's well under the 21Mbps but then with spikes of over double that. After very closely watching my server over the years I found reserving double the bandwidth is sufficient for minimizing buffering. This is why the default protocol overhead in Speedarr is 100%, you can of course lower this or even increase it if you see fit.
 
-1. Enable SNMP on your router
-2. Go to **Settings** → **SNMP** → Enable
-3. Enter your router IP and SNMP credentials
-4. Click **Test Connection** → **Discover Interfaces**
-5. Select your WAN interface and save
+<p align="center">
+  <img src="https://raw.githubusercontent.com/speedarr/Speedarr/main/docs/screenshots/plex_bandwidth.png" alt="Plex Bandwidth Screenshot">
+</p>
 
-Speedarr will suggest the most likely WAN interface based on current traffic patterns.
+## Bandwidth Holding Times
 
-## Notifications
-
-Configure alerts in **Settings** → **Notifications** for any combination of:
-
-| Platform | Setup |
-|----------|-------|
-| **Discord** | Webhook URL |
-| **Pushover** | User key + API token |
-| **Telegram** | Bot token + chat ID |
-| **Gotify** | Server URL + app token |
-| **ntfy** | Server URL + topic |
-| **Webhooks** | Any URL with custom headers |
-
-**Available events**: Stream started/ended, stream count exceeded, stream bitrate exceeded, service unreachable/recovered.
-
-
+The logic behind this feature is that you are likely to start another stream once one ends so Speedarr "holds" this bandwidth until the time specified has been reached, rather than letting your upload clients use this bandwidth. This ensures there is bandwidth already carved out rather than waiting for Speedarr to detect a new stream.  
 
 ## Support
 
