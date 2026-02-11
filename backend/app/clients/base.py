@@ -22,6 +22,7 @@ class BaseDownloadClient(ABC):
         """Get or create aiohttp session."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
+                cookie_jar=aiohttp.CookieJar(unsafe=True),
                 timeout=aiohttp.ClientTimeout(total=2)
             )
         return self._session
