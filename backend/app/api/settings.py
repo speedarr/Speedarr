@@ -321,13 +321,25 @@ async def test_connection(
         elif service == "qbittorrent":
             from app.clients.qbittorrent import QBittorrentClient
 
-            url = config_data.get("url") or app_config.qbittorrent.url
-            username = config_data.get("username") or app_config.qbittorrent.username
-            password = config_data.get("password")
+            url = config_data.get("url", "")
+            username = config_data.get("username", "")
+            password = config_data.get("password", "")
 
-            # If use_existing or password is masked, use the saved config
+            # Get existing client config for use_existing
             if test_request.use_existing or password == "***REDACTED***":
-                password = app_config.qbittorrent.password
+                existing = _find_existing_client(app_config, config_data.get("id"), "qbittorrent")
+                if existing:
+                    if not url:
+                        url = existing.url
+                    if not username:
+                        username = existing.username
+                    if existing.password and password in ("", "***REDACTED***"):
+                        password = existing.password
+                elif password == "***REDACTED***":
+                    return TestConnectionResponse(
+                        success=False,
+                        message="No qBittorrent password configured. Please enter a password.",
+                    )
 
             if not url or not username or not password:
                 return TestConnectionResponse(
@@ -352,14 +364,18 @@ async def test_connection(
         elif service == "sabnzbd":
             from app.clients.sabnzbd import SABnzbdClient
 
-            url = config_data.get("url") or app_config.sabnzbd.url
-            api_key = config_data.get("api_key")
+            url = config_data.get("url", "")
+            api_key = config_data.get("api_key", "")
 
-            # If use_existing or api_key is masked, use the saved config
+            # Get existing client config for use_existing
             if test_request.use_existing or api_key == "***REDACTED***":
-                if app_config.sabnzbd.api_key:
-                    api_key = app_config.sabnzbd.api_key
-                else:
+                existing = _find_existing_client(app_config, config_data.get("id"), "sabnzbd")
+                if existing:
+                    if not url:
+                        url = existing.url
+                    if existing.api_key and api_key in ("", "***REDACTED***"):
+                        api_key = existing.api_key
+                elif api_key == "***REDACTED***":
                     return TestConnectionResponse(
                         success=False,
                         message="No SABnzbd API key configured. Please enter an API key.",

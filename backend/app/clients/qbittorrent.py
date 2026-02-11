@@ -46,9 +46,7 @@ class QBittorrentClient:
             return
 
         try:
-            data = aiohttp.FormData()
-            data.add_field("username", self.username)
-            data.add_field("password", self.password)
+            data = {"username": self.username, "password": self.password}
 
             async with self.session.post(f"{self.url}/api/v2/auth/login", data=data) as response:
                 if response.status == 200:
@@ -60,14 +58,28 @@ class QBittorrentClient:
             logger.error(f"Failed to authenticate with qBittorrent: {e}")
             raise
 
+    async def _request(self, method: str, endpoint: str, retry_on_auth_failure: bool = True, **kwargs):
+        """Make HTTP request with automatic re-authentication on 403."""
+        await self._ensure_authenticated()
+        url = f"{self.url}{endpoint}"
+        response = await self.session.request(method, url, **kwargs)
+
+        if response.status == 403 and retry_on_auth_failure:
+            await response.release()
+            logger.debug("qBittorrent returned 403, re-authenticating...")
+            self._authenticated = False
+            await self._ensure_authenticated()
+            response = await self.session.request(method, url, **kwargs)
+
+        return response
+
     async def get_stats(self) -> Dict[str, Any]:
         """Get current transfer statistics."""
-        await self._ensure_authenticated()
-
         try:
             # Get transfer info
-            async with self.session.get(f"{self.url}/api/v2/transfer/info") as response:
-                transfer_info = await response.json()
+            response = await self._request("GET", "/api/v2/transfer/info")
+            response.raise_for_status()
+            transfer_info = await response.json()
 
             # Determine if actually downloading based on speed, not torrent state
             # A torrent can be in "downloading" state but stalled with no data transfer
@@ -98,16 +110,16 @@ class QBittorrentClient:
 
     async def get_speed_limits(self) -> Dict[str, float]:
         """Get current speed limits in Mbps."""
-        await self._ensure_authenticated()
-
         try:
-            async with self.session.get(f"{self.url}/api/v2/transfer/downloadLimit") as response:
-                dl_limit_text = await response.text()
-                dl_limit_bytes = int(dl_limit_text.strip())
+            response = await self._request("GET", "/api/v2/transfer/downloadLimit")
+            response.raise_for_status()
+            dl_limit_text = await response.text()
+            dl_limit_bytes = int(dl_limit_text.strip())
 
-            async with self.session.get(f"{self.url}/api/v2/transfer/uploadLimit") as response:
-                ul_limit_text = await response.text()
-                ul_limit_bytes = int(ul_limit_text.strip())
+            response = await self._request("GET", "/api/v2/transfer/uploadLimit")
+            response.raise_for_status()
+            ul_limit_text = await response.text()
+            ul_limit_bytes = int(ul_limit_text.strip())
 
             # Convert bytes/sec to Mbps (0 means unlimited in qBit)
             return {
@@ -120,23 +132,17 @@ class QBittorrentClient:
 
     async def set_speed_limits(self, download_limit: Optional[float] = None, upload_limit: Optional[float] = None):
         """Set speed limits in Mbps."""
-        await self._ensure_authenticated()
-
         try:
             if download_limit is not None:
                 # Convert Mbps to bytes/second
                 limit_bytes = int(download_limit * 1_048_576 / 8)
-                data = aiohttp.FormData()
-                data.add_field("limit", str(limit_bytes))
-                async with self.session.post(f"{self.url}/api/v2/transfer/setDownloadLimit", data=data) as response:
-                    response.raise_for_status()
+                response = await self._request("POST", "/api/v2/transfer/setDownloadLimit", data={"limit": str(limit_bytes)})
+                response.raise_for_status()
 
             if upload_limit is not None:
                 limit_bytes = int(upload_limit * 1_048_576 / 8)
-                data = aiohttp.FormData()
-                data.add_field("limit", str(limit_bytes))
-                async with self.session.post(f"{self.url}/api/v2/transfer/setUploadLimit", data=data) as response:
-                    response.raise_for_status()
+                response = await self._request("POST", "/api/v2/transfer/setUploadLimit", data={"limit": str(limit_bytes)})
+                response.raise_for_status()
 
             logger.debug(f"Set qBittorrent limits: DL={download_limit} Mbps, UL={upload_limit} Mbps")
 
