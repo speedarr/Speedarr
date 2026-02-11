@@ -22,6 +22,7 @@ class QBittorrentClient:
         """Get or create aiohttp session."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
+                cookie_jar=aiohttp.CookieJar(unsafe=True),
                 timeout=aiohttp.ClientTimeout(total=2)
             )
         return self._session
@@ -50,8 +51,12 @@ class QBittorrentClient:
 
             async with self.session.post(f"{self.url}/api/v2/auth/login", data=data) as response:
                 if response.status == 200:
-                    self._authenticated = True
-                    logger.debug("Authenticated with qBittorrent")
+                    text = await response.text()
+                    if text.strip() == "Ok.":
+                        self._authenticated = True
+                        logger.debug("Authenticated with qBittorrent")
+                    else:
+                        raise Exception("qBittorrent login rejected (credentials may be wrong)")
                 else:
                     raise Exception(f"Authentication failed with status {response.status}")
         except Exception as e:
@@ -66,7 +71,7 @@ class QBittorrentClient:
 
         if response.status == 403 and retry_on_auth_failure:
             await response.release()
-            logger.debug("qBittorrent returned 403, re-authenticating...")
+            logger.info("qBittorrent returned 403, re-authenticating...")
             self._authenticated = False
             await self._ensure_authenticated()
             response = await self.session.request(method, url, **kwargs)
