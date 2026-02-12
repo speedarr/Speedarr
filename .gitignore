@@ -27,6 +27,12 @@ frontend/.vite/
 .env
 backend/.env
 
+# Docker Compose local override
+docker-compose.override.yml
+
+# Claude Code
+CLAUDE.md
+
 # Data directory (bind mount)
 data/
 
