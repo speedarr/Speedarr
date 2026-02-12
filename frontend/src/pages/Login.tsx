@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/api/client';
@@ -20,6 +20,7 @@ export const Login: React.FC = () => {
   const [isCheckingFirstRun, setIsCheckingFirstRun] = useState(true);
   const { login, setUser } = useAuth();
   const navigate = useNavigate();
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     const checkInitialState = async () => {
@@ -53,20 +54,25 @@ export const Login: React.FC = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setError('');
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
+      isSubmittingRef.current = false;
       return;
     }
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters');
+      isSubmittingRef.current = false;
       return;
     }
 
     if (username.length < 3) {
       setError('Username must be at least 3 characters');
+      isSubmittingRef.current = false;
       return;
     }
 
@@ -74,13 +80,27 @@ export const Login: React.FC = () => {
 
     try {
       const result = await apiClient.register(username, password);
-      // Set user in auth context
       setUser(result.user);
       navigate('/');
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      // If user was already created (double-submit or lost response),
+      // try logging in with the same credentials
+      if (message.toLowerCase().includes('already exist')) {
+        try {
+          await login({ username, password });
+          navigate('/');
+          return;
+        } catch {
+          setError('An account already exists. Please sign in with your credentials.');
+          setIsFirstRun(false);
+          return;
+        }
+      }
+      setError(message);
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
