@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertCircle, Layers, BarChart3 } from 'lucide-react';
+import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown } from 'lucide-react';
 
 // Gradient ID mapping for each client
 const DOWNLOAD_GRADIENT_IDS: Record<string, string> = {
@@ -201,6 +201,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     const saved = localStorage.getItem('speedarr_chart_stacked');
     return saved !== null ? JSON.parse(saved) : false;
   });
+  const [flipped, setFlipped] = useState<boolean>(() => {
+    const saved = localStorage.getItem('speedarr_chart_flipped');
+    return saved !== null ? JSON.parse(saved) : false;
+  });
   const [clientOrder, setClientOrder] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('speedarr_chart_client_order');
@@ -213,6 +217,9 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   useEffect(() => {
     localStorage.setItem('speedarr_chart_stacked', JSON.stringify(stackChart));
   }, [stackChart]);
+  useEffect(() => {
+    localStorage.setItem('speedarr_chart_flipped', JSON.stringify(flipped));
+  }, [flipped]);
   useEffect(() => {
     if (clientOrder.length > 0) {
       localStorage.setItem('speedarr_chart_client_order', JSON.stringify(clientOrder));
@@ -453,11 +460,12 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     if (aggregatedData.length === 0) return { data: [], ratio: 1 };
 
     // Find max values for scaling - only include visible series
-    let maxDownload = 0;
-    let maxNegative = 0;
+    // When flipped, uploads are positive (on top) and downloads are negated (below zero)
+    let maxPositive = 0;
+    let maxToNegate = 0;
 
     aggregatedData.forEach((point) => {
-      // Only include visible download series in max calculation
+      // Compute download totals from visible series
       let totalDownload = 0;
       if (visibleSeries.qbittorrent_download) totalDownload += point.qbittorrent_speed || 0;
       if (visibleSeries.sabnzbd_download) totalDownload += point.sabnzbd_speed || 0;
@@ -465,23 +473,16 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       if (visibleSeries.transmission_download) totalDownload += point.transmission_speed || 0;
       if (visibleSeries.deluge_download) totalDownload += point.deluge_speed || 0;
 
-      // Include SNMP download only if visible
-      if (visibleSeries.snmp_download) {
-        const snmpDownload = point.snmp_download_speed || 0;
-        maxDownload = Math.max(maxDownload, totalDownload, snmpDownload);
-      } else {
-        maxDownload = Math.max(maxDownload, totalDownload);
-      }
+      const snmpDownloadVal = visibleSeries.snmp_download ? (point.snmp_download_speed || 0) : 0;
 
-      // Only include visible upload series in max calculation
+      // Compute upload totals from visible series
       let totalUpload = 0;
       if (visibleSeries.plex_streams) totalUpload += point.stream_bandwidth || 0;
       if (visibleSeries.qbittorrent_upload) totalUpload += point.qbittorrent_upload_speed || 0;
       if (visibleSeries.transmission_upload) totalUpload += point.transmission_upload_speed || 0;
       if (visibleSeries.deluge_upload) totalUpload += point.deluge_upload_speed || 0;
 
-      // Include SNMP upload only if visible
-      const snmpUpload = visibleSeries.snmp_upload ? (point.snmp_upload_speed || 0) : 0;
+      const snmpUploadVal = visibleSeries.snmp_upload ? (point.snmp_upload_speed || 0) : 0;
 
       // Include upload limits only if their respective limit lines are visible
       let maxUploadLimit = 0;
@@ -489,43 +490,52 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       if (visibleSeries.transmission_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.transmission_upload_limit || 0);
       if (visibleSeries.deluge_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.deluge_upload_limit || 0);
 
-      maxNegative = Math.max(maxNegative, totalUpload, snmpUpload, maxUploadLimit);
+      if (flipped) {
+        // Uploads on top (positive), downloads negated
+        maxPositive = Math.max(maxPositive, totalUpload, snmpUploadVal, maxUploadLimit);
+        maxToNegate = Math.max(maxToNegate, totalDownload, snmpDownloadVal);
+      } else {
+        // Downloads on top (positive), uploads negated
+        maxPositive = Math.max(maxPositive, totalDownload, snmpDownloadVal);
+        maxToNegate = Math.max(maxToNegate, totalUpload, snmpUploadVal, maxUploadLimit);
+      }
     });
 
     // Calculate scaling ratio
-    const ratio = (maxDownload > 0 && maxNegative > 0) ? maxDownload / maxNegative : 1;
+    const ratio = (maxPositive > 0 && maxToNegate > 0) ? maxPositive / maxToNegate : 1;
 
     // Transform data and include limits as line data
+    // When flipped, uploads stay positive and downloads get negated+scaled (and vice versa)
     const chartData = aggregatedData.map((point) => ({
       ...point,
-      // Download series (positive values, stacked)
-      qbittorrent_download: point.qbittorrent_speed || 0,
-      sabnzbd_download: point.sabnzbd_speed || 0,
-      nzbget_download: point.nzbget_speed || 0,
-      transmission_download: point.transmission_speed || 0,
-      deluge_download: point.deluge_speed || 0,
-      // Upload series (negative values, scaled)
-      plex_streams: -Math.abs(point.stream_bandwidth || 0) * ratio,
-      qbittorrent_upload: -Math.abs(point.qbittorrent_upload_speed || 0) * ratio,
-      transmission_upload: -Math.abs(point.transmission_upload_speed || 0) * ratio,
-      deluge_upload: -Math.abs(point.deluge_upload_speed || 0) * ratio,
+      // Download series
+      qbittorrent_download: flipped ? -Math.abs(point.qbittorrent_speed || 0) * ratio : (point.qbittorrent_speed || 0),
+      sabnzbd_download: flipped ? -Math.abs(point.sabnzbd_speed || 0) * ratio : (point.sabnzbd_speed || 0),
+      nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * ratio : (point.nzbget_speed || 0),
+      transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * ratio : (point.transmission_speed || 0),
+      deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * ratio : (point.deluge_speed || 0),
+      // Upload series
+      plex_streams: flipped ? Math.abs(point.stream_bandwidth || 0) : -Math.abs(point.stream_bandwidth || 0) * ratio,
+      qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) : -Math.abs(point.qbittorrent_upload_speed || 0) * ratio,
+      transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) : -Math.abs(point.transmission_upload_speed || 0) * ratio,
+      deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) : -Math.abs(point.deluge_upload_speed || 0) * ratio,
       // Download limit lines
-      qbittorrent_download_limit_line: point.qbittorrent_download_limit || null,
-      sabnzbd_download_limit_line: point.sabnzbd_download_limit || null,
-      nzbget_download_limit_line: point.nzbget_download_limit || null,
-      transmission_download_limit_line: point.transmission_download_limit || null,
-      deluge_download_limit_line: point.deluge_download_limit || null,
-      // Upload limit lines (negative and scaled)
-      qbittorrent_upload_limit_line: point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * ratio : null,
-      transmission_upload_limit_line: point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * ratio : null,
-      deluge_upload_limit_line: point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * ratio : null,
-      // Add SNMP actual bandwidth - upload is negative and scaled like other uploads
-      snmp_download: point.snmp_download_speed ?? null,
-      snmp_upload: point.snmp_upload_speed ? -Math.abs(point.snmp_upload_speed) * ratio : null,
+      qbittorrent_download_limit_line: flipped ? (point.qbittorrent_download_limit ? -Math.abs(point.qbittorrent_download_limit) * ratio : null) : (point.qbittorrent_download_limit || null),
+      sabnzbd_download_limit_line: flipped ? (point.sabnzbd_download_limit ? -Math.abs(point.sabnzbd_download_limit) * ratio : null) : (point.sabnzbd_download_limit || null),
+      nzbget_download_limit_line: flipped ? (point.nzbget_download_limit ? -Math.abs(point.nzbget_download_limit) * ratio : null) : (point.nzbget_download_limit || null),
+      transmission_download_limit_line: flipped ? (point.transmission_download_limit ? -Math.abs(point.transmission_download_limit) * ratio : null) : (point.transmission_download_limit || null),
+      deluge_download_limit_line: flipped ? (point.deluge_download_limit ? -Math.abs(point.deluge_download_limit) * ratio : null) : (point.deluge_download_limit || null),
+      // Upload limit lines
+      qbittorrent_upload_limit_line: flipped ? (point.qbittorrent_upload_limit || null) : (point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * ratio : null),
+      transmission_upload_limit_line: flipped ? (point.transmission_upload_limit || null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * ratio : null),
+      deluge_upload_limit_line: flipped ? (point.deluge_upload_limit || null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * ratio : null),
+      // SNMP bandwidth
+      snmp_download: flipped ? (point.snmp_download_speed ? -Math.abs(point.snmp_download_speed) * ratio : null) : (point.snmp_download_speed ?? null),
+      snmp_upload: flipped ? (point.snmp_upload_speed ?? null) : (point.snmp_upload_speed ? -Math.abs(point.snmp_upload_speed) * ratio : null),
     }));
 
     return { data: chartData, ratio };
-  }, [aggregatedData, visibleSeries, stackChart]);
+  }, [aggregatedData, visibleSeries, stackChart, flipped]);
 
   // Update state from memoized values
   useEffect(() => {
@@ -656,6 +666,18 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               {stackChart ? <Layers className="h-4 w-4" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
               {stackChart ? 'Stacked' : 'Overlapping'}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFlipped(!flipped)}
+              className="gap-2"
+              title={flipped ? 'Uploads on top — click to put downloads on top' : 'Downloads on top — click to put uploads on top'}
+              aria-label={flipped ? 'Currently showing uploads on top, click to flip' : 'Currently showing downloads on top, click to flip'}
+              aria-pressed={flipped}
+            >
+              <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+              {flipped ? 'UL on Top' : 'DL on Top'}
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -692,56 +714,56 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 <defs>
                   {/* Download gradients - only for enabled clients */}
                   {isClientEnabled('qbittorrent') && (
-                    <linearGradient id="qbDownload" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="qbDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
                       <stop offset="5%" stopColor={qbitInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={qbitInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {isClientEnabled('sabnzbd') && (
-                    <linearGradient id="sabDownload" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="sabDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
                       <stop offset="5%" stopColor={sabInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={sabInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {isClientEnabled('nzbget') && (
-                    <linearGradient id="nzbgetDownload" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="nzbgetDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
                       <stop offset="5%" stopColor={nzbgetInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={nzbgetInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {isClientEnabled('transmission') && (
-                    <linearGradient id="transmissionDownload" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="transmissionDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
                       <stop offset="5%" stopColor={transmissionInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={transmissionInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {isClientEnabled('deluge') && (
-                    <linearGradient id="delugeDownload" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="delugeDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
                       <stop offset="5%" stopColor={delugeInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={delugeInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {/* Upload gradients - only for enabled clients that support upload */}
                   {isClientEnabled('qbittorrent') && clientSupportsUpload('qbittorrent') && (
-                    <linearGradient id="qbUpload" x1="0" y1="1" x2="0" y2="0">
+                    <linearGradient id="qbUpload" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                       <stop offset="5%" stopColor={qbitInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={qbitInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {isClientEnabled('transmission') && clientSupportsUpload('transmission') && (
-                    <linearGradient id="transmissionUpload" x1="0" y1="1" x2="0" y2="0">
+                    <linearGradient id="transmissionUpload" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                       <stop offset="5%" stopColor={transmissionInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={transmissionInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {isClientEnabled('deluge') && clientSupportsUpload('deluge') && (
-                    <linearGradient id="delugeUpload" x1="0" y1="1" x2="0" y2="0">
+                    <linearGradient id="delugeUpload" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                       <stop offset="5%" stopColor={delugeInfo.color} stopOpacity={0.8}/>
                       <stop offset="95%" stopColor={delugeInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
                   {/* Plex streams gradient - always shown */}
-                  <linearGradient id="plexStreams" x1="0" y1="1" x2="0" y2="0">
+                  <linearGradient id="plexStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                     <stop offset="5%" stopColor="#ff7300" stopOpacity={0.8}/>
                     <stop offset="95%" stopColor="#ff7300" stopOpacity={0.3}/>
                   </linearGradient>
