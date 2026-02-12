@@ -26,6 +26,21 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertCircle, Layers, BarChart3 } from 'lucide-react';
 
+// Gradient ID mapping for each client
+const DOWNLOAD_GRADIENT_IDS: Record<string, string> = {
+  qbittorrent: 'qbDownload',
+  sabnzbd: 'sabDownload',
+  nzbget: 'nzbgetDownload',
+  transmission: 'transmissionDownload',
+  deluge: 'delugeDownload',
+};
+
+const UPLOAD_GRADIENT_IDS: Record<string, string> = {
+  qbittorrent: 'qbUpload',
+  transmission: 'transmissionUpload',
+  deluge: 'delugeUpload',
+};
+
 interface DownloadClient {
   id: string;
   type: string;
@@ -186,11 +201,23 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     const saved = localStorage.getItem('speedarr_chart_stacked');
     return saved !== null ? JSON.parse(saved) : false;
   });
+  const [clientOrder, setClientOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('speedarr_chart_client_order');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
 
-  // Save stacking preference to localStorage
+  // Save stacking preferences to localStorage
   useEffect(() => {
     localStorage.setItem('speedarr_chart_stacked', JSON.stringify(stackChart));
   }, [stackChart]);
+  useEffect(() => {
+    if (clientOrder.length > 0) {
+      localStorage.setItem('speedarr_chart_client_order', JSON.stringify(clientOrder));
+    }
+  }, [clientOrder]);
 
   // Load client metadata and SNMP status from public status endpoint
   useEffect(() => {
@@ -224,6 +251,19 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     };
     loadClientInfo();
   }, []);
+
+  // Reconcile clientOrder with actual enabled clients
+  useEffect(() => {
+    if (downloadClients.length === 0) return;
+    const enabledTypes = downloadClients.map(c => c.type);
+    setClientOrder(prev => {
+      const kept = prev.filter(t => enabledTypes.includes(t));
+      const newClients = enabledTypes.filter(t => !kept.includes(t));
+      const merged = [...kept, ...newClients];
+      if (merged.length === prev.length && merged.every((t, i) => t === prev[i])) return prev;
+      return merged;
+    });
+  }, [downloadClients]);
 
   // Get client info by type with fallback defaults
   const getClientInfo = useMemo(() => {
@@ -468,7 +508,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     }));
 
     return { data: chartData, ratio };
-  }, [aggregatedData, visibleSeries]);
+  }, [aggregatedData, visibleSeries, stackChart]);
 
   // Update state from memoized values
   useEffect(() => {
@@ -522,6 +562,30 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <CardTitle>Bandwidth Usage</CardTitle>
           <div className="flex flex-wrap gap-2">
+            {stackChart && clientOrder.length > 1 && (
+              <>
+                <Select
+                  value={clientOrder[0]}
+                  onValueChange={(value) => {
+                    setClientOrder(prev => [value, ...prev.filter(c => c !== value)]);
+                  }}
+                >
+                  <SelectTrigger className="w-[230px]" aria-label="Select stack order">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientOrder.map((clientType) => (
+                      <SelectItem key={clientType} value={clientType}>
+                        {getClientInfo(clientType).name} first (bottom)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div className="border-l border-border h-6 self-center" />
+              </>
+            )}
+
             <Select
               value={timeRange.label}
               onValueChange={(value) => {
@@ -885,85 +949,29 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                     hide={!visibleSeries.snmp_upload}
                   />
                 )}
-                {/* Download Areas (stacked positive) - usenet clients first (bottom), then torrent clients (top) */}
-                {/* Usenet clients (bottom of stack) */}
-                {isClientEnabled('sabnzbd') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="sabnzbd_download"
-                    stackId={stackChart ? "download" : undefined}
-                    stroke={sabInfo.color}
-                    fill="url(#sabDownload)"
-                    name={`${sabInfo.name} Download`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.sabnzbd_download}
-                  />
-                )}
-                {isClientEnabled('nzbget') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="nzbget_download"
-                    stackId={stackChart ? "download" : undefined}
-                    stroke={nzbgetInfo.color}
-                    fill="url(#nzbgetDownload)"
-                    name={`${nzbgetInfo.name} Download`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.nzbget_download}
-                  />
-                )}
-                {/* Torrent clients (top of stack) */}
-                {isClientEnabled('qbittorrent') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="qbittorrent_download"
-                    stackId={stackChart ? "download" : undefined}
-                    stroke={qbitInfo.color}
-                    fill="url(#qbDownload)"
-                    name={`${qbitInfo.name} Download`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.qbittorrent_download}
-                  />
-                )}
-                {isClientEnabled('transmission') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="transmission_download"
-                    stackId={stackChart ? "download" : undefined}
-                    stroke={transmissionInfo.color}
-                    fill="url(#transmissionDownload)"
-                    name={`${transmissionInfo.name} Download`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.transmission_download}
-                  />
-                )}
-                {isClientEnabled('deluge') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="deluge_download"
-                    stackId={stackChart ? "download" : undefined}
-                    stroke={delugeInfo.color}
-                    fill="url(#delugeDownload)"
-                    name={`${delugeInfo.name} Download`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.deluge_download}
-                  />
-                )}
-                {/* Upload Areas (stacked negative) - Plex always shown, clients only if enabled */}
+                {/* Download Areas (stacked positive) - order controlled by stackOrder */}
+                {clientOrder.map((clientType) => {
+                  if (!isClientEnabled(clientType)) return null;
+                  const info = getClientInfo(clientType);
+                  const gradientId = DOWNLOAD_GRADIENT_IDS[clientType];
+                  return (
+                    <Area
+                      key={`${clientType}_download`}
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey={`${clientType}_download`}
+                      stackId={stackChart ? "download" : undefined}
+                      stroke={info.color}
+                      fill={`url(#${gradientId})`}
+                      name={`${info.name} Download`}
+                      isAnimationActive={true}
+                      animationDuration={300}
+                      animationEasing="ease-in-out"
+                      hide={!visibleSeries[`${clientType}_download`]}
+                    />
+                  );
+                })}
+                {/* Upload Areas (stacked negative) - Plex always first, then clients in stack order */}
                 <Area
                   yAxisId="left"
                   type="monotone"
@@ -977,51 +985,28 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   animationEasing="ease-in-out"
                   hide={!visibleSeries.plex_streams}
                 />
-                {isClientEnabled('qbittorrent') && clientSupportsUpload('qbittorrent') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="qbittorrent_upload"
-                    stackId={stackChart ? "upload" : undefined}
-                    stroke={qbitInfo.color}
-                    fill="url(#qbUpload)"
-                    name={`${qbitInfo.name} Upload`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.qbittorrent_upload}
-                  />
-                )}
-                {isClientEnabled('transmission') && clientSupportsUpload('transmission') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="transmission_upload"
-                    stackId={stackChart ? "upload" : undefined}
-                    stroke={transmissionInfo.color}
-                    fill="url(#transmissionUpload)"
-                    name={`${transmissionInfo.name} Upload`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.transmission_upload}
-                  />
-                )}
-                {isClientEnabled('deluge') && clientSupportsUpload('deluge') && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="deluge_upload"
-                    stackId={stackChart ? "upload" : undefined}
-                    stroke={delugeInfo.color}
-                    fill="url(#delugeUpload)"
-                    name={`${delugeInfo.name} Upload`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    hide={!visibleSeries.deluge_upload}
-                  />
-                )}
+                {clientOrder.map((clientType) => {
+                  if (!isClientEnabled(clientType) || !clientSupportsUpload(clientType)) return null;
+                  const gradientId = UPLOAD_GRADIENT_IDS[clientType];
+                  if (!gradientId) return null;
+                  const info = getClientInfo(clientType);
+                  return (
+                    <Area
+                      key={`${clientType}_upload`}
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey={`${clientType}_upload`}
+                      stackId={stackChart ? "upload" : undefined}
+                      stroke={info.color}
+                      fill={`url(#${gradientId})`}
+                      name={`${info.name} Upload`}
+                      isAnimationActive={true}
+                      animationDuration={300}
+                      animationEasing="ease-in-out"
+                      hide={!visibleSeries[`${clientType}_upload`]}
+                    />
+                  );
+                })}
               </ComposedChart>
             </ResponsiveContainer>
           </>
