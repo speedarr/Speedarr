@@ -227,13 +227,20 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
         // Build client list from status response
         const clientMap = new Map<string, DownloadClient>();
-        for (const c of status.bandwidth?.download?.clients || []) {
+        const dlClients = status.bandwidth?.download?.clients || [];
+        const ulClients = status.bandwidth?.upload?.clients || [];
+
+        if (dlClients.length === 0 && ulClients.length === 0) {
+          console.warn('[BandwidthChart] Status response returned 0 clients. Response status:', status.status);
+        }
+
+        for (const c of dlClients) {
           clientMap.set(c.type, {
             id: c.type, type: c.type, name: c.name,
             enabled: true, color: c.color, supports_upload: false,
           });
         }
-        for (const c of status.bandwidth?.upload?.clients || []) {
+        for (const c of ulClients) {
           if (clientMap.has(c.type)) {
             clientMap.get(c.type)!.supports_upload = true;
           } else {
@@ -243,7 +250,17 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
             });
           }
         }
-        setDownloadClients(Array.from(clientMap.values()));
+        const clients = Array.from(clientMap.values());
+        setDownloadClients(clients);
+
+        // Compute client order immediately (same batch)
+        const enabledTypes = clients.map(c => c.type);
+        setClientOrder(prev => {
+          const kept = prev.filter(t => enabledTypes.includes(t));
+          const newClients = enabledTypes.filter(t => !kept.includes(t));
+          return kept.length > 0 ? [...kept, ...newClients] : enabledTypes;
+        });
+
         setSnmpEnabled(status.snmp_enabled ?? false);
       } catch (err) {
         console.error('Failed to load client info:', err);
