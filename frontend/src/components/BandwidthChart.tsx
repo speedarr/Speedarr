@@ -711,7 +711,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
                 stackOffset="sign"
               >
-                <defs>
+                <defs key={`chart-defs-${flipped}`}>
                   {/* Download gradients - only for enabled clients */}
                   {isClientEnabled('qbittorrent') && (
                     <linearGradient id="qbDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
