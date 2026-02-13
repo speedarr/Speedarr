@@ -189,7 +189,7 @@ class ApiClient {
     return this.deduplicatedGet<SystemStatus>('/status/current');
   }
 
-  async getHealth(): Promise<{ status: string; version: string }> {
+  async getHealth(): Promise<{ status: string; version: string; commit: string; branch: string }> {
     const response = await this.client.get('/status/health');
     return response.data;
   }

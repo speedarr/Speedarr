@@ -25,6 +25,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Get short commit hash
+        id: commit
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -33,5 +37,9 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: speedarr/speedarr:develop
+          build-args: |
+            SPEEDARR_VERSION=develop
+            SPEEDARR_COMMIT=${{ steps.commit.outputs.short_sha }}
+            SPEEDARR_BRANCH=develop
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -23,7 +23,7 @@ __pycache__
 .pytest_cache
 
 # Node modules (installed fresh in build)
-node_modules
+**/node_modules
 
 # IDE and OS files
 .vscode
