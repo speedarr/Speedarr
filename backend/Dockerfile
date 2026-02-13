@@ -1,7 +1,22 @@
 # Speedarr Single-Container Dockerfile with Frontend
 
+# Build args (declared globally, re-declared per stage as needed)
+ARG SPEEDARR_VERSION=dev
+ARG SPEEDARR_COMMIT=unknown
+ARG SPEEDARR_BRANCH=unknown
+
 # Stage 1: Build React Frontend
 FROM node:20.11-alpine3.19 AS frontend-builder
+
+# Re-declare ARGs for this stage
+ARG SPEEDARR_VERSION
+ARG SPEEDARR_COMMIT
+ARG SPEEDARR_BRANCH
+
+# Set as env vars for Vite define (read at build time)
+ENV VITE_APP_VERSION=${SPEEDARR_VERSION}
+ENV VITE_APP_COMMIT=${SPEEDARR_COMMIT}
+ENV VITE_APP_BRANCH=${SPEEDARR_BRANCH}
 
 WORKDIR /frontend
 
@@ -19,6 +34,16 @@ RUN npm run build
 
 # Stage 2: Python Backend + Serve Frontend
 FROM python:3.11.7-slim-bookworm AS base
+
+# Re-declare ARGs for this stage
+ARG SPEEDARR_VERSION
+ARG SPEEDARR_COMMIT
+ARG SPEEDARR_BRANCH
+
+# Set as env vars for backend runtime (os.getenv)
+ENV SPEEDARR_VERSION=${SPEEDARR_VERSION}
+ENV SPEEDARR_COMMIT=${SPEEDARR_COMMIT}
+ENV SPEEDARR_BRANCH=${SPEEDARR_BRANCH}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

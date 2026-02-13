@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, CheckCircle, Download } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle, Download, Info } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -117,6 +117,10 @@ export const SystemSettings: React.FC = () => {
     }
   };
 
+  const versionDisplay = __APP_VERSION__ === 'develop'
+    ? `develop (${__APP_COMMIT__})`
+    : __APP_VERSION__;
+
   if (isLoading) {
     return (
       <Card>
@@ -141,104 +145,125 @@ export const SystemSettings: React.FC = () => {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>System Configuration</CardTitle>
-        <CardDescription>
-          Core system settings and behavior
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>System Configuration</CardTitle>
+          <CardDescription>
+            Core system settings and behavior
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        {success && (
-          <Alert>
-            <CheckCircle className="h-4 w-4" />
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
+          {success && (
+            <Alert>
+              <CheckCircle className="h-4 w-4" />
+              <AlertDescription>{success}</AlertDescription>
+            </Alert>
+          )}
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="update-frequency">Polling Interval (seconds)</Label>
-            <Input
-              id="update-frequency"
-              type="number"
-              min="5"
-              max="300"
-              value={config.update_frequency}
-              onChange={(e) => updateConfig('update_frequency', parseInt(e.target.value))}
-              placeholder="5"
-              disabled={isSaving}
-            />
-            <p className="text-sm text-muted-foreground">
-              How often to poll Plex, download clients, and SNMP (5-300 seconds, default: 5)
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="log-level">Log Level</Label>
-            <Select
-              value={config.log_level}
-              onValueChange={(value) => updateConfig('log_level', value)}
-              disabled={isSaving}
-            >
-              <SelectTrigger id="log-level">
-                <SelectValue placeholder="Select log level" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="DEBUG">Debug</SelectItem>
-                <SelectItem value="INFO">Info</SelectItem>
-                <SelectItem value="WARNING">Warning</SelectItem>
-                <SelectItem value="ERROR">Error</SelectItem>
-                <SelectItem value="CRITICAL">Critical</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">
-              Logging verbosity level (default: INFO)
-            </p>
-          </div>
-
-          <div className="space-y-2 pt-4 border-t">
-            <Label>Logs</Label>
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                onClick={handleDownloadLogs}
-                disabled={isDownloadingLogs}
-              >
-                {isDownloadingLogs ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Download Logs
-              </Button>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="update-frequency">Polling Interval (seconds)</Label>
+              <Input
+                id="update-frequency"
+                type="number"
+                min="5"
+                max="300"
+                value={config.update_frequency}
+                onChange={(e) => updateConfig('update_frequency', parseInt(e.target.value))}
+                placeholder="5"
+                disabled={isSaving}
+              />
+              <p className="text-sm text-muted-foreground">
+                How often to poll Plex, download clients, and SNMP (5-300 seconds, default: 5)
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Download application logs with sensitive data (passwords, API keys) redacted
-            </p>
+
+            <div className="space-y-2">
+              <Label htmlFor="log-level">Log Level</Label>
+              <Select
+                value={config.log_level}
+                onValueChange={(value) => updateConfig('log_level', value)}
+                disabled={isSaving}
+              >
+                <SelectTrigger id="log-level">
+                  <SelectValue placeholder="Select log level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="DEBUG">Debug</SelectItem>
+                  <SelectItem value="INFO">Info</SelectItem>
+                  <SelectItem value="WARNING">Warning</SelectItem>
+                  <SelectItem value="ERROR">Error</SelectItem>
+                  <SelectItem value="CRITICAL">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Logging verbosity level (default: INFO)
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t">
+              <Label>Logs</Label>
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadLogs}
+                  disabled={isDownloadingLogs}
+                >
+                  {isDownloadingLogs ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Download Logs
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Download application logs with sensitive data (passwords, API keys) redacted
+              </p>
+            </div>
+
           </div>
 
-        </div>
+          <div className="flex gap-2 pt-4">
+            <Button
+              ref={saveButtonRef}
+              onClick={handleSave}
+              disabled={isSaving}
+              className={isDirty ? 'ring-2 ring-orange-500 ring-offset-2' : ''}
+            >
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-        <div className="flex gap-2 pt-4">
-          <Button
-            ref={saveButtonRef}
-            onClick={handleSave}
-            disabled={isSaving}
-            className={isDirty ? 'ring-2 ring-orange-500 ring-offset-2' : ''}
-          >
-            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Changes
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Info className="h-5 w-5" />
+            About
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            <span className="text-muted-foreground">Version</span>
+            <span>{versionDisplay}</span>
+            <span className="text-muted-foreground">Commit</span>
+            <span className="font-mono">{__APP_COMMIT__}</span>
+            <span className="text-muted-foreground">Branch</span>
+            <span>{__APP_BRANCH__}</span>
+          </div>
+        </CardContent>
+      </Card>
+    </>
   );
 };

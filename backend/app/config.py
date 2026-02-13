@@ -350,7 +350,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Speedarr"
-    app_version: str = "0.1.0"
+    app_version: str = Field(default_factory=lambda: __import__('app').__version__)
     debug: bool = False
 
     # Server

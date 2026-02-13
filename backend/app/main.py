@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from loguru import logger
 
+from app import __version__, __commit__, __branch__
 from app.config import settings, SpeedarrConfig
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.constants import (
@@ -296,7 +297,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Speedarr",
     description="Intelligent bandwidth management for Plex and download clients",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan
 )
 
@@ -332,7 +333,9 @@ async def health_check():
     """Combined health check endpoint (no auth required)."""
     return {
         "status": "healthy",
-        "version": "0.1.0"
+        "version": __version__,
+        "commit": __commit__,
+        "branch": __branch__,
     }
 
 
