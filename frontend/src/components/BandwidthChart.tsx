@@ -190,10 +190,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   timeRanges,
 }) => {
   const [rawData, setRawData] = useState<ChartDataPoint[]>([]);
-  const [data, setData] = useState<ChartDataPoint[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState('');
-  const [scalingRatio, setScalingRatio] = useState(1);
   const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>(loadVisibleSeries);
   const [downloadClients, setDownloadClients] = useState<DownloadClient[]>([]);
   const [snmpEnabled, setSnmpEnabled] = useState<boolean>(false);
@@ -537,11 +535,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     return { data: chartData, ratio };
   }, [aggregatedData, visibleSeries, stackChart, flipped]);
 
-  // Update state from memoized values
-  useEffect(() => {
-    setData(transformedData.data);
-    setScalingRatio(transformedData.ratio);
-  }, [transformedData]);
+  const data = transformedData.data;
+  const scalingRatio = transformedData.ratio;
 
   useEffect(() => {
     fetchData();
@@ -707,9 +702,9 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
           )}
           <ResponsiveContainer width="100%" height={700}>
               <ComposedChart
+                key={`chart-${flipped}`}
                 data={data}
                 margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
-                stackOffset="sign"
               >
                 <defs key={`chart-defs-${flipped}`}>
                   {/* Download gradients - only for enabled clients */}
