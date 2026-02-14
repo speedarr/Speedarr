@@ -89,6 +89,36 @@ Open **http://localhost:9494** — the setup wizard will walk you through connec
 
 > **Tip**: If your services use `.lan` or `.local` hostnames, add `dns: [192.168.1.1]` (your router IP) to the service in `docker-compose.yml`.
 
+### Windows (Docker Desktop)
+
+1. Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/), default settings are fine
+2. Open Docker Desktop **Settings > General** and ensure **Start Docker Desktop when you sign in** is enabled, so Speedarr starts automatically on reboot
+3. Open **PowerShell** and run the following commands:
+
+```powershell
+mkdir C:\Speedarr
+cd C:\Speedarr
+curl -o docker-compose.yml https://raw.githubusercontent.com/speedarr/Speedarr/main/docker-compose.yml
+docker compose up -d
+```
+
+Open **http://localhost:9494** — the setup wizard will walk you through connecting Plex and your download clients.
+
+> **Note**: `C:\Speedarr` is just a suggestion — you can use any folder you like.
+
+> **Tip**: If your services use `.lan` or `.local` hostnames, add `dns: [192.168.1.1]` (your router IP) to the service in `docker-compose.yml`.
+
+### Updating
+
+To update Speedarr, navigate to the folder containing your `docker-compose.yml` and run:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+This pulls the latest image and recreates the container. Your data and settings are preserved.
+
 ### Finding Your Plex Token
 
 1. Open any media item in the Plex web app
