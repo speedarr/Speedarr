@@ -32,6 +32,10 @@ docker-compose.override.yml
 
 # Claude Code
 CLAUDE.md
+.claude/
+
+# VS Code workspace
+*.code-workspace
 
 # Data directory (bind mount)
 data/
