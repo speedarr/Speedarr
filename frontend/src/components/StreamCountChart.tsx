@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -15,13 +15,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 import type { TimeRange, DataInterval } from './BandwidthChart';
+import { filterDataByZoomRange, type ZoomRange } from '@/hooks/useChartZoom';
 
 interface StreamCountChartProps {
   timeRange: TimeRange;
   dataInterval: DataInterval;
+  zoomRange?: ZoomRange | null;
 }
 
-export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, dataInterval }) => {
+export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, dataInterval, zoomRange }) => {
   const [rawData, setRawData] = useState<ChartDataPoint[]>([]);
   const [data, setData] = useState<any[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -73,23 +75,26 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
     }
   };
 
-  // Process data when interval changes or raw data updates
+  // Apply zoom filter before processing
+  const zoomedRawData = useMemo(() => filterDataByZoomRange(rawData, zoomRange ?? null), [rawData, zoomRange]);
+
+  // Process data when interval changes or zoomed data updates
   useEffect(() => {
-    if (rawData.length === 0) {
+    if (zoomedRawData.length === 0) {
       setData([]);
       return;
     }
 
     // Aggregate or use raw data based on interval
     const processedData = dataInterval === 'raw'
-      ? rawData.map(point => ({
+      ? zoomedRawData.map(point => ({
           timestamp: point.timestamp,
           stream_count: point.active_streams_count || 0,
         }))
-      : aggregateData(rawData, dataInterval);
+      : aggregateData(zoomedRawData, dataInterval);
 
     setData(processedData);
-  }, [rawData, dataInterval]);
+  }, [zoomedRawData, dataInterval]);
 
   useEffect(() => {
     fetchData();
@@ -97,13 +102,22 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
     return () => clearInterval(interval);
   }, [timeRange.hours]);
 
+  // Calculate zoomed duration for XAxis formatting
+  const zoomedDurationHours = useMemo(() => {
+    if (!zoomRange || zoomedRawData.length < 2) return null;
+    const first = new Date((zoomedRawData[0].timestamp.endsWith('Z') ? zoomedRawData[0].timestamp : zoomedRawData[0].timestamp + 'Z')).getTime();
+    const last = new Date((zoomedRawData[zoomedRawData.length - 1].timestamp.endsWith('Z') ? zoomedRawData[zoomedRawData.length - 1].timestamp : zoomedRawData[zoomedRawData.length - 1].timestamp + 'Z')).getTime();
+    return (last - first) / (1000 * 60 * 60);
+  }, [zoomRange, zoomedRawData]);
+
   const formatXAxis = (timestamp: string) => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // Ensure timestamp is parsed as UTC (API returns UTC without 'Z' suffix)
     const utcTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z';
-    if (timeRange.hours <= 6) {
-      return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm');
-    } else if (timeRange.hours <= 24) {
+    const effectiveHours = zoomedDurationHours ?? timeRange.hours;
+    if (effectiveHours <= 1) {
+      return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm:ss');
+    } else if (effectiveHours <= 24) {
       return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm');
     } else {
       return formatInTimeZone(new Date(utcTimestamp), tz, 'MM/dd HH:mm');

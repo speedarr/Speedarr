@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/api/client';
 import { BandwidthChart } from '@/components/BandwidthChart';
 import { ActiveStreams } from '@/components/ActiveStreams';
+import type { ZoomRange } from '@/hooks/useChartZoom';
 import { TemporaryLimits } from '@/components/TemporaryLimits';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { SystemStatus } from '@/types';
@@ -49,6 +50,7 @@ export const Home: React.FC = () => {
   const [error, setError] = useState('');
   const [timeRange, setTimeRange] = useState<TimeRange>(timeRanges[2]); // Default: Last 2 Hours
   const [dataInterval, setDataInterval] = useState<DataInterval>(0.25); // Default: 15 sec (for 2 hour range)
+  const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
 
   // Wrapper to also update data interval when time range changes
   const handleTimeRangeChange = (newRange: TimeRange) => {
@@ -354,6 +356,7 @@ export const Home: React.FC = () => {
           dataInterval={dataInterval}
           setDataInterval={setDataInterval}
           timeRanges={timeRanges}
+          onZoomChange={setZoomRange}
         />
       </ErrorBoundary>
 
@@ -362,6 +365,7 @@ export const Home: React.FC = () => {
         <ActiveStreams
           timeRange={timeRange}
           dataInterval={dataInterval}
+          zoomRange={zoomRange}
         />
       </ErrorBoundary>
     </div>

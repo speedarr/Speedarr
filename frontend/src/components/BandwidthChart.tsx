@@ -9,6 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceArea,
   Line,
 } from 'recharts';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -24,7 +25,8 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown } from 'lucide-react';
+import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown, ZoomOut } from 'lucide-react';
+import { useChartZoom, type ZoomRange } from '@/hooks/useChartZoom';
 
 // Gradient ID mapping for each client
 const DOWNLOAD_GRADIENT_IDS: Record<string, string> = {
@@ -137,6 +139,7 @@ interface BandwidthChartProps {
   dataInterval: DataInterval;
   setDataInterval: (interval: DataInterval) => void;
   timeRanges: TimeRange[];
+  onZoomChange?: (zoomRange: ZoomRange | null) => void;
 }
 
 // Default visible series configuration
@@ -188,6 +191,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   dataInterval,
   setDataInterval,
   timeRanges,
+  onZoomChange,
 }) => {
   const [rawData, setRawData] = useState<ChartDataPoint[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -210,6 +214,26 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     } catch {}
     return [];
   });
+
+  // Chart zoom state
+  const {
+    isSelecting,
+    selectionStart,
+    selectionEnd,
+    zoomRange,
+    isZoomed,
+    handleMouseDown: zoomMouseDown,
+    handleMouseMove: zoomMouseMove,
+    handleMouseUp: zoomMouseUp,
+    handleDoubleClick: zoomDoubleClick,
+    resetZoom,
+    filterDataByZoom,
+  } = useChartZoom();
+
+  // Notify parent of zoom range changes
+  useEffect(() => {
+    onZoomChange?.(zoomRange);
+  }, [zoomRange, onZoomChange]);
 
   // Save stacking preferences to localStorage
   useEffect(() => {
@@ -377,17 +401,20 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     }
   }, [visibleSeries]);
 
-  // Memoize aggregation - only recomputes when rawData or dataInterval changes
+  // Apply zoom filter before aggregation
+  const zoomedRawData = useMemo(() => filterDataByZoom(rawData), [rawData, filterDataByZoom]);
+
+  // Memoize aggregation - only recomputes when zoomedRawData or dataInterval changes
   const aggregatedData = useMemo(() => {
-    if (rawData.length === 0) return [];
-    if (dataInterval === 'raw') return rawData;
+    if (zoomedRawData.length === 0) return [];
+    if (dataInterval === 'raw') return zoomedRawData;
 
     const intervalMinutes = dataInterval as number;
     const intervalMs = intervalMinutes * 60 * 1000;
     const buckets: Map<number, ChartDataPoint[]> = new Map();
 
     // Group data points into time buckets
-    rawData.forEach((point) => {
+    zoomedRawData.forEach((point) => {
       const timestamp = new Date(point.timestamp).getTime();
       const bucketKey = Math.floor(timestamp / intervalMs) * intervalMs;
 
@@ -433,7 +460,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     });
 
     return aggregated.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [rawData, dataInterval]);
+  }, [zoomedRawData, dataInterval]);
 
   const fetchData = useCallback(async () => {
     setError('');
@@ -551,13 +578,27 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   }, [fetchData]);
 
 
+  // Reset zoom when time range dropdown changes
+  useEffect(() => {
+    resetZoom();
+  }, [timeRange, resetZoom]);
+
+  // Calculate zoomed duration for XAxis formatting
+  const zoomedDurationHours = useMemo(() => {
+    if (!isZoomed || zoomedRawData.length < 2) return null;
+    const first = new Date((zoomedRawData[0].timestamp.endsWith('Z') ? zoomedRawData[0].timestamp : zoomedRawData[0].timestamp + 'Z')).getTime();
+    const last = new Date((zoomedRawData[zoomedRawData.length - 1].timestamp.endsWith('Z') ? zoomedRawData[zoomedRawData.length - 1].timestamp : zoomedRawData[zoomedRawData.length - 1].timestamp + 'Z')).getTime();
+    return (last - first) / (1000 * 60 * 60);
+  }, [isZoomed, zoomedRawData]);
+
   const formatXAxis = (timestamp: string) => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // Ensure timestamp is parsed as UTC (API returns UTC without 'Z' suffix)
     const utcTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z';
-    if (timeRange.hours <= 6) {
-      return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm');
-    } else if (timeRange.hours <= 24) {
+    const effectiveHours = zoomedDurationHours ?? timeRange.hours;
+    if (effectiveHours <= 1) {
+      return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm:ss');
+    } else if (effectiveHours <= 24) {
       return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm');
     } else {
       return formatInTimeZone(new Date(utcTimestamp), tz, 'MM/dd HH:mm');
@@ -679,6 +720,19 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
               {flipped ? 'UL on Top' : 'DL on Top'}
             </Button>
+            {isZoomed && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetZoom}
+                className="gap-2"
+                title="Reset zoom to full time range"
+                aria-label="Reset zoom"
+              >
+                <ZoomOut className="h-4 w-4" aria-hidden="true" />
+                Reset Zoom
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -706,11 +760,17 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               <AlertDescription>All metrics are hidden. Click on a legend item below to show data.</AlertDescription>
             </Alert>
           )}
+          <div style={{ touchAction: isSelecting ? 'none' : 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}>
           <ResponsiveContainer width="100%" height={700}>
               <ComposedChart
                 key={`chart-${flipped}`}
                 data={data}
                 margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
+                onMouseDown={zoomMouseDown}
+                onMouseMove={zoomMouseMove}
+                onMouseUp={zoomMouseUp}
+                onDoubleClick={zoomDoubleClick}
+                style={{ cursor: isSelecting ? 'col-resize' : 'crosshair' }}
               >
                 <defs key={`chart-defs-${flipped}`}>
                   {/* Download gradients - only for enabled clients */}
@@ -792,6 +852,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   allowDataOverflow={!!domainExtent}
                 />
                 <Tooltip
+                  active={isSelecting ? false : undefined}
                   formatter={formatTooltip}
                   labelFormatter={(label) => {
                     const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
@@ -817,6 +878,17 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   stroke="#999"
                   strokeWidth={2}
                 />
+                {isSelecting && selectionStart !== null && selectionEnd !== null && (
+                  <ReferenceArea
+                    yAxisId="left"
+                    x1={new Date(Math.min(selectionStart, selectionEnd)).toISOString().replace('Z', '')}
+                    x2={new Date(Math.max(selectionStart, selectionEnd)).toISOString().replace('Z', '')}
+                    fill="#3b82f6"
+                    fillOpacity={0.15}
+                    stroke="#3b82f6"
+                    strokeOpacity={0.4}
+                  />
+                )}
                 {/* Per-client download limit lines - only show for enabled clients */}
                 {isClientEnabled('qbittorrent') && (
                   <Line
@@ -1050,6 +1122,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 })}
               </ComposedChart>
             </ResponsiveContainer>
+          </div>
           </>
         )}
       </CardContent>
