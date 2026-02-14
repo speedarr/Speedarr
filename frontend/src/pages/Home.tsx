@@ -16,6 +16,8 @@ interface TemporaryLimitState {
   upload_mbps: number | null;
   expires_at: string | null;
   remaining_minutes: number | null;
+  source: string | null;
+  set_by: string | null;
 }
 
 interface TimeRange {

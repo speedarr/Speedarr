@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, Server, Gauge, Clock, Bell, Database, Shield, Network, UserCog } from 'lucide-react';
+import { Settings as SettingsIcon, Server, Gauge, Clock, Bell, Database, Shield, Network, UserCog, Puzzle } from 'lucide-react';
 import { SystemSettings } from '@/components/settings/SystemSettings';
 import { PlexSettings } from '@/components/settings/PlexSettings';
 import { DownloadClientsSettings } from '@/components/settings/DownloadClientsSettings';
@@ -12,6 +12,7 @@ import { HistorySettings } from '@/components/settings/HistorySettings';
 import { FailsafeSettings } from '@/components/settings/FailsafeSettings';
 import { SNMPSettings } from '@/components/settings/SNMPSettings';
 import { AccountSettings } from '@/components/settings/AccountSettings';
+import { APIKeysSettings } from '@/components/settings/APIKeysSettings';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -61,7 +62,7 @@ export const Settings: React.FC = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-9 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-10 lg:w-auto lg:inline-grid">
           <TabsTrigger value="general" className="gap-2">
             <SettingsIcon className="h-4 w-4" />
             <span className="hidden sm:inline">General</span>
@@ -69,6 +70,10 @@ export const Settings: React.FC = () => {
           <TabsTrigger value="account" className="gap-2">
             <UserCog className="h-4 w-4" />
             <span className="hidden sm:inline">Account</span>
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="gap-2">
+            <Puzzle className="h-4 w-4" />
+            <span className="hidden sm:inline">Integrations</span>
           </TabsTrigger>
           <TabsTrigger value="services" className="gap-2">
             <Server className="h-4 w-4" />
@@ -106,6 +111,10 @@ export const Settings: React.FC = () => {
 
         <TabsContent value="account" className="space-y-4">
           <AccountSettings />
+        </TabsContent>
+
+        <TabsContent value="integrations" className="space-y-4">
+          <APIKeysSettings />
         </TabsContent>
 
         <TabsContent value="services" className="space-y-4">

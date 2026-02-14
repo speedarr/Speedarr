@@ -354,6 +354,31 @@ export interface SNMPSpeedResponse {
   message?: string;
 }
 
+// API Key types
+export interface APIKeyInfo {
+  id: number;
+  name: string;
+  token: string;
+  token_preview: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used: string | null;
+  is_active: boolean;
+}
+
+export interface CreateAPIKeyRequest {
+  name: string;
+  expires_in_days?: number | null;
+}
+
+export interface CreateAPIKeyResponse {
+  id: number;
+  name: string;
+  token: string;
+  created_at: string;
+  expires_at: string | null;
+}
+
 // Decision log types
 export interface DecisionLogEntry {
   id: number;

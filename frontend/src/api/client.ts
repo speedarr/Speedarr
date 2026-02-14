@@ -25,6 +25,9 @@ import type {
   DecisionLogsResponse,
   SNMPDiscoverResponse,
   SNMPSpeedResponse,
+  APIKeyInfo,
+  CreateAPIKeyRequest,
+  CreateAPIKeyResponse,
 } from '@/types';
 
 class ApiClient {
@@ -394,6 +397,8 @@ class ApiClient {
     upload_mbps: number | null;
     expires_at: string | null;
     remaining_minutes: number | null;
+    source: string | null;
+    set_by: string | null;
   }> {
     return this.deduplicatedGet('/bandwidth/temporary-limits');
   }
@@ -402,12 +407,15 @@ class ApiClient {
     download_mbps?: number | null;
     upload_mbps?: number | null;
     duration_hours: number;
+    source?: string;
   }): Promise<{
     active: boolean;
     download_mbps: number | null;
     upload_mbps: number | null;
     expires_at: string | null;
     remaining_minutes: number | null;
+    source: string | null;
+    set_by: string | null;
   }> {
     const response = await this.client.post('/bandwidth/temporary-limits', params);
     return response.data;
@@ -440,6 +448,22 @@ class ApiClient {
 
   async clearBandwidthReservation(reservationId: string): Promise<{ message: string; reservation_id: string }> {
     const response = await this.client.delete(`/bandwidth/reservations/${encodeURIComponent(reservationId)}`);
+    return response.data;
+  }
+
+  // API Key management endpoints
+  async getAPIKeys(): Promise<APIKeyInfo[]> {
+    const response = await this.client.get<APIKeyInfo[]>('/auth/api-keys');
+    return response.data;
+  }
+
+  async createAPIKey(params: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
+    const response = await this.client.post<CreateAPIKeyResponse>('/auth/api-keys', params);
+    return response.data;
+  }
+
+  async revokeAPIKey(keyId: number): Promise<{ message: string }> {
+    const response = await this.client.delete(`/auth/api-keys/${keyId}`);
     return response.data;
   }
 
