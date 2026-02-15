@@ -843,7 +843,7 @@ class PollingMonitor:
                                     qbittorrent_new_download_limit=qbit_dl_new,
                                     sabnzbd_old_download_limit=sab_dl_old,
                                     sabnzbd_new_download_limit=sab_dl_new,
-                                    snmp_download_usage=snmp_data.get("download_speed") if snmp_data else None,
+                                    snmp_download_usage=snmp_data.get("download") if snmp_data else None,
                                     triggered_by="polling"
                                 )
                                 db.add(download_decision)
@@ -869,7 +869,7 @@ class PollingMonitor:
                                     total_required_bandwidth=sum(s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams),
                                     qbittorrent_old_upload_limit=qbit_ul_old,
                                     qbittorrent_new_upload_limit=qbit_ul_new,
-                                    snmp_upload_usage=snmp_data.get("upload_speed") if snmp_data else None,
+                                    snmp_upload_usage=snmp_data.get("upload") if snmp_data else None,
                                     triggered_by="polling"
                                 )
                                 db.add(upload_decision)

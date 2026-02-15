@@ -549,7 +549,7 @@ class DecisionEngine:
         snmp_data: Dict[str, float]
     ) -> float:
         """Apply SNMP constraints to download bandwidth only."""
-        current_download = snmp_data.get("download_speed", 0)
+        current_download = snmp_data.get("download", 0)
         constrained = max(0, available_download - current_download)
         if constrained < available_download:
             logger.debug(f"SNMP: Download {available_download:.1f} → {constrained:.1f} Mbps")
@@ -564,8 +564,8 @@ class DecisionEngine:
     ) -> tuple[float, float]:
         """Apply SNMP network-wide constraints to available bandwidth."""
         # Get current network usage from SNMP
-        current_download = snmp_data.get("download_speed", 0)
-        current_upload = snmp_data.get("upload_speed", 0)
+        current_download = snmp_data.get("download", 0)
+        current_upload = snmp_data.get("upload", 0)
 
         # Account for other devices (current usage minus stream bandwidth)
         other_devices_download = max(0, current_download - stream_bandwidth)
