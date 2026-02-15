@@ -68,7 +68,6 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
 
   const [streams, setStreams] = useState<ActiveStream[]>([]);
   const [reservations, setReservations] = useState<StreamReservation[]>([]);
-  const [totalBandwidth, setTotalBandwidth] = useState(0);
   const [totalReserved, setTotalReserved] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -84,7 +83,6 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
       );
       setStreams(sortedStreams);
       setReservations(response.reservations);
-      setTotalBandwidth(response.total_bandwidth_mbps);
       setTotalReserved(response.total_reserved_mbps);
       setError('');
     } catch (err) {
@@ -142,12 +140,27 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
             <Badge variant="outline" className="text-sm">
               {streams.length} Active
             </Badge>
-            <Badge variant="outline" className="text-sm">
-              {totalBandwidth.toFixed(1)} Mbps
-            </Badge>
+            {(() => {
+              const wanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? 0 : s.stream_bitrate_mbps), 0);
+              const lanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? s.stream_bitrate_mbps : 0), 0);
+              return (
+                <>
+                  {wanBandwidth > 0 && (
+                    <Badge variant="outline" className="text-sm">
+                      WAN: {wanBandwidth.toFixed(1)} Mbps
+                    </Badge>
+                  )}
+                  {lanBandwidth > 0 && (
+                    <Badge variant="secondary" className="text-sm">
+                      LAN: {lanBandwidth.toFixed(1)} Mbps
+                    </Badge>
+                  )}
+                </>
+              );
+            })()}
             {totalReserved > 0 && (
               <Badge variant="secondary" className="text-sm">
-                {totalReserved.toFixed(1)} Mbps Reserved
+                {totalReserved.toFixed(1)} Mbps Holding
               </Badge>
             )}
           </div>
