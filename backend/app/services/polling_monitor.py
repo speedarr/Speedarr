@@ -334,6 +334,21 @@ class PollingMonitor:
                 for res in self._reservations
             ]
 
+    async def get_reserved_download_bandwidth(self) -> float:
+        """
+        Calculate download bandwidth reserve from held (ended) stream reservations.
+        This is a derived value from the existing upload reservations - as upload holds expire,
+        the download reserve automatically decreases.
+
+        Returns:
+            Download bandwidth to reserve in Mbps
+        """
+        pct = self.config.bandwidth.streams.download_reserve_percent
+        if pct <= 0:
+            return 0.0
+        total_upload_held = await self.get_total_reserved_bandwidth()
+        return total_upload_held * (pct / 100)
+
     async def get_reserved_bandwidth(self) -> float:
         """
         Calculate how much bandwidth is currently reserved (not available for allocation).
@@ -737,6 +752,9 @@ class PollingMonitor:
             # Get reserved bandwidth (binary reservation until timer expires)
             reserved_bandwidth = await self.get_reserved_bandwidth()
 
+            # Get download reserve from held upload reservations
+            reserved_download_bandwidth = await self.get_reserved_download_bandwidth()
+
             # Get active temporary limits (if any)
             temp_download_limit, temp_upload_limit = await self.get_active_temporary_limits()
 
@@ -747,7 +765,8 @@ class PollingMonitor:
                 snmp_data,
                 reserved_bandwidth,
                 temp_download_limit,
-                temp_upload_limit
+                temp_upload_limit,
+                reserved_download_bandwidth
             )
 
             # Apply decisions if any
@@ -824,7 +843,7 @@ class PollingMonitor:
                                     qbittorrent_new_download_limit=qbit_dl_new,
                                     sabnzbd_old_download_limit=sab_dl_old,
                                     sabnzbd_new_download_limit=sab_dl_new,
-                                    snmp_download_usage=snmp_data.get("download_speed") if snmp_data else None,
+                                    snmp_download_usage=snmp_data.get("download") if snmp_data else None,
                                     triggered_by="polling"
                                 )
                                 db.add(download_decision)
@@ -850,7 +869,7 @@ class PollingMonitor:
                                     total_required_bandwidth=sum(s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams),
                                     qbittorrent_old_upload_limit=qbit_ul_old,
                                     qbittorrent_new_upload_limit=qbit_ul_new,
-                                    snmp_upload_usage=snmp_data.get("upload_speed") if snmp_data else None,
+                                    snmp_upload_usage=snmp_data.get("upload") if snmp_data else None,
                                     triggered_by="polling"
                                 )
                                 db.add(upload_decision)
@@ -877,6 +896,10 @@ class PollingMonitor:
                         total_stream_actual_bandwidth = sum(
                             s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams
                         )
+
+                        # Split streams by WAN/LAN
+                        wan_streams = [s for s in self._cached_streams if not s.get("is_lan", False)]
+                        lan_streams = [s for s in self._cached_streams if s.get("is_lan", False)]
 
                         # Helper to find first client of a given type (stats are keyed by client ID)
                         def get_stats_by_type(client_type: str) -> dict:
@@ -923,6 +946,11 @@ class PollingMonitor:
                             active_streams_count=len(self._cached_streams),
                             total_stream_bandwidth=total_stream_bandwidth,
                             total_stream_actual_bandwidth=total_stream_actual_bandwidth,
+                            # WAN/LAN stream split
+                            wan_streams_count=len(wan_streams),
+                            wan_stream_bandwidth=sum(s.get("stream_bitrate_mbps", 0) for s in wan_streams),
+                            lan_streams_count=len(lan_streams),
+                            lan_stream_bandwidth=sum(s.get("stream_bitrate_mbps", 0) for s in lan_streams),
                             # State
                             is_throttled=bool(decisions)
                         )

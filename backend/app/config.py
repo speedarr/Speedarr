@@ -130,6 +130,7 @@ class StreamBandwidthConfig(BaseModel):
     bandwidth_calculation: str = Field("auto", description="auto or manual")
     manual_per_stream: float = Field(15, description="Bandwidth per stream if manual")
     overhead_percent: int = Field(100, description="Protocol overhead percentage")
+    download_reserve_percent: int = Field(20, description="Percentage of stream bandwidth reserved from downloads for TCP ACKs")
 
 
 class BandwidthConfig(BaseModel):

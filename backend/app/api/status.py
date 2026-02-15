@@ -2,10 +2,12 @@
 Status API routes.
 """
 from datetime import datetime
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from loguru import logger
+from app import __version__, __commit__, __branch__
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 from app.services.decision_engine import is_within_schedule
+from app.services.version_service import version_checker
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
@@ -63,6 +65,11 @@ async def get_current_status(request: Request):
 
     # Get holding bandwidth (from ended streams in restoration delay period)
     holding_bandwidth = await polling_monitor.get_total_reserved_bandwidth() if hasattr(polling_monitor, 'get_total_reserved_bandwidth') else 0
+
+    # Calculate download reserve for TCP ACKs/control traffic
+    download_reserve_percent = config.bandwidth.streams.download_reserve_percent
+    download_stream_reserve = reserved_bandwidth * (download_reserve_percent / 100) if download_reserve_percent > 0 else 0
+    download_holding_reserve = holding_bandwidth * (download_reserve_percent / 100) if download_reserve_percent > 0 else 0
 
     # Calculate current usage from all clients (now keyed by client ID)
     total_download_usage = sum(
@@ -174,13 +181,16 @@ async def get_current_status(request: Request):
                 "total_limit": effective_download_limit,
                 "current_usage": total_download_usage,
                 "clients": download_clients,  # New dynamic client data
+                # Download reserve for TCP ACKs from Plex streams
+                "stream_reserve": download_stream_reserve,
+                "holding_reserve": download_holding_reserve,
                 # Legacy fields for backward compatibility
                 "qbittorrent_speed": qb_download,
                 "qbittorrent_limit": qb_download_limit,
                 "sabnzbd_speed": sab_download,
                 "sabnzbd_limit": sab_download_limit,
                 "snmp_speed": snmp_download,
-                "available": max(0, effective_download_limit - total_download_usage),
+                "available": max(0, effective_download_limit - total_download_usage - download_stream_reserve - download_holding_reserve),
                 "scheduled_active": download_in_schedule,
             },
             "upload": {
@@ -198,4 +208,22 @@ async def get_current_status(request: Request):
                 "scheduled_active": upload_in_schedule,
             },
         },
+    }
+
+
+@router.get("/version")
+async def get_version_info(force_refresh: bool = Query(False)):
+    """Check current version and whether an update is available."""
+    result = await version_checker.check_for_updates(
+        __version__, current_commit=__commit__, current_branch=__branch__, force_refresh=force_refresh
+    )
+    return {
+        "current_version": __version__,
+        "current_commit": __commit__,
+        "current_branch": __branch__,
+        "update_available": result.get("update_available", False),
+        "latest_version": result.get("latest_version"),
+        "latest_commit": result.get("latest_commit"),
+        "release_url": result.get("release_url"),
+        "error": result.get("error"),
     }

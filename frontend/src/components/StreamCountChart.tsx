@@ -6,6 +6,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from 'recharts';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -28,6 +29,10 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
   const [data, setData] = useState<any[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState('');
+  const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({
+    wan_streams: true,
+    lan_streams: true,
+  });
 
   const aggregateData = (rawPoints: ChartDataPoint[], intervalMinutes: number) => {
     if (rawPoints.length === 0) return [];
@@ -46,12 +51,15 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
       buckets.get(bucketKey)!.push(point);
     });
 
-    // Average stream count in each bucket
+    // Average stream counts in each bucket
     const aggregated = Array.from(buckets.entries()).map(([bucketTime, points]) => {
-      const avgCount = points.reduce((sum, p) => sum + (p.active_streams_count || 0), 0) / points.length;
+      // WAN: use wan_streams_count if available, fall back to active_streams_count for old data
+      const avgWan = points.reduce((sum, p) => sum + (p.wan_streams_count != null ? p.wan_streams_count : (p.active_streams_count || 0)), 0) / points.length;
+      const avgLan = points.reduce((sum, p) => sum + (p.lan_streams_count || 0), 0) / points.length;
       return {
         timestamp: new Date(bucketTime).toISOString(),
-        stream_count: Math.round(avgCount), // Round to nearest integer for stream count
+        wan_streams: Math.round(avgWan),
+        lan_streams: Math.round(avgLan),
       };
     });
 
@@ -89,7 +97,9 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
     const processedData = dataInterval === 'raw'
       ? zoomedRawData.map(point => ({
           timestamp: point.timestamp,
-          stream_count: point.active_streams_count || 0,
+          // Backward compat: wan falls back to combined count for old data
+          wan_streams: point.wan_streams_count != null ? point.wan_streams_count : (point.active_streams_count || 0),
+          lan_streams: point.lan_streams_count || 0,
         }))
       : aggregateData(zoomedRawData, dataInterval);
 
@@ -121,6 +131,13 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
       return formatInTimeZone(new Date(utcTimestamp), tz, 'HH:mm');
     } else {
       return formatInTimeZone(new Date(utcTimestamp), tz, 'MM/dd HH:mm');
+    }
+  };
+
+  const handleLegendClick = (e: any) => {
+    const dataKey = e.dataKey;
+    if (dataKey) {
+      setVisibleSeries(prev => ({ ...prev, [dataKey]: !prev[dataKey] }));
     }
   };
 
@@ -176,23 +193,37 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
                   const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
                   return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
                 }}
-                formatter={(value: number) => [value, 'Streams']}
+                formatter={(value: number, name: string) => [value, name]}
                 contentStyle={{
                   backgroundColor: 'rgba(0, 0, 0, 0.9)',
                   border: '1px solid #666',
                   borderRadius: '4px'
                 }}
               />
+              <Legend onClick={handleLegendClick} />
               <Line
                 type="monotone"
-                dataKey="stream_count"
+                dataKey="wan_streams"
                 stroke="#ff7300"
                 strokeWidth={2}
                 dot={{ fill: '#ff7300', r: 3 }}
-                name="Active Streams"
+                name="WAN Streams"
                 isAnimationActive={true}
                 animationDuration={300}
                 animationEasing="ease-in-out"
+                hide={!visibleSeries.wan_streams}
+              />
+              <Line
+                type="monotone"
+                dataKey="lan_streams"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={{ fill: '#10b981', r: 3 }}
+                name="LAN Streams"
+                isAnimationActive={true}
+                animationDuration={300}
+                animationEasing="ease-in-out"
+                hide={!visibleSeries.lan_streams}
               />
             </LineChart>
           </ResponsiveContainer>

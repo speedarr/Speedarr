@@ -144,6 +144,22 @@ export const Home: React.FC = () => {
                   )}
                 </div>
               ))}
+              {(status.bandwidth.download.stream_reserve ?? 0) > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Stream Reserve:</span>
+                  <span className="font-semibold text-orange-500 dark:text-orange-400">
+                    {(status.bandwidth.download.stream_reserve ?? 0).toFixed(1)} Mbps
+                  </span>
+                </div>
+              )}
+              {(status.bandwidth.download.holding_reserve ?? 0) > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Holding Reserve:</span>
+                  <span className="font-semibold text-orange-500 dark:text-orange-400">
+                    {(status.bandwidth.download.holding_reserve ?? 0).toFixed(1)} Mbps
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">Available:</span>
                 <span className="font-semibold text-green-600 dark:text-green-400">

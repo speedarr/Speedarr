@@ -173,6 +173,11 @@ export interface ChartDataPoint {
   qbittorrent_upload_limit: number | null;
   transmission_upload_limit: number | null;
   deluge_upload_limit: number | null;
+  // WAN/LAN stream split
+  wan_stream_bandwidth: number | null;
+  lan_stream_bandwidth: number | null;
+  wan_streams_count: number | null;
+  lan_streams_count: number | null;
   // Other
   active_streams_count: number;
   snmp_download_speed: number | null;
@@ -218,6 +223,8 @@ export interface SystemStatus {
       current_usage: number;
       available: number;
       clients?: ClientBandwidthStatus[];
+      stream_reserve?: number | null;
+      holding_reserve?: number | null;
       qbittorrent_speed?: number | null;
       qbittorrent_limit?: number | null;
       sabnzbd_speed?: number | null;
@@ -377,6 +384,18 @@ export interface CreateAPIKeyResponse {
   token: string;
   created_at: string;
   expires_at: string | null;
+}
+
+// Version check types
+export interface VersionCheckResponse {
+  current_version: string;
+  current_commit: string;
+  current_branch: string;
+  update_available: boolean;
+  latest_version?: string;
+  latest_commit?: string;
+  release_url?: string;
+  error?: string;
 }
 
 // Decision log types

@@ -237,6 +237,25 @@ class PlexClient:
 
         stream_bitrate_mbps = float(bitrate_kbps) / 1000 if bitrate_kbps else 0.0
 
+        # Plex bug workaround: trailers (and occasionally other content) report
+        # exactly 10,000 Mbps (10 Gbps) which is clearly erroneous. Cap both the
+        # session bitrate and the real-time bandwidth metric since the notification
+        # system uses whichever is non-zero.
+        PLEX_BOGUS_BITRATE = 10000.0
+        PLEX_BOGUS_REPLACEMENT = 10.0
+        for label, value in [("bitrate", stream_bitrate_mbps), ("bandwidth", actual_bandwidth_mbps)]:
+            if value == PLEX_BOGUS_BITRATE:
+                media_title = session.get("title", "Unknown")
+                user_name = self._get_nested(session, "User", "title", default="Unknown")
+                logger.warning(
+                    f"Plex reported 10000 Mbps {label} for '{media_title}' "
+                    f"(user: {user_name}) — clamping to {PLEX_BOGUS_REPLACEMENT} Mbps"
+                )
+        if stream_bitrate_mbps == PLEX_BOGUS_BITRATE:
+            stream_bitrate_mbps = PLEX_BOGUS_REPLACEMENT
+        if actual_bandwidth_mbps == PLEX_BOGUS_BITRATE:
+            actual_bandwidth_mbps = PLEX_BOGUS_REPLACEMENT
+
         # Log for debugging if bitrate is 0
         if stream_bitrate_mbps == 0:
             logger.debug(f"Zero bitrate for session - Session.bandwidth: {session_info.get('bandwidth')}, "

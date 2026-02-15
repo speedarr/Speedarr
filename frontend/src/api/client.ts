@@ -28,6 +28,7 @@ import type {
   APIKeyInfo,
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
+  VersionCheckResponse,
 } from '@/types';
 
 class ApiClient {
@@ -194,6 +195,13 @@ class ApiClient {
 
   async getHealth(): Promise<{ status: string; version: string; commit: string; branch: string }> {
     const response = await this.client.get('/status/health');
+    return response.data;
+  }
+
+  async checkVersion(forceRefresh = false): Promise<VersionCheckResponse> {
+    const response = await this.client.get<VersionCheckResponse>('/status/version', {
+      params: { force_refresh: forceRefresh },
+    });
     return response.data;
   }
 

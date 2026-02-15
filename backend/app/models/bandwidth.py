@@ -47,6 +47,12 @@ class BandwidthMetric(Base):
     total_stream_bandwidth = Column(Float, default=0)  # Media file bitrate
     total_stream_actual_bandwidth = Column(Float, default=0)  # Actual network throughput
 
+    # WAN/LAN stream split
+    wan_streams_count = Column(Integer, nullable=True)
+    wan_stream_bandwidth = Column(Float, nullable=True)
+    lan_streams_count = Column(Integer, nullable=True)
+    lan_stream_bandwidth = Column(Float, nullable=True)
+
     # State
     is_throttled = Column(Boolean, default=False)
 

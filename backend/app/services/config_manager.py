@@ -458,6 +458,7 @@ class ConfigManager:
             elif section_name == "snmp":
                 # Reload SNMPMonitor
                 if hasattr(self.app.state, "polling_monitor"):
+                    self.app.state.polling_monitor.config = config
                     from app.services.snmp_monitor import SNMPMonitor
 
                     if config.snmp.enabled:

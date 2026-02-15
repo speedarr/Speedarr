@@ -76,7 +76,7 @@ const CustomLegend: React.FC<CustomLegendProps> = ({ payload, visibleSeries, onT
   ];
   // uploadKeys used for categorization - items not in downloadKeys are considered uploads
   const _uploadKeys = [
-    'qbittorrent_upload', 'transmission_upload', 'deluge_upload', 'plex_streams',
+    'qbittorrent_upload', 'transmission_upload', 'deluge_upload', 'wan_streams', 'lan_streams',
     'qbittorrent_upload_limit_line', 'transmission_upload_limit_line', 'deluge_upload_limit_line', 'snmp_upload'
   ];
   void _uploadKeys; // Suppress unused variable warning
@@ -90,7 +90,13 @@ const CustomLegend: React.FC<CustomLegendProps> = ({ payload, visibleSeries, onT
     if (aIsDownload && !bIsDownload) return -1;
     if (!aIsDownload && bIsDownload) return 1;
 
-    // Within same category, sort alphabetically by display name
+    // Within same category, keep WAN before LAN, then alphabetically
+    const streamOrder: Record<string, number> = { wan_streams: 0, lan_streams: 1 };
+    const aStream = streamOrder[a.dataKey];
+    const bStream = streamOrder[b.dataKey];
+    if (aStream !== undefined && bStream !== undefined) return aStream - bStream;
+    if (aStream !== undefined) return -1;
+    if (bStream !== undefined) return 1;
     return a.value.localeCompare(b.value);
   });
 
@@ -154,7 +160,8 @@ const defaultVisibleSeries: Record<string, boolean> = {
   qbittorrent_upload: true,
   transmission_upload: true,
   deluge_upload: true,
-  plex_streams: true,
+  wan_streams: true,
+  lan_streams: false,
   // Download limits
   qbittorrent_download_limit_line: false,
   sabnzbd_download_limit_line: false,
@@ -378,8 +385,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     if (isClientEnabled('transmission') && clientSupportsUpload('transmission')) activeKeys.push('transmission_upload');
     if (isClientEnabled('deluge') && clientSupportsUpload('deluge')) activeKeys.push('deluge_upload');
 
-    // Plex streams are always shown
-    activeKeys.push('plex_streams');
+    // WAN/LAN streams are always shown in legend
+    activeKeys.push('wan_streams', 'lan_streams');
 
     // SNMP is only shown in legend when SNMP is enabled
     if (snmpEnabled) {
@@ -441,6 +448,11 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
         transmission_upload_speed: points.reduce((sum, p) => sum + (p.transmission_upload_speed || 0), 0) / points.length,
         deluge_upload_speed: points.reduce((sum, p) => sum + (p.deluge_upload_speed || 0), 0) / points.length,
         stream_bandwidth: points.reduce((sum, p) => sum + (p.stream_bandwidth || 0), 0) / points.length,
+        // Backward compat: old data has null WAN/LAN — fall back to combined fields
+        wan_stream_bandwidth: points.reduce((sum, p) => sum + (p.wan_stream_bandwidth != null ? p.wan_stream_bandwidth : (p.stream_bandwidth || 0)), 0) / points.length,
+        lan_stream_bandwidth: points.reduce((sum, p) => sum + (p.lan_stream_bandwidth || 0), 0) / points.length,
+        wan_streams_count: points.reduce((sum, p) => sum + (p.wan_streams_count != null ? p.wan_streams_count : (p.active_streams_count || 0)), 0) / points.length,
+        lan_streams_count: points.reduce((sum, p) => sum + (p.lan_streams_count || 0), 0) / points.length,
         active_streams_count: points.reduce((sum, p) => sum + (p.active_streams_count || 0), 0) / points.length,
         // Per-client download limits
         qbittorrent_download_limit: points.reduce((sum, p) => sum + (p.qbittorrent_download_limit || 0), 0) / points.length,
@@ -482,7 +494,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
   // Memoize transformed chart data - depends on aggregated data and visibleSeries for scaling
   const transformedData = useMemo(() => {
-    if (aggregatedData.length === 0) return { data: [], ratio: 1 };
+    if (aggregatedData.length === 0) return { data: [], positiveRatio: 1, negativeRatio: 1, yDomain: ['auto', 'auto'] as [string, string] };
 
     // Find max values for scaling - only include visible series
     // When flipped, uploads are positive (on top) and downloads are negated (below zero)
@@ -500,12 +512,16 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
       const snmpDownloadVal = visibleSeries.snmp_download ? (point.snmp_download_speed || 0) : 0;
 
-      // Compute upload totals from visible series
+      // Compute upload totals from visible series (stacked areas only)
       let totalUpload = 0;
-      if (visibleSeries.plex_streams) totalUpload += point.stream_bandwidth || 0;
+      // WAN streams: use wan_stream_bandwidth if available, fall back to combined stream_bandwidth for old data
+      if (visibleSeries.wan_streams) totalUpload += (point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0));
       if (visibleSeries.qbittorrent_upload) totalUpload += point.qbittorrent_upload_speed || 0;
       if (visibleSeries.transmission_upload) totalUpload += point.transmission_upload_speed || 0;
       if (visibleSeries.deluge_upload) totalUpload += point.deluge_upload_speed || 0;
+
+      // LAN streams render as an independent Line (not stacked), so track separately
+      const lanBandwidth = visibleSeries.lan_streams ? (point.lan_stream_bandwidth || 0) : 0;
 
       const snmpUploadVal = visibleSeries.snmp_upload ? (point.snmp_upload_speed || 0) : 0;
 
@@ -515,61 +531,88 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       if (visibleSeries.transmission_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.transmission_upload_limit || 0);
       if (visibleSeries.deluge_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.deluge_upload_limit || 0);
 
+      // Include download limits only if their respective limit lines are visible
+      let maxDownloadLimit = 0;
+      if (visibleSeries.qbittorrent_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.qbittorrent_download_limit || 0);
+      if (visibleSeries.sabnzbd_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.sabnzbd_download_limit || 0);
+      if (visibleSeries.nzbget_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.nzbget_download_limit || 0);
+      if (visibleSeries.transmission_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.transmission_download_limit || 0);
+      if (visibleSeries.deluge_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.deluge_download_limit || 0);
+
       if (flipped) {
         // Uploads on top (positive), downloads negated
-        maxPositive = Math.max(maxPositive, totalUpload, snmpUploadVal, maxUploadLimit);
-        maxToNegate = Math.max(maxToNegate, totalDownload, snmpDownloadVal);
+        maxPositive = Math.max(maxPositive, totalUpload, lanBandwidth, snmpUploadVal, maxUploadLimit);
+        maxToNegate = Math.max(maxToNegate, totalDownload, snmpDownloadVal, maxDownloadLimit);
       } else {
         // Downloads on top (positive), uploads negated
-        maxPositive = Math.max(maxPositive, totalDownload, snmpDownloadVal);
-        maxToNegate = Math.max(maxToNegate, totalUpload, snmpUploadVal, maxUploadLimit);
+        maxPositive = Math.max(maxPositive, totalDownload, snmpDownloadVal, maxDownloadLimit);
+        maxToNegate = Math.max(maxToNegate, totalUpload, lanBandwidth, snmpUploadVal, maxUploadLimit);
       }
     });
 
-    // Calculate scaling ratio
-    const ratio = (maxPositive > 0 && maxToNegate > 0) ? maxPositive / maxToNegate : 1;
+    // Use overallMax so the domain is the same regardless of flip direction.
+    const overallMax = Math.max(maxPositive, maxToNegate);
 
-    // Calculate explicit domain extent with controlled padding to prevent
-    // Recharts auto-padding amplification when ratio < 1
+    // Calculate scaling ratios — each side scales its data to fill the overallMax domain
+    const positiveRatio = (maxPositive > 0 && maxToNegate > 0) ? overallMax / maxPositive : 1;
+    const negativeRatio = (maxPositive > 0 && maxToNegate > 0) ? overallMax / maxToNegate : 1;
+
+    // Calculate Y-axis domain: symmetric when both sides have data,
+    // full-height when only one side has data.
     const domainPadding = 1.05;
-    const domainExtent = maxPositive > 0 ? maxPositive * domainPadding : undefined;
+    let yDomain: [number | string, number | string];
+    if (maxPositive > 0 && maxToNegate > 0) {
+      // Both sides have data — symmetric domain using overall max
+      const extent = overallMax * domainPadding;
+      yDomain = [-extent, extent];
+    } else if (maxPositive > 0) {
+      // Only positive side has data — fill entire chart
+      yDomain = [0, maxPositive * domainPadding];
+    } else if (maxToNegate > 0) {
+      // Only negative side has data — fill entire chart
+      yDomain = [-maxToNegate * domainPadding, 0];
+    } else {
+      yDomain = ['auto', 'auto'];
+    }
 
     // Transform data and include limits as line data
     // When flipped, uploads stay positive and downloads get negated+scaled (and vice versa)
     const chartData = aggregatedData.map((point) => ({
       ...point,
       // Download series
-      qbittorrent_download: flipped ? -Math.abs(point.qbittorrent_speed || 0) * ratio : (point.qbittorrent_speed || 0),
-      sabnzbd_download: flipped ? -Math.abs(point.sabnzbd_speed || 0) * ratio : (point.sabnzbd_speed || 0),
-      nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * ratio : (point.nzbget_speed || 0),
-      transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * ratio : (point.transmission_speed || 0),
-      deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * ratio : (point.deluge_speed || 0),
-      // Upload series
-      plex_streams: flipped ? Math.abs(point.stream_bandwidth || 0) : -Math.abs(point.stream_bandwidth || 0) * ratio,
-      qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) : -Math.abs(point.qbittorrent_upload_speed || 0) * ratio,
-      transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) : -Math.abs(point.transmission_upload_speed || 0) * ratio,
-      deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) : -Math.abs(point.deluge_upload_speed || 0) * ratio,
+      qbittorrent_download: flipped ? -Math.abs(point.qbittorrent_speed || 0) * negativeRatio : (point.qbittorrent_speed || 0) * positiveRatio,
+      sabnzbd_download: flipped ? -Math.abs(point.sabnzbd_speed || 0) * negativeRatio : (point.sabnzbd_speed || 0) * positiveRatio,
+      nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * negativeRatio : (point.nzbget_speed || 0) * positiveRatio,
+      transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * negativeRatio : (point.transmission_speed || 0) * positiveRatio,
+      deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * negativeRatio : (point.deluge_speed || 0) * positiveRatio,
+      // Upload series — WAN/LAN stream split (backward compat: wan falls back to combined stream_bandwidth)
+      wan_streams: (() => { const v = point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0); return flipped ? Math.abs(v) * positiveRatio : -Math.abs(v) * negativeRatio; })(),
+      lan_streams: (() => { const v = point.lan_stream_bandwidth || 0; return flipped ? Math.abs(v) * positiveRatio : -Math.abs(v) * negativeRatio; })(),
+      qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) * positiveRatio : -Math.abs(point.qbittorrent_upload_speed || 0) * negativeRatio,
+      transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) * positiveRatio : -Math.abs(point.transmission_upload_speed || 0) * negativeRatio,
+      deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) * positiveRatio : -Math.abs(point.deluge_upload_speed || 0) * negativeRatio,
       // Download limit lines
-      qbittorrent_download_limit_line: flipped ? (point.qbittorrent_download_limit ? -Math.abs(point.qbittorrent_download_limit) * ratio : null) : (point.qbittorrent_download_limit || null),
-      sabnzbd_download_limit_line: flipped ? (point.sabnzbd_download_limit ? -Math.abs(point.sabnzbd_download_limit) * ratio : null) : (point.sabnzbd_download_limit || null),
-      nzbget_download_limit_line: flipped ? (point.nzbget_download_limit ? -Math.abs(point.nzbget_download_limit) * ratio : null) : (point.nzbget_download_limit || null),
-      transmission_download_limit_line: flipped ? (point.transmission_download_limit ? -Math.abs(point.transmission_download_limit) * ratio : null) : (point.transmission_download_limit || null),
-      deluge_download_limit_line: flipped ? (point.deluge_download_limit ? -Math.abs(point.deluge_download_limit) * ratio : null) : (point.deluge_download_limit || null),
+      qbittorrent_download_limit_line: flipped ? (point.qbittorrent_download_limit ? -Math.abs(point.qbittorrent_download_limit) * negativeRatio : null) : (point.qbittorrent_download_limit ? Math.abs(point.qbittorrent_download_limit) * positiveRatio : null),
+      sabnzbd_download_limit_line: flipped ? (point.sabnzbd_download_limit ? -Math.abs(point.sabnzbd_download_limit) * negativeRatio : null) : (point.sabnzbd_download_limit ? Math.abs(point.sabnzbd_download_limit) * positiveRatio : null),
+      nzbget_download_limit_line: flipped ? (point.nzbget_download_limit ? -Math.abs(point.nzbget_download_limit) * negativeRatio : null) : (point.nzbget_download_limit ? Math.abs(point.nzbget_download_limit) * positiveRatio : null),
+      transmission_download_limit_line: flipped ? (point.transmission_download_limit ? -Math.abs(point.transmission_download_limit) * negativeRatio : null) : (point.transmission_download_limit ? Math.abs(point.transmission_download_limit) * positiveRatio : null),
+      deluge_download_limit_line: flipped ? (point.deluge_download_limit ? -Math.abs(point.deluge_download_limit) * negativeRatio : null) : (point.deluge_download_limit ? Math.abs(point.deluge_download_limit) * positiveRatio : null),
       // Upload limit lines
-      qbittorrent_upload_limit_line: flipped ? (point.qbittorrent_upload_limit || null) : (point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * ratio : null),
-      transmission_upload_limit_line: flipped ? (point.transmission_upload_limit || null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * ratio : null),
-      deluge_upload_limit_line: flipped ? (point.deluge_upload_limit || null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * ratio : null),
+      qbittorrent_upload_limit_line: flipped ? (point.qbittorrent_upload_limit ? Math.abs(point.qbittorrent_upload_limit) * positiveRatio : null) : (point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * negativeRatio : null),
+      transmission_upload_limit_line: flipped ? (point.transmission_upload_limit ? Math.abs(point.transmission_upload_limit) * positiveRatio : null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * negativeRatio : null),
+      deluge_upload_limit_line: flipped ? (point.deluge_upload_limit ? Math.abs(point.deluge_upload_limit) * positiveRatio : null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * negativeRatio : null),
       // SNMP bandwidth
-      snmp_download: flipped ? (point.snmp_download_speed ? -Math.abs(point.snmp_download_speed) * ratio : null) : (point.snmp_download_speed ?? null),
-      snmp_upload: flipped ? (point.snmp_upload_speed ?? null) : (point.snmp_upload_speed ? -Math.abs(point.snmp_upload_speed) * ratio : null),
+      snmp_download: flipped ? (point.snmp_download_speed != null ? -Math.abs(point.snmp_download_speed) * negativeRatio : null) : (point.snmp_download_speed != null ? Math.abs(point.snmp_download_speed) * positiveRatio : null),
+      snmp_upload: flipped ? (point.snmp_upload_speed != null ? Math.abs(point.snmp_upload_speed) * positiveRatio : null) : (point.snmp_upload_speed != null ? -Math.abs(point.snmp_upload_speed) * negativeRatio : null),
     }));
 
-    return { data: chartData, ratio, domainExtent };
+    return { data: chartData, positiveRatio, negativeRatio, yDomain };
   }, [aggregatedData, visibleSeries, stackChart, flipped]);
 
   const data = transformedData.data;
-  const scalingRatio = transformedData.ratio;
-  const domainExtent = transformedData.domainExtent;
+  const positiveScalingRatio = transformedData.positiveRatio;
+  const negativeScalingRatio = transformedData.negativeRatio;
+  const yDomain = transformedData.yDomain;
 
   useEffect(() => {
     fetchData();
@@ -606,21 +649,25 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   };
 
   const formatTooltip = (value: number, name: string) => {
-    // Show absolute value for uploads/streams (they're stored as negative and scaled)
+    // Show absolute value — unscale using the appropriate ratio
     let absValue = Math.abs(value);
 
-    // If this is upload or stream (negative value), unscale it
-    if (value < 0 && scalingRatio !== 1) {
-      absValue = absValue / scalingRatio;
+    if (value < 0 && negativeScalingRatio !== 1) {
+      absValue = absValue / negativeScalingRatio;
+    } else if (value > 0 && positiveScalingRatio !== 1) {
+      absValue = absValue / positiveScalingRatio;
     }
 
     return [`${absValue.toFixed(2)} Mbps`, name];
   };
 
   const formatYAxis = (value: number) => {
-    // For negative values (upload/stream), unscale them for display
-    if (value < 0 && scalingRatio !== 1) {
-      return (Math.abs(value) / scalingRatio).toFixed(0);
+    // Unscale each side using its own ratio for display
+    if (value < 0 && negativeScalingRatio !== 1) {
+      return (Math.abs(value) / negativeScalingRatio).toFixed(0);
+    }
+    if (value > 0 && positiveScalingRatio !== 1) {
+      return (Math.abs(value) / positiveScalingRatio).toFixed(0);
     }
     return Math.abs(value).toFixed(0);
   };
@@ -662,7 +709,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 if (selected) setTimeRange(selected);
               }}
             >
-              <SelectTrigger className="w-[140px]" aria-label="Select time range for chart data">
+              <SelectTrigger className="w-[160px]" aria-label="Select time range for chart data">
                 <SelectValue placeholder="Time Range" />
               </SelectTrigger>
               <SelectContent>
@@ -823,10 +870,15 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                       <stop offset="95%" stopColor={delugeInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
-                  {/* Plex streams gradient - always shown */}
-                  <linearGradient id="plexStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                  {/* WAN streams gradient - always shown */}
+                  <linearGradient id="wanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                     <stop offset="5%" stopColor="#ff7300" stopOpacity={0.8}/>
                     <stop offset="95%" stopColor="#ff7300" stopOpacity={0.3}/>
+                  </linearGradient>
+                  {/* LAN streams gradient - always shown */}
+                  <linearGradient id="lanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.3}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#444" />
@@ -848,8 +900,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   }}
                   tickFormatter={formatYAxis}
                   stroke="#888"
-                  domain={domainExtent ? [-domainExtent, domainExtent] : ['auto', 'auto']}
-                  allowDataOverflow={!!domainExtent}
+                  domain={yDomain}
+                  allowDataOverflow={yDomain[0] !== 'auto'}
                 />
                 <Tooltip
                   active={isSelecting ? false : undefined}
@@ -1084,19 +1136,34 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                     />
                   );
                 })}
-                {/* Upload Areas (stacked negative) - Plex always first, then clients in stack order */}
+                {/* Upload Areas (stacked negative) - WAN streams first, LAN never stacks, then clients */}
                 <Area
                   yAxisId="left"
                   type="monotone"
-                  dataKey="plex_streams"
+                  dataKey="wan_streams"
                   stackId={stackChart ? "upload" : undefined}
                   stroke="#ff7300"
-                  fill="url(#plexStreams)"
-                  name="Plex Streams Bitrate"
+                  fill="url(#wanStreams)"
+                  name="WAN Streams Bandwidth"
                   isAnimationActive={true}
                   animationDuration={300}
                   animationEasing="ease-in-out"
-                  hide={!visibleSeries.plex_streams}
+                  hide={!visibleSeries.wan_streams}
+                />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="lan_streams"
+                  stroke="#10b981"
+                  strokeDasharray="5 5"
+                  strokeWidth={3}
+                  dot={false}
+                  name="LAN Streams Bandwidth"
+                  isAnimationActive={true}
+                  animationDuration={300}
+                  animationEasing="ease-in-out"
+                  connectNulls={true}
+                  hide={!visibleSeries.lan_streams}
                 />
                 {clientOrder.map((clientType) => {
                   if (!isClientEnabled(clientType) || !clientSupportsUpload(clientType)) return null;
