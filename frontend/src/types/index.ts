@@ -173,6 +173,11 @@ export interface ChartDataPoint {
   qbittorrent_upload_limit: number | null;
   transmission_upload_limit: number | null;
   deluge_upload_limit: number | null;
+  // WAN/LAN stream split
+  wan_stream_bandwidth: number | null;
+  lan_stream_bandwidth: number | null;
+  wan_streams_count: number | null;
+  lan_streams_count: number | null;
   // Other
   active_streams_count: number;
   snmp_download_speed: number | null;

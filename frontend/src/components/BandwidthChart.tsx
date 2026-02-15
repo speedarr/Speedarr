@@ -76,7 +76,7 @@ const CustomLegend: React.FC<CustomLegendProps> = ({ payload, visibleSeries, onT
   ];
   // uploadKeys used for categorization - items not in downloadKeys are considered uploads
   const _uploadKeys = [
-    'qbittorrent_upload', 'transmission_upload', 'deluge_upload', 'plex_streams',
+    'qbittorrent_upload', 'transmission_upload', 'deluge_upload', 'wan_streams', 'lan_streams',
     'qbittorrent_upload_limit_line', 'transmission_upload_limit_line', 'deluge_upload_limit_line', 'snmp_upload'
   ];
   void _uploadKeys; // Suppress unused variable warning
@@ -90,7 +90,13 @@ const CustomLegend: React.FC<CustomLegendProps> = ({ payload, visibleSeries, onT
     if (aIsDownload && !bIsDownload) return -1;
     if (!aIsDownload && bIsDownload) return 1;
 
-    // Within same category, sort alphabetically by display name
+    // Within same category, keep WAN before LAN, then alphabetically
+    const streamOrder: Record<string, number> = { wan_streams: 0, lan_streams: 1 };
+    const aStream = streamOrder[a.dataKey];
+    const bStream = streamOrder[b.dataKey];
+    if (aStream !== undefined && bStream !== undefined) return aStream - bStream;
+    if (aStream !== undefined) return -1;
+    if (bStream !== undefined) return 1;
     return a.value.localeCompare(b.value);
   });
 
@@ -154,7 +160,8 @@ const defaultVisibleSeries: Record<string, boolean> = {
   qbittorrent_upload: true,
   transmission_upload: true,
   deluge_upload: true,
-  plex_streams: true,
+  wan_streams: true,
+  lan_streams: false,
   // Download limits
   qbittorrent_download_limit_line: false,
   sabnzbd_download_limit_line: false,
@@ -378,8 +385,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     if (isClientEnabled('transmission') && clientSupportsUpload('transmission')) activeKeys.push('transmission_upload');
     if (isClientEnabled('deluge') && clientSupportsUpload('deluge')) activeKeys.push('deluge_upload');
 
-    // Plex streams are always shown
-    activeKeys.push('plex_streams');
+    // WAN/LAN streams are always shown in legend
+    activeKeys.push('wan_streams', 'lan_streams');
 
     // SNMP is only shown in legend when SNMP is enabled
     if (snmpEnabled) {
@@ -441,6 +448,11 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
         transmission_upload_speed: points.reduce((sum, p) => sum + (p.transmission_upload_speed || 0), 0) / points.length,
         deluge_upload_speed: points.reduce((sum, p) => sum + (p.deluge_upload_speed || 0), 0) / points.length,
         stream_bandwidth: points.reduce((sum, p) => sum + (p.stream_bandwidth || 0), 0) / points.length,
+        // Backward compat: old data has null WAN/LAN — fall back to combined fields
+        wan_stream_bandwidth: points.reduce((sum, p) => sum + (p.wan_stream_bandwidth != null ? p.wan_stream_bandwidth : (p.stream_bandwidth || 0)), 0) / points.length,
+        lan_stream_bandwidth: points.reduce((sum, p) => sum + (p.lan_stream_bandwidth || 0), 0) / points.length,
+        wan_streams_count: points.reduce((sum, p) => sum + (p.wan_streams_count != null ? p.wan_streams_count : (p.active_streams_count || 0)), 0) / points.length,
+        lan_streams_count: points.reduce((sum, p) => sum + (p.lan_streams_count || 0), 0) / points.length,
         active_streams_count: points.reduce((sum, p) => sum + (p.active_streams_count || 0), 0) / points.length,
         // Per-client download limits
         qbittorrent_download_limit: points.reduce((sum, p) => sum + (p.qbittorrent_download_limit || 0), 0) / points.length,
@@ -502,7 +514,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
       // Compute upload totals from visible series
       let totalUpload = 0;
-      if (visibleSeries.plex_streams) totalUpload += point.stream_bandwidth || 0;
+      // WAN streams: use wan_stream_bandwidth if available, fall back to combined stream_bandwidth for old data
+      if (visibleSeries.wan_streams) totalUpload += (point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0));
+      // LAN streams: use lan_stream_bandwidth if available, default to 0 for old data
+      if (visibleSeries.lan_streams) totalUpload += (point.lan_stream_bandwidth || 0);
       if (visibleSeries.qbittorrent_upload) totalUpload += point.qbittorrent_upload_speed || 0;
       if (visibleSeries.transmission_upload) totalUpload += point.transmission_upload_speed || 0;
       if (visibleSeries.deluge_upload) totalUpload += point.deluge_upload_speed || 0;
@@ -552,8 +567,9 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * ratio : (point.nzbget_speed || 0),
       transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * ratio : (point.transmission_speed || 0),
       deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * ratio : (point.deluge_speed || 0),
-      // Upload series
-      plex_streams: flipped ? Math.abs(point.stream_bandwidth || 0) : -Math.abs(point.stream_bandwidth || 0) * ratio,
+      // Upload series — WAN/LAN stream split (backward compat: wan falls back to combined stream_bandwidth)
+      wan_streams: (() => { const v = point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0); return flipped ? Math.abs(v) : -Math.abs(v) * ratio; })(),
+      lan_streams: (() => { const v = point.lan_stream_bandwidth || 0; return flipped ? Math.abs(v) : -Math.abs(v) * ratio; })(),
       qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) : -Math.abs(point.qbittorrent_upload_speed || 0) * ratio,
       transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) : -Math.abs(point.transmission_upload_speed || 0) * ratio,
       deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) : -Math.abs(point.deluge_upload_speed || 0) * ratio,
@@ -831,10 +847,15 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                       <stop offset="95%" stopColor={delugeInfo.color} stopOpacity={0.3}/>
                     </linearGradient>
                   )}
-                  {/* Plex streams gradient - always shown */}
-                  <linearGradient id="plexStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                  {/* WAN streams gradient - always shown */}
+                  <linearGradient id="wanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                     <stop offset="5%" stopColor="#ff7300" stopOpacity={0.8}/>
                     <stop offset="95%" stopColor="#ff7300" stopOpacity={0.3}/>
+                  </linearGradient>
+                  {/* LAN streams gradient - always shown */}
+                  <linearGradient id="lanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.3}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#444" />
@@ -1092,19 +1113,34 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                     />
                   );
                 })}
-                {/* Upload Areas (stacked negative) - Plex always first, then clients in stack order */}
+                {/* Upload Areas (stacked negative) - WAN streams first, LAN never stacks, then clients */}
                 <Area
                   yAxisId="left"
                   type="monotone"
-                  dataKey="plex_streams"
+                  dataKey="wan_streams"
                   stackId={stackChart ? "upload" : undefined}
                   stroke="#ff7300"
-                  fill="url(#plexStreams)"
-                  name="Plex Streams Bitrate"
+                  fill="url(#wanStreams)"
+                  name="WAN Streams Bandwidth"
                   isAnimationActive={true}
                   animationDuration={300}
                   animationEasing="ease-in-out"
-                  hide={!visibleSeries.plex_streams}
+                  hide={!visibleSeries.wan_streams}
+                />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="lan_streams"
+                  stroke="#10b981"
+                  strokeDasharray="5 5"
+                  strokeWidth={3}
+                  dot={false}
+                  name="LAN Streams Bandwidth"
+                  isAnimationActive={true}
+                  animationDuration={300}
+                  animationEasing="ease-in-out"
+                  connectNulls={true}
+                  hide={!visibleSeries.lan_streams}
                 />
                 {clientOrder.map((clientType) => {
                   if (!isClientEnabled(clientType) || !clientSupportsUpload(clientType)) return null;

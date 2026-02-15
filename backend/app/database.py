@@ -127,6 +127,11 @@ async def run_migrations():
         ("transmission_upload_limit", "REAL"),
         ("deluge_upload_speed", "REAL"),
         ("deluge_upload_limit", "REAL"),
+        # WAN/LAN stream split
+        ("wan_streams_count", "INTEGER"),
+        ("wan_stream_bandwidth", "REAL"),
+        ("lan_streams_count", "INTEGER"),
+        ("lan_stream_bandwidth", "REAL"),
     ]
 
     try:

@@ -322,6 +322,10 @@ async def get_bandwidth_chart_data(
                 "deluge_upload_limit": m.deluge_upload_limit,
                 # Other
                 "active_streams_count": m.active_streams_count or 0,
+                "wan_stream_bandwidth": m.wan_stream_bandwidth,
+                "lan_stream_bandwidth": m.lan_stream_bandwidth,
+                "wan_streams_count": m.wan_streams_count,
+                "lan_streams_count": m.lan_streams_count,
                 "snmp_download_speed": m.snmp_download_speed,
                 "snmp_upload_speed": m.snmp_upload_speed,
             })

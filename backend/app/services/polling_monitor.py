@@ -897,6 +897,10 @@ class PollingMonitor:
                             s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams
                         )
 
+                        # Split streams by WAN/LAN
+                        wan_streams = [s for s in self._cached_streams if not s.get("is_lan", False)]
+                        lan_streams = [s for s in self._cached_streams if s.get("is_lan", False)]
+
                         # Helper to find first client of a given type (stats are keyed by client ID)
                         def get_stats_by_type(client_type: str) -> dict:
                             for cid, stats in download_stats.items():
@@ -942,6 +946,11 @@ class PollingMonitor:
                             active_streams_count=len(self._cached_streams),
                             total_stream_bandwidth=total_stream_bandwidth,
                             total_stream_actual_bandwidth=total_stream_actual_bandwidth,
+                            # WAN/LAN stream split
+                            wan_streams_count=len(wan_streams),
+                            wan_stream_bandwidth=sum(s.get("stream_bitrate_mbps", 0) for s in wan_streams),
+                            lan_streams_count=len(lan_streams),
+                            lan_stream_bandwidth=sum(s.get("stream_bitrate_mbps", 0) for s in lan_streams),
                             # State
                             is_throttled=bool(decisions)
                         )
