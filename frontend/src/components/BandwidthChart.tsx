@@ -512,15 +512,16 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
       const snmpDownloadVal = visibleSeries.snmp_download ? (point.snmp_download_speed || 0) : 0;
 
-      // Compute upload totals from visible series
+      // Compute upload totals from visible series (stacked areas only)
       let totalUpload = 0;
       // WAN streams: use wan_stream_bandwidth if available, fall back to combined stream_bandwidth for old data
       if (visibleSeries.wan_streams) totalUpload += (point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0));
-      // LAN streams: use lan_stream_bandwidth if available, default to 0 for old data
-      if (visibleSeries.lan_streams) totalUpload += (point.lan_stream_bandwidth || 0);
       if (visibleSeries.qbittorrent_upload) totalUpload += point.qbittorrent_upload_speed || 0;
       if (visibleSeries.transmission_upload) totalUpload += point.transmission_upload_speed || 0;
       if (visibleSeries.deluge_upload) totalUpload += point.deluge_upload_speed || 0;
+
+      // LAN streams render as an independent Line (not stacked), so track separately
+      const lanBandwidth = visibleSeries.lan_streams ? (point.lan_stream_bandwidth || 0) : 0;
 
       const snmpUploadVal = visibleSeries.snmp_upload ? (point.snmp_upload_speed || 0) : 0;
 
@@ -540,12 +541,12 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
       if (flipped) {
         // Uploads on top (positive), downloads negated
-        maxPositive = Math.max(maxPositive, totalUpload, snmpUploadVal, maxUploadLimit);
+        maxPositive = Math.max(maxPositive, totalUpload, lanBandwidth, snmpUploadVal, maxUploadLimit);
         maxToNegate = Math.max(maxToNegate, totalDownload, snmpDownloadVal, maxDownloadLimit);
       } else {
         // Downloads on top (positive), uploads negated
         maxPositive = Math.max(maxPositive, totalDownload, snmpDownloadVal, maxDownloadLimit);
-        maxToNegate = Math.max(maxToNegate, totalUpload, snmpUploadVal, maxUploadLimit);
+        maxToNegate = Math.max(maxToNegate, totalUpload, lanBandwidth, snmpUploadVal, maxUploadLimit);
       }
     });
 
