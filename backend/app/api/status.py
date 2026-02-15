@@ -64,6 +64,11 @@ async def get_current_status(request: Request):
     # Get holding bandwidth (from ended streams in restoration delay period)
     holding_bandwidth = await polling_monitor.get_total_reserved_bandwidth() if hasattr(polling_monitor, 'get_total_reserved_bandwidth') else 0
 
+    # Calculate download reserve for TCP ACKs/control traffic
+    download_reserve_percent = config.bandwidth.streams.download_reserve_percent
+    download_stream_reserve = reserved_bandwidth * (download_reserve_percent / 100) if download_reserve_percent > 0 else 0
+    download_holding_reserve = holding_bandwidth * (download_reserve_percent / 100) if download_reserve_percent > 0 else 0
+
     # Calculate current usage from all clients (now keyed by client ID)
     total_download_usage = sum(
         download_stats.get(c.id, {}).get("download_speed", 0) or 0
@@ -174,13 +179,16 @@ async def get_current_status(request: Request):
                 "total_limit": effective_download_limit,
                 "current_usage": total_download_usage,
                 "clients": download_clients,  # New dynamic client data
+                # Download reserve for TCP ACKs from Plex streams
+                "stream_reserve": download_stream_reserve,
+                "holding_reserve": download_holding_reserve,
                 # Legacy fields for backward compatibility
                 "qbittorrent_speed": qb_download,
                 "qbittorrent_limit": qb_download_limit,
                 "sabnzbd_speed": sab_download,
                 "sabnzbd_limit": sab_download_limit,
                 "snmp_speed": snmp_download,
-                "available": max(0, effective_download_limit - total_download_usage),
+                "available": max(0, effective_download_limit - total_download_usage - download_stream_reserve - download_holding_reserve),
                 "scheduled_active": download_in_schedule,
             },
             "upload": {

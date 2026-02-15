@@ -63,7 +63,8 @@ class DecisionEngine:
         snmp_data: Optional[Dict[str, float]] = None,
         reserved_bandwidth_mbps: float = 0.0,
         temp_download_limit: Optional[float] = None,
-        temp_upload_limit: Optional[float] = None
+        temp_upload_limit: Optional[float] = None,
+        reserved_download_bandwidth_mbps: float = 0.0
     ) -> Dict[str, Dict[str, Any]]:
         """
         Calculate throttling decisions for all download clients.
@@ -75,6 +76,7 @@ class DecisionEngine:
             reserved_bandwidth_mbps: Bandwidth reserved from ended streams (Mbps)
             temp_download_limit: Optional temporary download limit override (Mbps)
             temp_upload_limit: Optional temporary upload limit override (Mbps)
+            reserved_download_bandwidth_mbps: Download bandwidth reserved from held stream reservations (Mbps)
 
         Returns:
             Dict mapping client names to decision dicts
@@ -131,9 +133,19 @@ class DecisionEngine:
             f"Streams: {len(active_streams)} | Raw: {raw_stream_bandwidth:.2f} Mbps | With overhead: {total_stream_bandwidth:.2f} Mbps"
         )
 
-        # Calculate available bandwidth for downloads (NOT affected by Plex streams)
-        # Plex streams use UPLOAD bandwidth (server -> clients), not download
-        available_download = download_total_limit
+        # Calculate download reserve for TCP ACKs/control traffic from active streams
+        download_reserve_percent = self.config.bandwidth.streams.download_reserve_percent
+        active_download_reserve = total_stream_bandwidth * (download_reserve_percent / 100) if download_reserve_percent > 0 else 0.0
+        total_download_reserve = active_download_reserve + reserved_download_bandwidth_mbps
+
+        if total_download_reserve > 0:
+            logger.debug(
+                f"Download reserve: active={active_download_reserve:.2f} Mbps + holding={reserved_download_bandwidth_mbps:.2f} Mbps = {total_download_reserve:.2f} Mbps"
+            )
+
+        # Calculate available bandwidth for downloads
+        # Subtract download reserve for TCP ACKs/retransmissions from active and held streams
+        available_download = max(0, download_total_limit - total_download_reserve)
 
         # Apply SNMP constraints if available
         if snmp_data:

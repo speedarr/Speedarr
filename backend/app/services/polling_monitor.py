@@ -334,6 +334,21 @@ class PollingMonitor:
                 for res in self._reservations
             ]
 
+    async def get_reserved_download_bandwidth(self) -> float:
+        """
+        Calculate download bandwidth reserve from held (ended) stream reservations.
+        This is a derived value from the existing upload reservations - as upload holds expire,
+        the download reserve automatically decreases.
+
+        Returns:
+            Download bandwidth to reserve in Mbps
+        """
+        pct = self.config.bandwidth.streams.download_reserve_percent
+        if pct <= 0:
+            return 0.0
+        total_upload_held = await self.get_total_reserved_bandwidth()
+        return total_upload_held * (pct / 100)
+
     async def get_reserved_bandwidth(self) -> float:
         """
         Calculate how much bandwidth is currently reserved (not available for allocation).
@@ -737,6 +752,9 @@ class PollingMonitor:
             # Get reserved bandwidth (binary reservation until timer expires)
             reserved_bandwidth = await self.get_reserved_bandwidth()
 
+            # Get download reserve from held upload reservations
+            reserved_download_bandwidth = await self.get_reserved_download_bandwidth()
+
             # Get active temporary limits (if any)
             temp_download_limit, temp_upload_limit = await self.get_active_temporary_limits()
 
@@ -747,7 +765,8 @@ class PollingMonitor:
                 snmp_data,
                 reserved_bandwidth,
                 temp_download_limit,
-                temp_upload_limit
+                temp_upload_limit,
+                reserved_download_bandwidth
             )
 
             # Apply decisions if any

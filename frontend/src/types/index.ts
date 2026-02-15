@@ -218,6 +218,8 @@ export interface SystemStatus {
       current_usage: number;
       available: number;
       clients?: ClientBandwidthStatus[];
+      stream_reserve?: number | null;
+      holding_reserve?: number | null;
       qbittorrent_speed?: number | null;
       qbittorrent_limit?: number | null;
       sabnzbd_speed?: number | null;
