@@ -708,7 +708,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 if (selected) setTimeRange(selected);
               }}
             >
-              <SelectTrigger className="w-[140px]" aria-label="Select time range for chart data">
+              <SelectTrigger className="w-[160px]" aria-label="Select time range for chart data">
                 <SelectValue placeholder="Time Range" />
               </SelectTrigger>
               <SelectContent>
