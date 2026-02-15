@@ -494,7 +494,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
   // Memoize transformed chart data - depends on aggregated data and visibleSeries for scaling
   const transformedData = useMemo(() => {
-    if (aggregatedData.length === 0) return { data: [], ratio: 1 };
+    if (aggregatedData.length === 0) return { data: [], ratio: 1, yDomain: ['auto', 'auto'] as [string, string] };
 
     // Find max values for scaling - only include visible series
     // When flipped, uploads are positive (on top) and downloads are negated (below zero)
@@ -552,10 +552,25 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     // Calculate scaling ratio
     const ratio = (maxPositive > 0 && maxToNegate > 0) ? maxPositive / maxToNegate : 1;
 
-    // Calculate explicit domain extent with controlled padding to prevent
-    // Recharts auto-padding amplification when ratio < 1
+    // Calculate Y-axis domain: symmetric when both sides have data,
+    // full-height when only one side has data.
+    // Use overallMax so the domain is the same regardless of flip direction.
     const domainPadding = 1.05;
-    const domainExtent = maxPositive > 0 ? maxPositive * domainPadding : undefined;
+    const overallMax = Math.max(maxPositive, maxToNegate);
+    let yDomain: [number | string, number | string];
+    if (maxPositive > 0 && maxToNegate > 0) {
+      // Both sides have data — symmetric domain using overall max
+      const extent = overallMax * domainPadding;
+      yDomain = [-extent, extent];
+    } else if (maxPositive > 0) {
+      // Only positive side has data — fill entire chart
+      yDomain = [0, maxPositive * domainPadding];
+    } else if (maxToNegate > 0) {
+      // Only negative side has data — fill entire chart
+      yDomain = [-maxToNegate * domainPadding, 0];
+    } else {
+      yDomain = ['auto', 'auto'];
+    }
 
     // Transform data and include limits as line data
     // When flipped, uploads stay positive and downloads get negated+scaled (and vice versa)
@@ -588,12 +603,12 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       snmp_upload: flipped ? (point.snmp_upload_speed ?? null) : (point.snmp_upload_speed != null ? -Math.abs(point.snmp_upload_speed) * ratio : null),
     }));
 
-    return { data: chartData, ratio, domainExtent };
+    return { data: chartData, ratio, yDomain };
   }, [aggregatedData, visibleSeries, stackChart, flipped]);
 
   const data = transformedData.data;
   const scalingRatio = transformedData.ratio;
-  const domainExtent = transformedData.domainExtent;
+  const yDomain = transformedData.yDomain;
 
   useEffect(() => {
     fetchData();
@@ -877,8 +892,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   }}
                   tickFormatter={formatYAxis}
                   stroke="#888"
-                  domain={domainExtent ? [-domainExtent, domainExtent] : ['auto', 'auto']}
-                  allowDataOverflow={!!domainExtent}
+                  domain={yDomain}
+                  allowDataOverflow={yDomain[0] !== 'auto'}
                 />
                 <Tooltip
                   active={isSelecting ? false : undefined}
