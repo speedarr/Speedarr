@@ -2,10 +2,12 @@
 Status API routes.
 """
 from datetime import datetime
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from loguru import logger
+from app import __version__, __commit__, __branch__
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 from app.services.decision_engine import is_within_schedule
+from app.services.version_service import version_checker
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
@@ -206,4 +208,22 @@ async def get_current_status(request: Request):
                 "scheduled_active": upload_in_schedule,
             },
         },
+    }
+
+
+@router.get("/version")
+async def get_version_info(force_refresh: bool = Query(False)):
+    """Check current version and whether an update is available."""
+    result = await version_checker.check_for_updates(
+        __version__, current_commit=__commit__, current_branch=__branch__, force_refresh=force_refresh
+    )
+    return {
+        "current_version": __version__,
+        "current_commit": __commit__,
+        "current_branch": __branch__,
+        "update_available": result.get("update_available", False),
+        "latest_version": result.get("latest_version"),
+        "latest_commit": result.get("latest_commit"),
+        "release_url": result.get("release_url"),
+        "error": result.get("error"),
     }

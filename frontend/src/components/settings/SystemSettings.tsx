@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, CheckCircle, Download, Info } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle, Download, Info, ExternalLink, RefreshCw, Bug, Lightbulb } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -16,6 +16,7 @@ import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import type { VersionCheckResponse } from '@/types';
 
 interface SystemConfig {
   update_frequency: number;
@@ -30,6 +31,8 @@ export const SystemSettings: React.FC = () => {
   const [isDownloadingLogs, setIsDownloadingLogs] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [versionInfo, setVersionInfo] = useState<VersionCheckResponse | null>(null);
+  const [isCheckingVersion, setIsCheckingVersion] = useState(false);
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<SystemConfig>();
@@ -120,6 +123,22 @@ export const SystemSettings: React.FC = () => {
   const versionDisplay = __APP_VERSION__ === 'develop'
     ? `develop (${__APP_COMMIT__})`
     : __APP_VERSION__;
+
+  const checkForUpdates = useCallback(async (forceRefresh = false) => {
+    setIsCheckingVersion(true);
+    try {
+      const result = await apiClient.checkVersion(forceRefresh);
+      setVersionInfo(result);
+    } catch {
+      setVersionInfo(null);
+    } finally {
+      setIsCheckingVersion(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkForUpdates();
+  }, [checkForUpdates]);
 
   if (isLoading) {
     return (
@@ -253,7 +272,7 @@ export const SystemSettings: React.FC = () => {
             About
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             <span className="text-muted-foreground">Version</span>
             <span>{versionDisplay}</span>
@@ -261,6 +280,99 @@ export const SystemSettings: React.FC = () => {
             <span className="font-mono">{__APP_COMMIT__}</span>
             <span className="text-muted-foreground">Branch</span>
             <span>{__APP_BRANCH__}</span>
+            <span className="text-muted-foreground">Updates</span>
+            <span className="flex items-center gap-2">
+              {isCheckingVersion ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              ) : versionInfo?.update_available ? (
+                <span className="text-orange-500">
+                  {versionInfo.latest_commit ? (
+                    <>
+                      Newer build available{' '}
+                      {versionInfo.release_url ? (
+                        <a
+                          href={versionInfo.release_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-orange-400 font-mono"
+                        >
+                          {versionInfo.latest_commit}
+                        </a>
+                      ) : (
+                        <span className="font-mono">{versionInfo.latest_commit}</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Update available{' '}
+                      {versionInfo.release_url ? (
+                        <a
+                          href={versionInfo.release_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-orange-400"
+                        >
+                          v{versionInfo.latest_version}
+                        </a>
+                      ) : (
+                        <>v{versionInfo.latest_version}</>
+                      )}
+                    </>
+                  )}
+                </span>
+              ) : versionInfo?.error ? (
+                <span className="text-muted-foreground">{versionInfo.error}</span>
+              ) : versionInfo ? (
+                <span className="text-green-500">Up to date</span>
+              ) : (
+                <span className="text-muted-foreground">Could not check</span>
+              )}
+              <button
+                onClick={() => checkForUpdates(true)}
+                disabled={isCheckingVersion}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                title="Check for updates"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isCheckingVersion ? 'animate-spin' : ''}`} />
+              </button>
+            </span>
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+              <span className="text-muted-foreground">GitHub</span>
+              <a
+                href="https://github.com/speedarr/Speedarr"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400 hover:underline"
+              >
+                speedarr/Speedarr
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+            <div className="flex gap-2">
+              <a
+                href="https://github.com/speedarr/Speedarr/issues/new?template=bug_report.md"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm">
+                  <Bug className="mr-1.5 h-3.5 w-3.5" />
+                  Report a Bug
+                </Button>
+              </a>
+              <a
+                href="https://github.com/speedarr/Speedarr/issues/new?template=feature_request.md"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm">
+                  <Lightbulb className="mr-1.5 h-3.5 w-3.5" />
+                  Request a Feature
+                </Button>
+              </a>
+            </div>
           </div>
         </CardContent>
       </Card>

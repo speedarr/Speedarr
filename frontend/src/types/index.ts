@@ -386,6 +386,18 @@ export interface CreateAPIKeyResponse {
   expires_at: string | null;
 }
 
+// Version check types
+export interface VersionCheckResponse {
+  current_version: string;
+  current_commit: string;
+  current_branch: string;
+  update_available: boolean;
+  latest_version?: string;
+  latest_commit?: string;
+  release_url?: string;
+  error?: string;
+}
+
 // Decision log types
 export interface DecisionLogEntry {
   id: number;
