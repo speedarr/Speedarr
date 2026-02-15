@@ -27,6 +27,7 @@ import {
 import { Play, Pause, StopCircle, Loader2, AlertCircle, X } from 'lucide-react';
 import { StreamCountChart } from './StreamCountChart';
 import type { TimeRange, DataInterval } from './BandwidthChart';
+import type { ZoomRange } from '@/hooks/useChartZoom';
 import { formatInTimeZone } from 'date-fns-tz';
 
 const getStateIcon = (state: string) => {
@@ -58,9 +59,10 @@ const getStateBadgeVariant = (state: string): "default" | "secondary" | "destruc
 interface ActiveStreamsProps {
   timeRange: TimeRange;
   dataInterval: DataInterval;
+  zoomRange?: ZoomRange | null;
 }
 
-export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval }) => {
+export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -119,7 +121,7 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
   if (isLoading) {
     return (
       <>
-        <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} />
+        <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />
         <Card>
           <CardContent className="flex justify-center p-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -131,7 +133,7 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
 
   return (
     <>
-      <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} />
+      <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />
       <Card>
       <CardHeader>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

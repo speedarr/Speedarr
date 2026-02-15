@@ -28,6 +28,7 @@ class TemporaryLimitRequest(BaseModel):
         le=168,  # Max 7 days
         description="Duration in hours (min: >0, max: 168 = 7 days). Use 0.5 for 30 minutes."
     )
+    source: Optional[str] = Field(None, max_length=200, description="Source identifier (e.g., 'Home Assistant - Gaming PC')")
 
 
 class TemporaryLimitResponse(BaseModel):
@@ -37,6 +38,8 @@ class TemporaryLimitResponse(BaseModel):
     upload_mbps: Optional[float] = None
     expires_at: Optional[str] = None
     remaining_minutes: Optional[float] = None
+    source: Optional[str] = None
+    set_by: Optional[str] = None
 
 
 @router.get("/current")
@@ -358,7 +361,9 @@ async def get_temporary_limits(request: Request):
                         download_mbps=temp_limits.get('download_mbps'),
                         upload_mbps=temp_limits.get('upload_mbps'),
                         expires_at=expires_at.isoformat() + 'Z',
-                        remaining_minutes=round(remaining, 1)
+                        remaining_minutes=round(remaining, 1),
+                        source=temp_limits.get('source'),
+                        set_by=temp_limits.get('set_by'),
                     )
 
         return TemporaryLimitResponse(active=False)
@@ -385,22 +390,28 @@ async def set_temporary_limits(
         # Pydantic validates duration_hours > 0 and <= 168 hours (7 days)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=limits.duration_hours)
 
+        # Use API key name when authenticated via API key
+        api_key_name = getattr(request.state, 'api_key_name', None)
+        set_by = f"API: {api_key_name}" if api_key_name else current_user.username
+
         # Use lock for thread-safe access to temporary limits
         async with polling_monitor._temporary_limits_lock:
             polling_monitor._temporary_limits = {
                 'download_mbps': limits.download_mbps,
                 'upload_mbps': limits.upload_mbps,
                 'expires_at': expires_at,
-                'set_by': current_user.username,
-                'set_at': datetime.now(timezone.utc)
+                'set_by': set_by,
+                'set_at': datetime.now(timezone.utc),
+                'source': limits.source,
             }
 
         remaining = limits.duration_hours * 60
 
+        source_info = f", source='{limits.source}'" if limits.source else ""
         logger.info(
-            f"Temporary limits set by {current_user.username}: "
+            f"Temporary limits set by {set_by}: "
             f"download={limits.download_mbps} Mbps, upload={limits.upload_mbps} Mbps, "
-            f"expires in {limits.duration_hours} hours"
+            f"expires in {limits.duration_hours} hours{source_info}"
         )
 
         return TemporaryLimitResponse(
@@ -408,7 +419,9 @@ async def set_temporary_limits(
             download_mbps=limits.download_mbps,
             upload_mbps=limits.upload_mbps,
             expires_at=expires_at.isoformat() + 'Z',
-            remaining_minutes=round(remaining, 1)
+            remaining_minutes=round(remaining, 1),
+            source=limits.source,
+            set_by=set_by,
         )
 
     except HTTPException:

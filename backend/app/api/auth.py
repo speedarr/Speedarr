@@ -1,17 +1,18 @@
 """
 Authentication API routes.
 """
-from typing import Optional
+import secrets
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
-from datetime import datetime, timezone
+from pydantic import BaseModel, Field
+from datetime import datetime, timezone, timedelta
 from loguru import logger
 
 from app.database import get_db
-from app.models import User
+from app.models import User, APIToken
 from app.utils.auth import verify_password, create_access_token, decode_access_token, get_password_hash
 from app.utils.rate_limit import login_rate_limiter
 
@@ -182,10 +183,12 @@ async def login(
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Get current authenticated user from JWT token."""
+    """Get current authenticated user from JWT token or API key."""
+    # Try JWT auth first
     if credentials:
         token = credentials.credentials
         payload = decode_access_token(token)
@@ -197,6 +200,42 @@ async def get_current_user(
                 user = result.scalar_one_or_none()
                 if user and user.is_active:
                     return user
+
+    # Fall back to API key auth via X-API-Key header
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        result = await db.execute(
+            select(APIToken).where(
+                APIToken.token == api_key,
+                APIToken.is_active == True,
+            )
+        )
+        api_token = result.scalar_one_or_none()
+
+        if api_token:
+            # Check expiration
+            if api_token.expires_at and api_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="API key has expired"
+                )
+
+            # Load associated user
+            result = await db.execute(select(User).where(User.id == api_token.user_id))
+            user = result.scalar_one_or_none()
+
+            if user and user.is_active:
+                # Update last_used timestamp
+                api_token.last_used = datetime.now(timezone.utc)
+                await db.flush()
+                # Store API key name for downstream use (e.g., set_by in temp limits)
+                request.state.api_key_name = api_token.name
+                return user
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key"
+        )
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -243,3 +282,121 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin privileges required"
         )
     return current_user
+
+
+# --- API Key Management ---
+
+class CreateAPIKeyRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Descriptive name for the API key")
+    expires_in_days: Optional[int] = Field(None, ge=1, le=365, description="Days until expiration (null = never)")
+
+
+class APIKeyResponse(BaseModel):
+    id: int
+    name: str
+    token: str
+    token_preview: str
+    created_at: str
+    expires_at: Optional[str]
+    last_used: Optional[str]
+    is_active: bool
+
+
+class CreateAPIKeyResponse(BaseModel):
+    id: int
+    name: str
+    token: str
+    created_at: str
+    expires_at: Optional[str]
+
+
+@router.get("/api-keys", response_model=List[APIKeyResponse])
+async def list_api_keys(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all API keys for the current user. Tokens are masked."""
+    result = await db.execute(
+        select(APIToken)
+        .where(APIToken.user_id == current_user.id)
+        .order_by(APIToken.created_at.desc())
+    )
+    tokens = result.scalars().all()
+
+    return [
+        APIKeyResponse(
+            id=t.id,
+            name=t.name or "Unnamed",
+            token=t.token or "",
+            token_preview=t.token[:8] + "..." if t.token else "",
+            created_at=t.created_at.isoformat() + "Z" if t.created_at else "",
+            expires_at=(t.expires_at.isoformat() + "Z") if t.expires_at else None,
+            last_used=(t.last_used.isoformat() + "Z") if t.last_used else None,
+            is_active=t.is_active,
+        )
+        for t in tokens
+    ]
+
+
+@router.post("/api-keys", response_model=CreateAPIKeyResponse, status_code=status.HTTP_201_CREATED)
+async def create_api_key(
+    request: CreateAPIKeyRequest,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new API key. The full token is returned only once."""
+    token = secrets.token_hex(32)  # 64-char hex string
+
+    expires_at = None
+    if request.expires_in_days:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=request.expires_in_days)
+
+    api_token = APIToken(
+        user_id=current_user.id,
+        token=token,
+        name=request.name,
+        expires_at=expires_at,
+        is_active=True,
+    )
+    db.add(api_token)
+    await db.flush()
+    await db.refresh(api_token)
+
+    logger.info(f"API key '{request.name}' created by {current_user.username}")
+
+    return CreateAPIKeyResponse(
+        id=api_token.id,
+        name=api_token.name or "Unnamed",
+        token=token,
+        created_at=api_token.created_at.isoformat() + "Z" if api_token.created_at else "",
+        expires_at=(api_token.expires_at.isoformat() + "Z") if api_token.expires_at else None,
+    )
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(
+    key_id: int,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Revoke an API key (soft-delete by setting is_active=False)."""
+    result = await db.execute(
+        select(APIToken).where(
+            APIToken.id == key_id,
+            APIToken.user_id == current_user.id,
+        )
+    )
+    api_token = result.scalar_one_or_none()
+
+    if not api_token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found"
+        )
+
+    api_token.is_active = False
+    await db.flush()
+
+    logger.info(f"API key '{api_token.name}' (id={key_id}) revoked by {current_user.username}")
+
+    return {"message": "API key revoked"}

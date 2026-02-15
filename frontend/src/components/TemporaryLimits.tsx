@@ -7,6 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Loader2, Clock, X, CheckCircle } from 'lucide-react';
 
 interface TemporaryLimitState {
@@ -15,10 +23,12 @@ interface TemporaryLimitState {
   upload_mbps: number | null;
   expires_at: string | null;
   remaining_minutes: number | null;
+  source: string | null;
+  set_by: string | null;
 }
 
 export const TemporaryLimits: React.FC = () => {
-  const { user } = useAuth();
+  const { user, login } = useAuth();
   const isAdmin = user?.role === 'admin';
 
   const [limits, setLimits] = useState<TemporaryLimitState | null>(null);
@@ -31,6 +41,13 @@ export const TemporaryLimits: React.FC = () => {
   const [downloadMbps, setDownloadMbps] = useState<string>('');
   const [uploadMbps, setUploadMbps] = useState<string>('');
   const [durationHours, setDurationHours] = useState<string>('1');
+
+  // Login dialog state
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Ref to track timeout for cleanup
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -130,7 +147,7 @@ export const TemporaryLimits: React.FC = () => {
 
     try {
       await apiClient.clearTemporaryLimits();
-      setLimits({ active: false, download_mbps: null, upload_mbps: null, expires_at: null, remaining_minutes: null });
+      setLimits({ active: false, download_mbps: null, upload_mbps: null, expires_at: null, remaining_minutes: null, source: null, set_by: null });
       setSuccess('Temporary limits cleared');
       if (successTimeoutRef.current) {
         clearTimeout(successTimeoutRef.current);
@@ -140,6 +157,29 @@ export const TemporaryLimits: React.FC = () => {
       setError(getErrorMessage(err));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleLoginAndClear = async () => {
+    setIsLoggingIn(true);
+    setLoginError('');
+
+    try {
+      await login({ username: loginUsername, password: loginPassword });
+      await apiClient.clearTemporaryLimits();
+      setLimits({ active: false, download_mbps: null, upload_mbps: null, expires_at: null, remaining_minutes: null, source: null, set_by: null });
+      setSuccess('Temporary limits cleared');
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+      successTimeoutRef.current = setTimeout(() => setSuccess(''), 3000);
+      setShowLoginDialog(false);
+      setLoginUsername('');
+      setLoginPassword('');
+    } catch (err) {
+      setLoginError(getErrorMessage(err));
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -163,140 +203,216 @@ export const TemporaryLimits: React.FC = () => {
     );
   }
 
-  // Hide component for non-admin users
-  if (!isAdmin) {
+  // Non-admin users only see the active override banner
+  if (!isAdmin && !limits?.active) {
     return null;
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Clock className="h-4 w-4" />
-          Temporary Limits
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Temporary Limits
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        {success && (
-          <Alert>
-            <CheckCircle className="h-4 w-4" />
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
+          {success && (
+            <Alert>
+              <CheckCircle className="h-4 w-4" />
+              <AlertDescription>{success}</AlertDescription>
+            </Alert>
+          )}
 
-        {/* Active Limits Display */}
-        {limits?.active && (
-          <div
-            className="rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-3 space-y-2"
-            role="status"
-            aria-live="polite"
-            aria-label="Temporary bandwidth limits are currently active"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-orange-700 dark:text-orange-300 flex items-center gap-1">
-                <Clock className="h-3 w-3" aria-hidden="true" />
-                Temporary Override Active
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearLimits}
-                disabled={isSaving}
-                className="h-6 px-2 text-orange-700 dark:text-orange-300 hover:text-orange-900 dark:hover:text-orange-100"
-                aria-label="Clear temporary bandwidth limits"
-              >
-                <X className="h-4 w-4 mr-1" aria-hidden="true" />
-                Clear
-              </Button>
+          {/* Active Limits Display */}
+          {limits?.active && (
+            <div
+              className="rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-3 space-y-2"
+              role="status"
+              aria-live="polite"
+              aria-label="Temporary bandwidth limits are currently active"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-orange-700 dark:text-orange-300 flex items-center gap-1">
+                  <Clock className="h-3 w-3" aria-hidden="true" />
+                  Temporary Override Active
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={isAdmin ? handleClearLimits : () => setShowLoginDialog(true)}
+                  disabled={isSaving}
+                  className="h-6 px-2 text-orange-700 dark:text-orange-300 hover:text-orange-900 dark:hover:text-orange-100"
+                  aria-label="Clear temporary bandwidth limits"
+                >
+                  <X className="h-4 w-4 mr-1" aria-hidden="true" />
+                  Clear
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Download:</span>
+                  <span className="ml-1 font-medium">
+                    {limits.download_mbps !== null ? `${limits.download_mbps} Mbps` : 'Normal'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Upload:</span>
+                  <span className="ml-1 font-medium">
+                    {limits.upload_mbps !== null ? `${limits.upload_mbps} Mbps` : 'Normal'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Remaining:</span>
+                  <span className="ml-1 font-medium">
+                    {formatRemainingTime(limits.remaining_minutes)}
+                  </span>
+                </div>
+              </div>
+              {limits.source && (
+                <div className="text-xs text-muted-foreground">
+                  Source: {limits.source}
+                  {limits.set_by && ` (by ${limits.set_by})`}
+                </div>
+              )}
             </div>
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">Download:</span>
-                <span className="ml-1 font-medium">
-                  {limits.download_mbps !== null ? `${limits.download_mbps} Mbps` : 'Normal'}
-                </span>
+          )}
+
+          {/* Set New Limits Form - Admin only */}
+          {isAdmin && (
+            <>
+              <div className="grid grid-cols-4 gap-3 items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="temp-download" className="text-xs">Download (Mbps)</Label>
+                  <Input
+                    id="temp-download"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="e.g., 100"
+                    value={downloadMbps}
+                    onChange={(e) => setDownloadMbps(e.target.value)}
+                    disabled={isSaving}
+                    className="h-8"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="temp-upload" className="text-xs">Upload (Mbps)</Label>
+                  <Input
+                    id="temp-upload"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="e.g., 50"
+                    value={uploadMbps}
+                    onChange={(e) => setUploadMbps(e.target.value)}
+                    disabled={isSaving}
+                    className="h-8"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="temp-duration" className="text-xs">Duration (Hours)</Label>
+                  <Input
+                    id="temp-duration"
+                    type="number"
+                    min="0.5"
+                    step="0.5"
+                    placeholder="1"
+                    value={durationHours}
+                    onChange={(e) => setDurationHours(e.target.value)}
+                    disabled={isSaving}
+                    className="h-8"
+                  />
+                </div>
+                <Button
+                  onClick={handleSetLimits}
+                  disabled={isSaving || (!downloadMbps && !uploadMbps)}
+                  size="sm"
+                  className="h-8"
+                  aria-label="Apply temporary bandwidth limits"
+                >
+                  {isSaving && <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />}
+                  Set Limits
+                </Button>
               </div>
-              <div>
-                <span className="text-muted-foreground">Upload:</span>
-                <span className="ml-1 font-medium">
-                  {limits.upload_mbps !== null ? `${limits.upload_mbps} Mbps` : 'Normal'}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Remaining:</span>
-                <span className="ml-1 font-medium">
-                  {formatRemainingTime(limits.remaining_minutes)}
-                </span>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Override normal bandwidth limits temporarily. Leave a field empty to use normal limits for that direction.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Login Dialog for non-admin Clear action */}
+      <Dialog open={showLoginDialog} onOpenChange={(open) => {
+        setShowLoginDialog(open);
+        if (!open) {
+          setLoginUsername('');
+          setLoginPassword('');
+          setLoginError('');
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sign in to clear limits</DialogTitle>
+            <DialogDescription>
+              Admin credentials are required to clear temporary bandwidth limits.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {loginError && (
+              <Alert variant="destructive">
+                <AlertDescription>{loginError}</AlertDescription>
+              </Alert>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="login-username">Username</Label>
+              <Input
+                id="login-username"
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+                autoComplete="username"
+                disabled={isLoggingIn}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password">Password</Label>
+              <Input
+                id="login-password"
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                autoComplete="current-password"
+                disabled={isLoggingIn}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && loginUsername && loginPassword && !isLoggingIn) {
+                    handleLoginAndClear();
+                  }
+                }}
+              />
             </div>
           </div>
-        )}
-
-        {/* Set New Limits Form */}
-        <div className="grid grid-cols-4 gap-3 items-end">
-          <div className="space-y-1">
-            <Label htmlFor="temp-download" className="text-xs">Download (Mbps)</Label>
-            <Input
-              id="temp-download"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="e.g., 100"
-              value={downloadMbps}
-              onChange={(e) => setDownloadMbps(e.target.value)}
-              disabled={isSaving}
-              className="h-8"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="temp-upload" className="text-xs">Upload (Mbps)</Label>
-            <Input
-              id="temp-upload"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="e.g., 50"
-              value={uploadMbps}
-              onChange={(e) => setUploadMbps(e.target.value)}
-              disabled={isSaving}
-              className="h-8"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="temp-duration" className="text-xs">Duration (Hours)</Label>
-            <Input
-              id="temp-duration"
-              type="number"
-              min="0.5"
-              step="0.5"
-              placeholder="1"
-              value={durationHours}
-              onChange={(e) => setDurationHours(e.target.value)}
-              disabled={isSaving}
-              className="h-8"
-            />
-          </div>
-          <Button
-            onClick={handleSetLimits}
-            disabled={isSaving || (!downloadMbps && !uploadMbps)}
-            size="sm"
-            className="h-8"
-            aria-label="Apply temporary bandwidth limits"
-          >
-            {isSaving && <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />}
-            Set Limits
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Override normal bandwidth limits temporarily. Leave a field empty to use normal limits for that direction.
-        </p>
-      </CardContent>
-    </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLoginDialog(false)} disabled={isLoggingIn}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleLoginAndClear}
+              disabled={!loginUsername || !loginPassword || isLoggingIn}
+            >
+              {isLoggingIn && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Sign in & Clear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
