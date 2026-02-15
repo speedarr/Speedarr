@@ -515,13 +515,21 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       if (visibleSeries.transmission_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.transmission_upload_limit || 0);
       if (visibleSeries.deluge_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.deluge_upload_limit || 0);
 
+      // Include download limits only if their respective limit lines are visible
+      let maxDownloadLimit = 0;
+      if (visibleSeries.qbittorrent_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.qbittorrent_download_limit || 0);
+      if (visibleSeries.sabnzbd_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.sabnzbd_download_limit || 0);
+      if (visibleSeries.nzbget_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.nzbget_download_limit || 0);
+      if (visibleSeries.transmission_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.transmission_download_limit || 0);
+      if (visibleSeries.deluge_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.deluge_download_limit || 0);
+
       if (flipped) {
         // Uploads on top (positive), downloads negated
         maxPositive = Math.max(maxPositive, totalUpload, snmpUploadVal, maxUploadLimit);
-        maxToNegate = Math.max(maxToNegate, totalDownload, snmpDownloadVal);
+        maxToNegate = Math.max(maxToNegate, totalDownload, snmpDownloadVal, maxDownloadLimit);
       } else {
         // Downloads on top (positive), uploads negated
-        maxPositive = Math.max(maxPositive, totalDownload, snmpDownloadVal);
+        maxPositive = Math.max(maxPositive, totalDownload, snmpDownloadVal, maxDownloadLimit);
         maxToNegate = Math.max(maxToNegate, totalUpload, snmpUploadVal, maxUploadLimit);
       }
     });
