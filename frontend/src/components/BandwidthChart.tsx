@@ -494,7 +494,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
   // Memoize transformed chart data - depends on aggregated data and visibleSeries for scaling
   const transformedData = useMemo(() => {
-    if (aggregatedData.length === 0) return { data: [], ratio: 1, yDomain: ['auto', 'auto'] as [string, string] };
+    if (aggregatedData.length === 0) return { data: [], positiveRatio: 1, negativeRatio: 1, yDomain: ['auto', 'auto'] as [string, string] };
 
     // Find max values for scaling - only include visible series
     // When flipped, uploads are positive (on top) and downloads are negated (below zero)
@@ -549,14 +549,16 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       }
     });
 
-    // Calculate scaling ratio
-    const ratio = (maxPositive > 0 && maxToNegate > 0) ? maxPositive / maxToNegate : 1;
+    // Use overallMax so the domain is the same regardless of flip direction.
+    const overallMax = Math.max(maxPositive, maxToNegate);
+
+    // Calculate scaling ratios — each side scales its data to fill the overallMax domain
+    const positiveRatio = (maxPositive > 0 && maxToNegate > 0) ? overallMax / maxPositive : 1;
+    const negativeRatio = (maxPositive > 0 && maxToNegate > 0) ? overallMax / maxToNegate : 1;
 
     // Calculate Y-axis domain: symmetric when both sides have data,
     // full-height when only one side has data.
-    // Use overallMax so the domain is the same regardless of flip direction.
     const domainPadding = 1.05;
-    const overallMax = Math.max(maxPositive, maxToNegate);
     let yDomain: [number | string, number | string];
     if (maxPositive > 0 && maxToNegate > 0) {
       // Both sides have data — symmetric domain using overall max
@@ -577,37 +579,38 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     const chartData = aggregatedData.map((point) => ({
       ...point,
       // Download series
-      qbittorrent_download: flipped ? -Math.abs(point.qbittorrent_speed || 0) * ratio : (point.qbittorrent_speed || 0),
-      sabnzbd_download: flipped ? -Math.abs(point.sabnzbd_speed || 0) * ratio : (point.sabnzbd_speed || 0),
-      nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * ratio : (point.nzbget_speed || 0),
-      transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * ratio : (point.transmission_speed || 0),
-      deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * ratio : (point.deluge_speed || 0),
+      qbittorrent_download: flipped ? -Math.abs(point.qbittorrent_speed || 0) * negativeRatio : (point.qbittorrent_speed || 0) * positiveRatio,
+      sabnzbd_download: flipped ? -Math.abs(point.sabnzbd_speed || 0) * negativeRatio : (point.sabnzbd_speed || 0) * positiveRatio,
+      nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * negativeRatio : (point.nzbget_speed || 0) * positiveRatio,
+      transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * negativeRatio : (point.transmission_speed || 0) * positiveRatio,
+      deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * negativeRatio : (point.deluge_speed || 0) * positiveRatio,
       // Upload series — WAN/LAN stream split (backward compat: wan falls back to combined stream_bandwidth)
-      wan_streams: (() => { const v = point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0); return flipped ? Math.abs(v) : -Math.abs(v) * ratio; })(),
-      lan_streams: (() => { const v = point.lan_stream_bandwidth || 0; return flipped ? Math.abs(v) : -Math.abs(v) * ratio; })(),
-      qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) : -Math.abs(point.qbittorrent_upload_speed || 0) * ratio,
-      transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) : -Math.abs(point.transmission_upload_speed || 0) * ratio,
-      deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) : -Math.abs(point.deluge_upload_speed || 0) * ratio,
+      wan_streams: (() => { const v = point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0); return flipped ? Math.abs(v) * positiveRatio : -Math.abs(v) * negativeRatio; })(),
+      lan_streams: (() => { const v = point.lan_stream_bandwidth || 0; return flipped ? Math.abs(v) * positiveRatio : -Math.abs(v) * negativeRatio; })(),
+      qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) * positiveRatio : -Math.abs(point.qbittorrent_upload_speed || 0) * negativeRatio,
+      transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) * positiveRatio : -Math.abs(point.transmission_upload_speed || 0) * negativeRatio,
+      deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) * positiveRatio : -Math.abs(point.deluge_upload_speed || 0) * negativeRatio,
       // Download limit lines
-      qbittorrent_download_limit_line: flipped ? (point.qbittorrent_download_limit ? -Math.abs(point.qbittorrent_download_limit) * ratio : null) : (point.qbittorrent_download_limit || null),
-      sabnzbd_download_limit_line: flipped ? (point.sabnzbd_download_limit ? -Math.abs(point.sabnzbd_download_limit) * ratio : null) : (point.sabnzbd_download_limit || null),
-      nzbget_download_limit_line: flipped ? (point.nzbget_download_limit ? -Math.abs(point.nzbget_download_limit) * ratio : null) : (point.nzbget_download_limit || null),
-      transmission_download_limit_line: flipped ? (point.transmission_download_limit ? -Math.abs(point.transmission_download_limit) * ratio : null) : (point.transmission_download_limit || null),
-      deluge_download_limit_line: flipped ? (point.deluge_download_limit ? -Math.abs(point.deluge_download_limit) * ratio : null) : (point.deluge_download_limit || null),
+      qbittorrent_download_limit_line: flipped ? (point.qbittorrent_download_limit ? -Math.abs(point.qbittorrent_download_limit) * negativeRatio : null) : (point.qbittorrent_download_limit ? Math.abs(point.qbittorrent_download_limit) * positiveRatio : null),
+      sabnzbd_download_limit_line: flipped ? (point.sabnzbd_download_limit ? -Math.abs(point.sabnzbd_download_limit) * negativeRatio : null) : (point.sabnzbd_download_limit ? Math.abs(point.sabnzbd_download_limit) * positiveRatio : null),
+      nzbget_download_limit_line: flipped ? (point.nzbget_download_limit ? -Math.abs(point.nzbget_download_limit) * negativeRatio : null) : (point.nzbget_download_limit ? Math.abs(point.nzbget_download_limit) * positiveRatio : null),
+      transmission_download_limit_line: flipped ? (point.transmission_download_limit ? -Math.abs(point.transmission_download_limit) * negativeRatio : null) : (point.transmission_download_limit ? Math.abs(point.transmission_download_limit) * positiveRatio : null),
+      deluge_download_limit_line: flipped ? (point.deluge_download_limit ? -Math.abs(point.deluge_download_limit) * negativeRatio : null) : (point.deluge_download_limit ? Math.abs(point.deluge_download_limit) * positiveRatio : null),
       // Upload limit lines
-      qbittorrent_upload_limit_line: flipped ? (point.qbittorrent_upload_limit || null) : (point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * ratio : null),
-      transmission_upload_limit_line: flipped ? (point.transmission_upload_limit || null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * ratio : null),
-      deluge_upload_limit_line: flipped ? (point.deluge_upload_limit || null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * ratio : null),
+      qbittorrent_upload_limit_line: flipped ? (point.qbittorrent_upload_limit ? Math.abs(point.qbittorrent_upload_limit) * positiveRatio : null) : (point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * negativeRatio : null),
+      transmission_upload_limit_line: flipped ? (point.transmission_upload_limit ? Math.abs(point.transmission_upload_limit) * positiveRatio : null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * negativeRatio : null),
+      deluge_upload_limit_line: flipped ? (point.deluge_upload_limit ? Math.abs(point.deluge_upload_limit) * positiveRatio : null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * negativeRatio : null),
       // SNMP bandwidth
-      snmp_download: flipped ? (point.snmp_download_speed != null ? -Math.abs(point.snmp_download_speed) * ratio : null) : (point.snmp_download_speed ?? null),
-      snmp_upload: flipped ? (point.snmp_upload_speed ?? null) : (point.snmp_upload_speed != null ? -Math.abs(point.snmp_upload_speed) * ratio : null),
+      snmp_download: flipped ? (point.snmp_download_speed != null ? -Math.abs(point.snmp_download_speed) * negativeRatio : null) : (point.snmp_download_speed != null ? Math.abs(point.snmp_download_speed) * positiveRatio : null),
+      snmp_upload: flipped ? (point.snmp_upload_speed != null ? Math.abs(point.snmp_upload_speed) * positiveRatio : null) : (point.snmp_upload_speed != null ? -Math.abs(point.snmp_upload_speed) * negativeRatio : null),
     }));
 
-    return { data: chartData, ratio, yDomain };
+    return { data: chartData, positiveRatio, negativeRatio, yDomain };
   }, [aggregatedData, visibleSeries, stackChart, flipped]);
 
   const data = transformedData.data;
-  const scalingRatio = transformedData.ratio;
+  const positiveScalingRatio = transformedData.positiveRatio;
+  const negativeScalingRatio = transformedData.negativeRatio;
   const yDomain = transformedData.yDomain;
 
   useEffect(() => {
@@ -645,21 +648,25 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   };
 
   const formatTooltip = (value: number, name: string) => {
-    // Show absolute value for uploads/streams (they're stored as negative and scaled)
+    // Show absolute value — unscale using the appropriate ratio
     let absValue = Math.abs(value);
 
-    // If this is upload or stream (negative value), unscale it
-    if (value < 0 && scalingRatio !== 1) {
-      absValue = absValue / scalingRatio;
+    if (value < 0 && negativeScalingRatio !== 1) {
+      absValue = absValue / negativeScalingRatio;
+    } else if (value > 0 && positiveScalingRatio !== 1) {
+      absValue = absValue / positiveScalingRatio;
     }
 
     return [`${absValue.toFixed(2)} Mbps`, name];
   };
 
   const formatYAxis = (value: number) => {
-    // For negative values (upload/stream), unscale them for display
-    if (value < 0 && scalingRatio !== 1) {
-      return (Math.abs(value) / scalingRatio).toFixed(0);
+    // Unscale each side using its own ratio for display
+    if (value < 0 && negativeScalingRatio !== 1) {
+      return (Math.abs(value) / negativeScalingRatio).toFixed(0);
+    }
+    if (value > 0 && positiveScalingRatio !== 1) {
+      return (Math.abs(value) / positiveScalingRatio).toFixed(0);
     }
     return Math.abs(value).toFixed(0);
   };
