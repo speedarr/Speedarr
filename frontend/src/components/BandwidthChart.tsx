@@ -568,8 +568,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       transmission_upload_limit_line: flipped ? (point.transmission_upload_limit || null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * ratio : null),
       deluge_upload_limit_line: flipped ? (point.deluge_upload_limit || null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * ratio : null),
       // SNMP bandwidth
-      snmp_download: flipped ? (point.snmp_download_speed ? -Math.abs(point.snmp_download_speed) * ratio : null) : (point.snmp_download_speed ?? null),
-      snmp_upload: flipped ? (point.snmp_upload_speed ?? null) : (point.snmp_upload_speed ? -Math.abs(point.snmp_upload_speed) * ratio : null),
+      snmp_download: flipped ? (point.snmp_download_speed != null ? -Math.abs(point.snmp_download_speed) * ratio : null) : (point.snmp_download_speed ?? null),
+      snmp_upload: flipped ? (point.snmp_upload_speed ?? null) : (point.snmp_upload_speed != null ? -Math.abs(point.snmp_upload_speed) * ratio : null),
     }));
 
     return { data: chartData, ratio, domainExtent };
