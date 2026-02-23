@@ -208,11 +208,11 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   const [snmpEnabled, setSnmpEnabled] = useState<boolean>(false);
   const [stackChart, setStackChart] = useState<boolean>(() => {
     const saved = localStorage.getItem('speedarr_chart_stacked');
-    return saved !== null ? JSON.parse(saved) : false;
+    return saved !== null ? JSON.parse(saved) : true;
   });
   const [flipped, setFlipped] = useState<boolean>(() => {
     const saved = localStorage.getItem('speedarr_chart_flipped');
-    return saved !== null ? JSON.parse(saved) : false;
+    return saved !== null ? JSON.parse(saved) : true;
   });
   const [clientOrder, setClientOrder] = useState<string[]>(() => {
     try {

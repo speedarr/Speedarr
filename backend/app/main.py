@@ -14,6 +14,7 @@ from loguru import logger
 from app import __version__, __commit__, __branch__
 from app.config import settings, SpeedarrConfig
 from app.middleware.correlation import CorrelationIdMiddleware
+from app.middleware.cache_control import NoCacheMiddleware
 from app.constants import (
     TASK_MONITOR_CHECK_INTERVAL_SECONDS,
     RETENTION_CLEANUP_INTERVAL_SECONDS,
@@ -303,6 +304,9 @@ app = FastAPI(
 
 # Correlation ID middleware (first, to capture all requests)
 app.add_middleware(CorrelationIdMiddleware)
+
+# No-cache middleware for API responses (browsers must always fetch fresh data)
+app.add_middleware(NoCacheMiddleware)
 
 # CORS middleware
 app.add_middleware(

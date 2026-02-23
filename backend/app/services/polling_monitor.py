@@ -11,7 +11,7 @@ from app.config import SpeedarrConfig
 from app.services.decision_engine import DecisionEngine
 from app.services.controller_manager import ControllerManager
 from app.models import BandwidthMetric, ThrottleDecision
-from app.utils.bandwidth import calculate_stream_bandwidth
+from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 from app.utils.formatting import format_display_title
 
 # Import TYPE_CHECKING to avoid circular imports
@@ -556,13 +556,17 @@ class PollingMonitor:
                             )
 
             # Check stream count and bitrate thresholds for notifications
+            # Filter by LAN/WAN to match the streams the decision engine manages
             if self.notification_service:
+                threshold_streams = filter_streams_for_bandwidth(
+                    self._cached_streams, self.config.plex.include_lan_streams
+                )
                 # Use stream_bandwidth_mbps (real-time) with fallback to stream_bitrate_mbps (media file bitrate)
                 total_bandwidth = sum(
                     s.get("stream_bandwidth_mbps", 0) or s.get("stream_bitrate_mbps", 0)
-                    for s in self._cached_streams
+                    for s in threshold_streams
                 )
-                stream_count = len(self._cached_streams)
+                stream_count = len(threshold_streams)
                 await self.notification_service.check_stream_count_threshold(stream_count, total_bandwidth)
                 await self.notification_service.check_stream_bitrate_threshold(total_bandwidth, stream_count)
 

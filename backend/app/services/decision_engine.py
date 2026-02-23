@@ -150,7 +150,7 @@ class DecisionEngine:
         # Apply SNMP constraints if available
         if snmp_data:
             available_download = self._apply_snmp_download_constraint(
-                available_download, snmp_data
+                available_download, snmp_data, download_stats
             )
 
         # Ensure non-negative download
@@ -546,41 +546,28 @@ class DecisionEngine:
     def _apply_snmp_download_constraint(
         self,
         available_download: float,
-        snmp_data: Dict[str, float]
-    ) -> float:
-        """Apply SNMP constraints to download bandwidth only."""
-        current_download = snmp_data.get("download", 0)
-        constrained = max(0, available_download - current_download)
-        if constrained < available_download:
-            logger.debug(f"SNMP: Download {available_download:.1f} → {constrained:.1f} Mbps")
-        return constrained
-
-    def _apply_snmp_constraints(
-        self,
-        available_download: float,
-        available_upload: float,
         snmp_data: Dict[str, float],
-        stream_bandwidth: float
-    ) -> tuple[float, float]:
-        """Apply SNMP network-wide constraints to available bandwidth."""
-        # Get current network usage from SNMP
+        download_stats: Dict[str, Dict[str, Any]]
+    ) -> float:
+        """Apply SNMP constraints to download bandwidth only.
+
+        Subtracts only non-managed (other device) traffic from available bandwidth.
+        SNMP reports total WAN download which includes managed client traffic,
+        so we subtract managed client speeds to avoid double-counting.
+        """
         current_download = snmp_data.get("download", 0)
-        current_upload = snmp_data.get("upload", 0)
-
-        # Account for other devices (current usage minus stream bandwidth)
-        other_devices_download = max(0, current_download - stream_bandwidth)
-        other_devices_upload = max(0, current_upload - stream_bandwidth)
-
-        # Reduce available bandwidth by other device usage
-        constrained_download = max(0, available_download - other_devices_download)
-        constrained_upload = max(0, available_upload - other_devices_upload)
-
-        if constrained_download < available_download:
+        managed_download = sum(
+            stats.get("download_speed", 0) for stats in download_stats.values()
+        )
+        other_usage = max(0, current_download - managed_download)
+        constrained = max(0, available_download - other_usage)
+        if constrained < available_download:
             logger.debug(
-                f"SNMP constraint applied: Download {available_download:.1f} -> {constrained_download:.1f} Mbps"
+                f"SNMP: Download {available_download:.1f} → {constrained:.1f} Mbps "
+                f"(SNMP total: {current_download:.1f}, managed clients: {managed_download:.1f}, "
+                f"other devices: {other_usage:.1f})"
             )
-
-        return constrained_download, constrained_upload
+        return constrained
 
     def calculate_restoration_delay(self, stream: Dict[str, Any]) -> int:
         """
