@@ -40,7 +40,7 @@ export const TemporaryLimits: React.FC = () => {
   // Form state
   const [downloadMbps, setDownloadMbps] = useState<string>('');
   const [uploadMbps, setUploadMbps] = useState<string>('');
-  const [durationHours, setDurationHours] = useState<string>('1');
+  const [durationHours, setDurationHours] = useState<string>('');
 
   // Login dialog state
   const [showLoginDialog, setShowLoginDialog] = useState(false);
@@ -86,12 +86,12 @@ export const TemporaryLimits: React.FC = () => {
     setSuccess('');
 
     try {
-      const parsedDuration = parseFloat(durationHours);
+      const parsedDuration = durationHours ? parseFloat(durationHours) : null;
       const parsedDownload = downloadMbps ? parseFloat(downloadMbps) : null;
       const parsedUpload = uploadMbps ? parseFloat(uploadMbps) : null;
 
       // Validate numeric values to prevent NaN
-      if (isNaN(parsedDuration) || parsedDuration <= 0) {
+      if (parsedDuration !== null && (isNaN(parsedDuration) || parsedDuration <= 0)) {
         setError('Duration must be a positive number');
         setIsSaving(false);
         return;
@@ -110,10 +110,12 @@ export const TemporaryLimits: React.FC = () => {
       const params: {
         download_mbps?: number | null;
         upload_mbps?: number | null;
-        duration_hours: number;
-      } = {
-        duration_hours: parsedDuration,
-      };
+        duration_hours?: number;
+      } = {};
+
+      if (parsedDuration !== null) {
+        params.duration_hours = parsedDuration;
+      }
 
       if (parsedDownload !== null) {
         params.download_mbps = parsedDownload;
@@ -133,7 +135,7 @@ export const TemporaryLimits: React.FC = () => {
       // Clear form
       setDownloadMbps('');
       setUploadMbps('');
-      setDurationHours('1');
+      setDurationHours('');
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -183,7 +185,8 @@ export const TemporaryLimits: React.FC = () => {
     }
   };
 
-  const formatRemainingTime = (minutes: number | null): string => {
+  const formatRemainingTime = (minutes: number | null, expiresAt: string | null): string => {
+    if (minutes === null && expiresAt === null) return 'Until cleared';
     if (minutes === null) return '--';
     if (minutes < 1) return 'Less than 1 minute';
     if (minutes < 60) return `${Math.round(minutes)} minute${Math.round(minutes) !== 1 ? 's' : ''}`;
@@ -272,7 +275,7 @@ export const TemporaryLimits: React.FC = () => {
                 <div>
                   <span className="text-muted-foreground">Remaining:</span>
                   <span className="ml-1 font-medium">
-                    {formatRemainingTime(limits.remaining_minutes)}
+                    {formatRemainingTime(limits.remaining_minutes, limits.expires_at)}
                   </span>
                 </div>
               </div>
@@ -324,7 +327,7 @@ export const TemporaryLimits: React.FC = () => {
                     type="number"
                     min="0.5"
                     step="0.5"
-                    placeholder="1"
+                    placeholder="Indefinite"
                     value={durationHours}
                     onChange={(e) => setDurationHours(e.target.value)}
                     disabled={isSaving}
@@ -343,7 +346,7 @@ export const TemporaryLimits: React.FC = () => {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Override normal bandwidth limits temporarily. Leave a field empty to use normal limits for that direction.
+                Override normal bandwidth limits temporarily. Leave duration empty for indefinite (until cleared). Leave a speed field empty to use normal limits for that direction.
               </p>
             </>
           )}

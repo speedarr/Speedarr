@@ -379,11 +379,18 @@ class PollingMonitor:
                 return None, None
 
             expires_at = self._temporary_limits.get('expires_at')
-            if not expires_at or datetime.now(timezone.utc) > expires_at:
+
+            if expires_at is None:
+                # Indefinite limit — active until explicitly cleared
+                return (
+                    self._temporary_limits.get('download_mbps'),
+                    self._temporary_limits.get('upload_mbps')
+                )
+
+            if datetime.now(timezone.utc) > expires_at:
                 # Expired - clear and return None
-                if self._temporary_limits:
-                    logger.info("Temporary bandwidth limits expired, reverting to normal limits")
-                    self._temporary_limits = None
+                logger.info("Temporary bandwidth limits expired, reverting to normal limits")
+                self._temporary_limits = None
                 return None, None
 
             return (

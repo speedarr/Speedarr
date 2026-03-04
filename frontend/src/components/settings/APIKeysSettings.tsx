@@ -28,7 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, AlertCircle, CheckCircle, Key, Plus, Trash2, Copy, Check, BookOpen } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Loader2, AlertCircle, CheckCircle, Key, Plus, Trash2, Copy, Check, BookOpen, ChevronDown } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import type { APIKeyInfo } from '@/types';
@@ -48,16 +49,30 @@ function copyToClipboard(text: string): void {
   document.body.removeChild(textarea);
 }
 
-const CopyableCode: React.FC<{ code: string }> = ({ code }) => {
+const CopyableCode: React.FC<{ code: string; highlightPlaceholder?: boolean }> = ({ code, highlightPlaceholder }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     copyToClipboard(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const renderCode = () => {
+    if (!highlightPlaceholder || !code.includes('YOUR_API_KEY')) return code;
+    const parts = code.split('YOUR_API_KEY');
+    return parts.map((part, i) => (
+      <React.Fragment key={i}>
+        {part}
+        {i < parts.length - 1 && (
+          <span className="text-red-500 font-bold">YOUR_API_KEY</span>
+        )}
+      </React.Fragment>
+    ));
+  };
+
   return (
     <div className="relative group">
-      <pre className="text-xs bg-muted p-3 rounded-md overflow-x-auto pr-10">{code}</pre>
+      <pre className="text-xs bg-muted p-3 rounded-md overflow-x-auto pr-10">{renderCode()}</pre>
       <Button
         variant="ghost"
         size="icon"
@@ -151,18 +166,29 @@ export const APIKeysSettings: React.FC = () => {
     }
   };
 
+  // Collapsible state for integration guide sections
+  const [haOpen, setHaOpen] = useState(false);
+  const [unraidOpen, setUnraidOpen] = useState(false);
+
   const speedarrUrl = window.location.origin;
 
-  // Auto-fill API key when exactly one active key exists
+  // Smart API key matching by integration name patterns
   const activeKeys = keys.filter(k => k.is_active);
-  const apiKeyValue = activeKeys.length === 1 ? activeKeys[0].token : 'YOUR_API_KEY';
+  const haPatterns = /\b(ha|homeassistant|home.assistant|hass)\b/i;
+  const unraidPatterns = /\b(unraid|un.raid)\b/i;
+
+  const haKey = activeKeys.find(k => haPatterns.test(k.name));
+  const unraidKey = activeKeys.find(k => unraidPatterns.test(k.name));
+
+  const haApiKeyValue = haKey?.token ?? 'YOUR_API_KEY';
+  const unraidApiKeyValue = unraidKey?.token ?? 'YOUR_API_KEY';
 
   const restCommandYaml = `rest_command:
   speedarr_set_limits:
     url: "${speedarrUrl}/api/bandwidth/temporary-limits"
     method: POST
     headers:
-      X-API-Key: "${apiKeyValue}"
+      X-API-Key: "${haApiKeyValue}"
     content_type: "application/json"
     payload: >
       {"download_mbps": {{ download_mbps | default('null') }},
@@ -173,7 +199,7 @@ export const APIKeysSettings: React.FC = () => {
     url: "${speedarrUrl}/api/bandwidth/temporary-limits"
     method: DELETE
     headers:
-      X-API-Key: "${apiKeyValue}"`;
+      X-API-Key: "${haApiKeyValue}"`;
 
   const throttleAutomationYaml = `alias: "Throttle downloads for gaming"
 trigger:
@@ -197,6 +223,50 @@ trigger:
     to: "off"
 action:
   - service: rest_command.speedarr_clear_limits`;
+
+  const parityCheckScript = `#!/bin/bash
+# Parity Check Monitor — polls /proc/mdstat every 60s
+# Schedule: "At Startup of Array" in UnRaid User Scripts
+SPEEDARR_URL="${speedarrUrl}"
+API_KEY="${unraidApiKeyValue}"
+DL_LIMIT_MBPS=5   # Download limit during parity check
+UL_LIMIT_MBPS=5   # Upload limit during parity check
+THROTTLED=false
+
+while true; do
+  if grep -qE 'check|reshape|recover|resync' /proc/mdstat 2>/dev/null; then
+    if [ "$THROTTLED" = false ]; then
+      curl -s -X POST "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+        -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \\
+        -d "{\\"download_mbps\\": $DL_LIMIT_MBPS, \\"upload_mbps\\": $UL_LIMIT_MBPS, \\"source\\": \\"UnRaid Parity Check\\"}"
+      THROTTLED=true
+    fi
+  else
+    if [ "$THROTTLED" = true ]; then
+      curl -s -X DELETE "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+        -H "X-API-Key: $API_KEY"
+      THROTTLED=false
+    fi
+  fi
+  sleep 60
+done`;
+
+  const moverStartScript = `#!/bin/bash
+# Schedule: "Before Mover" in UnRaid User Scripts
+SPEEDARR_URL="${speedarrUrl}"
+API_KEY="${unraidApiKeyValue}"
+DL_LIMIT_MBPS=5   # Download limit during mover
+UL_LIMIT_MBPS=5   # Upload limit during mover
+curl -s -X POST "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+  -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \\
+  -d "{\\"download_mbps\\": $DL_LIMIT_MBPS, \\"upload_mbps\\": $UL_LIMIT_MBPS, \\"source\\": \\"UnRaid Mover\\"}"`;
+
+  const moverStopScript = `#!/bin/bash
+# Schedule: "After Mover" in UnRaid User Scripts
+SPEEDARR_URL="${speedarrUrl}"
+API_KEY="${unraidApiKeyValue}"
+curl -s -X DELETE "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+  -H "X-API-Key: $API_KEY"`;
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
@@ -346,7 +416,7 @@ action:
               <Label htmlFor="key-name">Name</Label>
               <Input
                 id="key-name"
-                placeholder="e.g., Home Assistant"
+                placeholder="e.g., Home Assistant, UnRaid"
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
                 maxLength={100}
@@ -410,39 +480,84 @@ action:
         </DialogContent>
       </Dialog>
 
-      {/* Home Assistant Integration Guide */}
+      {/* Integration Guide */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BookOpen className="h-5 w-5" />
-            Home Assistant Integration
+            Integration Guide
           </CardTitle>
           <CardDescription>
-            Use API keys to control Speedarr from Home Assistant automations
+            Use API keys to control Speedarr from external tools and automations
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium">1. Add REST commands to <code className="text-xs bg-muted px-1 py-0.5 rounded">configuration.yaml</code></h4>
-            <CopyableCode code={restCommandYaml} />
-          </div>
+          {/* Home Assistant section */}
+          <Collapsible open={haOpen} onOpenChange={setHaOpen}>
+            <CollapsibleTrigger asChild>
+              <button className="flex items-center justify-between w-full text-left py-1 group">
+                <h3 className="text-sm font-semibold">Home Assistant</h3>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${haOpen ? 'rotate-180' : ''}`} />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-4 pt-3">
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">1. Add REST commands to <code className="text-xs bg-muted px-1 py-0.5 rounded">configuration.yaml</code></h4>
+                  <CopyableCode code={restCommandYaml} highlightPlaceholder={!haKey} />
+                </div>
 
-          <div className="space-y-4">
-            <h4 className="text-sm font-medium">2. Create automations</h4>
-            <p className="text-xs text-muted-foreground">
-              Create these automations in Home Assistant via <strong>Settings &gt; Automations &amp; Scenes &gt; Create Automation</strong>. Switch to YAML mode and paste the following:
-            </p>
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium">2. Create automations</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Create these automations in Home Assistant via <strong>Settings &gt; Automations &amp; Scenes &gt; Create Automation</strong>. Switch to YAML mode and paste the following:
+                  </p>
 
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Throttle when gaming PC turns on</p>
-              <CopyableCode code={throttleAutomationYaml} />
-            </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Throttle when gaming PC turns on</p>
+                    <CopyableCode code={throttleAutomationYaml} />
+                  </div>
 
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Restore when gaming PC turns off</p>
-              <CopyableCode code={restoreAutomationYaml} />
-            </div>
-          </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Restore when gaming PC turns off</p>
+                    <CopyableCode code={restoreAutomationYaml} />
+                  </div>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* UnRaid section */}
+          <Collapsible open={unraidOpen} onOpenChange={setUnraidOpen}>
+            <CollapsibleTrigger asChild>
+              <button className="flex items-center justify-between w-full text-left py-1 group">
+                <h3 className="text-sm font-semibold">UnRaid</h3>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${unraidOpen ? 'rotate-180' : ''}`} />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-4 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  Use these scripts to throttle downloads during UnRaid parity checks, mover runs, or any operation. Limits are set without a duration (indefinite) and cleared when the operation finishes.
+                </p>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Parity Check Monitor — schedule as "At Startup of Array" in UnRaid User Scripts</p>
+                  <CopyableCode code={parityCheckScript} highlightPlaceholder={!unraidKey} />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Mover Start — schedule as "Before Mover" in UnRaid User Scripts</p>
+                  <CopyableCode code={moverStartScript} highlightPlaceholder={!unraidKey} />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Mover Stop — schedule as "After Mover" in UnRaid User Scripts</p>
+                  <CopyableCode code={moverStopScript} highlightPlaceholder={!unraidKey} />
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </CardContent>
       </Card>
     </div>

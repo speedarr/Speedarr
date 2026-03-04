@@ -22,11 +22,11 @@ class TemporaryLimitRequest(BaseModel):
     """Request model for setting temporary bandwidth limits."""
     download_mbps: Optional[float] = Field(None, ge=0, le=100000, description="Download limit in Mbps")
     upload_mbps: Optional[float] = Field(None, ge=0, le=100000, description="Upload limit in Mbps")
-    duration_hours: float = Field(
-        ...,
+    duration_hours: Optional[float] = Field(
+        None,
         gt=0,
         le=168,  # Max 7 days
-        description="Duration in hours (min: >0, max: 168 = 7 days). Use 0.5 for 30 minutes."
+        description="Duration in hours (min: >0, max: 168 = 7 days). Omit for indefinite (until cleared)."
     )
     source: Optional[str] = Field(None, max_length=200, description="Source identifier (e.g., 'Home Assistant - Gaming PC')")
 
@@ -354,10 +354,22 @@ async def get_temporary_limits(request: Request):
         async with polling_monitor._temporary_limits_lock:
             temp_limits = getattr(polling_monitor, '_temporary_limits', None)
 
-            if temp_limits and temp_limits.get('expires_at'):
-                expires_at = temp_limits['expires_at']
-                now = datetime.now(timezone.utc)
+            if temp_limits:
+                expires_at = temp_limits.get('expires_at')
 
+                if expires_at is None:
+                    # Indefinite limit — active until cleared
+                    return TemporaryLimitResponse(
+                        active=True,
+                        download_mbps=temp_limits.get('download_mbps'),
+                        upload_mbps=temp_limits.get('upload_mbps'),
+                        expires_at=None,
+                        remaining_minutes=None,
+                        source=temp_limits.get('source'),
+                        set_by=temp_limits.get('set_by'),
+                    )
+
+                now = datetime.now(timezone.utc)
                 if expires_at > now:
                     remaining = (expires_at - now).total_seconds() / 60
                     return TemporaryLimitResponse(
@@ -391,8 +403,10 @@ async def set_temporary_limits(
     try:
         polling_monitor = request.app.state.polling_monitor
 
-        # Pydantic validates duration_hours > 0 and <= 168 hours (7 days)
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=limits.duration_hours)
+        # Compute expiry: None means indefinite (until cleared)
+        expires_at = None
+        if limits.duration_hours is not None:
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=limits.duration_hours)
 
         # Use API key name when authenticated via API key
         api_key_name = getattr(request.state, 'api_key_name', None)
@@ -409,21 +423,22 @@ async def set_temporary_limits(
                 'source': limits.source,
             }
 
-        remaining = limits.duration_hours * 60
+        remaining = limits.duration_hours * 60 if limits.duration_hours is not None else None
 
         source_info = f", source='{limits.source}'" if limits.source else ""
+        duration_info = f"expires in {limits.duration_hours} hours" if limits.duration_hours is not None else "indefinite (until cleared)"
         logger.info(
             f"Temporary limits set by {set_by}: "
             f"download={limits.download_mbps} Mbps, upload={limits.upload_mbps} Mbps, "
-            f"expires in {limits.duration_hours} hours{source_info}"
+            f"{duration_info}{source_info}"
         )
 
         return TemporaryLimitResponse(
             active=True,
             download_mbps=limits.download_mbps,
             upload_mbps=limits.upload_mbps,
-            expires_at=expires_at.isoformat() + 'Z',
-            remaining_minutes=round(remaining, 1),
+            expires_at=expires_at.isoformat() + 'Z' if expires_at else None,
+            remaining_minutes=round(remaining, 1) if remaining is not None else None,
             source=limits.source,
             set_by=set_by,
         )
