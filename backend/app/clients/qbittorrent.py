@@ -48,9 +48,18 @@ class QBittorrentClient:
 
         try:
             data = {"username": self.username, "password": self.password}
+            headers = {"Referer": self.url}
 
-            async with self.session.post(f"{self.url}/api/v2/auth/login", data=data) as response:
-                if response.status == 200:
+            async with self.session.post(
+                f"{self.url}/api/v2/auth/login",
+                data=data,
+                headers=headers,
+            ) as response:
+                # qBittorrent >= 5.2 may return 204 No Content for successful login.
+                if response.status == 204:
+                    self._authenticated = True
+                    logger.debug("Authenticated with qBittorrent")
+                elif response.status == 200:
                     text = await response.text()
                     if text.strip() == "Ok.":
                         self._authenticated = True
@@ -70,7 +79,7 @@ class QBittorrentClient:
         response = await self.session.request(method, url, **kwargs)
 
         if response.status == 403 and retry_on_auth_failure:
-            await response.release()
+            response.release()
             logger.info("qBittorrent returned 403, re-authenticating...")
             self._authenticated = False
             await self._ensure_authenticated()
