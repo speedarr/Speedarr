@@ -16,6 +16,8 @@ interface FailsafeConfig {
   plex_timeout: number;
   shutdown_download_speed: number | null;
   shutdown_upload_speed: number | null;
+  shutdown_download_client_percents: Record<string, number>;
+  shutdown_upload_client_percents: Record<string, number>;
 }
 
 interface DownloadClient {
@@ -40,10 +42,6 @@ export const FailsafeSettings: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [downloadSplit, setDownloadSplit] = useState(50);
-  const [uploadSplit, setUploadSplit] = useState(50);
-  const [downloadClientPercents, setDownloadClientPercents] = useState<Record<string, number>>({});
-  const [uploadClientPercents, setUploadClientPercents] = useState<Record<string, number>>({});
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<FailsafeConfig>();
@@ -77,8 +75,14 @@ export const FailsafeSettings: React.FC = () => {
         apiClient.getDownloadClients(),
         apiClient.getSettingsSection('bandwidth'),
       ]);
-      setConfig(failsafeResponse.config);
-      resetOriginal(failsafeResponse.config);
+      // Default missing percent dicts so the dirty-check baseline is stable
+      const loadedConfig: FailsafeConfig = {
+        ...failsafeResponse.config,
+        shutdown_download_client_percents: failsafeResponse.config?.shutdown_download_client_percents || {},
+        shutdown_upload_client_percents: failsafeResponse.config?.shutdown_upload_client_percents || {},
+      };
+      setConfig(loadedConfig);
+      resetOriginal(loadedConfig);
       setClients(clientsResponse.clients || []);
       // Extract bandwidth limits for calculating 10% defaults
       const bwConfig = bandwidthResponse.config;
@@ -136,28 +140,61 @@ export const FailsafeSettings: React.FC = () => {
   const firstUploadClient = uploadClients[0];
   const secondUploadClient = uploadClients[1];
 
-  // Default equal split percentage
-  const defaultDownloadPercent = downloadClients.length > 0 ? Math.round(100 / downloadClients.length) : 50;
-  const defaultUploadPercent = uploadClients.length > 0 ? Math.round(100 / uploadClients.length) : 50;
+  // Equal-split default that sums to exactly 100 (last client gets the remainder)
+  const equalSplitPercent = (clientList: { type: string }[], clientType: string): number => {
+    const n = clientList.length;
+    if (n === 0) return 50;
+    const base = Math.floor(100 / n);
+    const index = clientList.findIndex(c => c.type === clientType);
+    return index === n - 1 ? 100 - base * (n - 1) : base;
+  };
 
-  // Get client percentage for 3+ clients mode
+  // Get client percentage for 3+ clients mode (persisted in config)
   const getDownloadClientPercent = (clientType: string): number => {
-    const value = downloadClientPercents[clientType];
-    return value !== undefined ? value : defaultDownloadPercent;
+    const value = config?.shutdown_download_client_percents[clientType];
+    return value !== undefined ? value : equalSplitPercent(downloadClients, clientType);
   };
 
   const getUploadClientPercent = (clientType: string): number => {
-    const value = uploadClientPercents[clientType];
-    return value !== undefined ? value : defaultUploadPercent;
+    const value = config?.shutdown_upload_client_percents[clientType];
+    return value !== undefined ? value : equalSplitPercent(uploadClients, clientType);
   };
 
   // Update client percentage for 3+ clients mode
   const updateDownloadClientPercent = (clientType: string, value: number) => {
-    setDownloadClientPercents(prev => ({ ...prev, [clientType]: value }));
+    if (!config) return;
+    updateConfig('shutdown_download_client_percents', {
+      ...config.shutdown_download_client_percents,
+      [clientType]: value,
+    });
   };
 
   const updateUploadClientPercent = (clientType: string, value: number) => {
-    setUploadClientPercents(prev => ({ ...prev, [clientType]: value }));
+    if (!config) return;
+    updateConfig('shutdown_upload_client_percents', {
+      ...config.shutdown_upload_client_percents,
+      [clientType]: value,
+    });
+  };
+
+  // 2-client split slider values derived from persisted percents
+  const downloadSplit = firstDownloadClient ? getDownloadClientPercent(firstDownloadClient.type) : 50;
+  const uploadSplit = firstUploadClient ? getUploadClientPercent(firstUploadClient.type) : 50;
+
+  const setDownloadSplit = (value: number) => {
+    if (!config || !firstDownloadClient || !secondDownloadClient) return;
+    updateConfig('shutdown_download_client_percents', {
+      [firstDownloadClient.type]: value,
+      [secondDownloadClient.type]: 100 - value,
+    });
+  };
+
+  const setUploadSplit = (value: number) => {
+    if (!config || !firstUploadClient || !secondUploadClient) return;
+    updateConfig('shutdown_upload_client_percents', {
+      [firstUploadClient.type]: value,
+      [secondUploadClient.type]: 100 - value,
+    });
   };
 
   // Calculate total percentages for validation
@@ -249,7 +286,11 @@ export const FailsafeSettings: React.FC = () => {
               <Switch
                 id="shutdown-download-enabled"
                 checked={config.shutdown_download_speed !== null}
-                onCheckedChange={(checked) => updateConfig('shutdown_download_speed', checked ? getDefaultDownloadSpeed() : null)}
+                onCheckedChange={(checked) => setConfig({
+                  ...config,
+                  shutdown_download_speed: checked ? getDefaultDownloadSpeed() : null,
+                  ...(checked ? {} : { shutdown_download_client_percents: {} }),
+                })}
                 disabled={isSaving}
               />
             </div>
@@ -372,7 +413,11 @@ export const FailsafeSettings: React.FC = () => {
               <Switch
                 id="shutdown-upload-enabled"
                 checked={config.shutdown_upload_speed !== null}
-                onCheckedChange={(checked) => updateConfig('shutdown_upload_speed', checked ? getDefaultUploadSpeed() : null)}
+                onCheckedChange={(checked) => setConfig({
+                  ...config,
+                  shutdown_upload_speed: checked ? getDefaultUploadSpeed() : null,
+                  ...(checked ? {} : { shutdown_upload_client_percents: {} }),
+                })}
                 disabled={isSaving}
               />
             </div>

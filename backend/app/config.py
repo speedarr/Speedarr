@@ -245,8 +245,16 @@ class HistoryConfig(BaseModel):
 class FailsafeConfig(BaseModel):
     """Failsafe configuration."""
     plex_timeout: int = Field(300, description="Seconds before assuming no streams")
-    shutdown_download_speed: Optional[float] = Field(10.0, description="Download speed on shutdown (Mbps), null = leave unchanged")
-    shutdown_upload_speed: Optional[float] = Field(10.0, description="Upload speed on shutdown (Mbps), null = leave unchanged")
+    shutdown_download_speed: Optional[float] = Field(None, description="Total download speed applied to clients on shutdown (Mbps), null = restore normal speeds")
+    shutdown_upload_speed: Optional[float] = Field(None, description="Total upload speed applied to torrent clients on shutdown (Mbps), null = restore normal speeds")
+    shutdown_download_client_percents: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-client-type percentage split of shutdown download speed (empty = equal split)"
+    )
+    shutdown_upload_client_percents: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-client-type percentage split of shutdown upload speed (empty = equal split)"
+    )
 
 
 class SystemConfig(BaseModel):

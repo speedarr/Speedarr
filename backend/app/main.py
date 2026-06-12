@@ -278,14 +278,31 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, 'polling_monitor') and app.state.polling_monitor:
         await app.state.polling_monitor.stop()
     if hasattr(app.state, 'controller_manager') and app.state.controller_manager:
-        # Timeout for restore_all_speeds to prevent hanging on unreachable clients
+        # Read failsafe from app.state.config (kept fresh by ConfigManager on saves)
+        config = getattr(app.state, 'config', None)
+        failsafe = config.failsafe if config else None
+        use_shutdown_speeds = failsafe is not None and (
+            failsafe.shutdown_download_speed is not None
+            or failsafe.shutdown_upload_speed is not None
+        )
+        # Timeout to prevent hanging on unreachable clients
         try:
-            await asyncio.wait_for(
-                app.state.controller_manager.restore_all_speeds(),
-                timeout=SHUTDOWN_RESTORE_TIMEOUT_SECONDS
-            )
+            if use_shutdown_speeds:
+                logger.info(
+                    f"Applying configured shutdown speeds "
+                    f"(DL={failsafe.shutdown_download_speed} Mbps, UL={failsafe.shutdown_upload_speed} Mbps)"
+                )
+                await asyncio.wait_for(
+                    app.state.controller_manager.apply_shutdown_speeds(failsafe),
+                    timeout=SHUTDOWN_RESTORE_TIMEOUT_SECONDS
+                )
+            else:
+                await asyncio.wait_for(
+                    app.state.controller_manager.restore_all_speeds(),
+                    timeout=SHUTDOWN_RESTORE_TIMEOUT_SECONDS
+                )
         except asyncio.TimeoutError:
-            logger.warning("Timeout restoring speeds during shutdown - some clients may remain throttled")
+            logger.warning("Timeout applying shutdown speed limits - some clients may not have been updated")
         await app.state.controller_manager.close_all()
     if hasattr(app.state, 'notification_service') and app.state.notification_service:
         await app.state.notification_service.close()
