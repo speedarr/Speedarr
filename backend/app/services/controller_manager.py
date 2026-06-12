@@ -5,7 +5,7 @@ import asyncio
 from typing import Dict, Any, Optional
 from loguru import logger
 from app.clients import QBittorrentClient, SABnzbdClient, create_download_client
-from app.config import SpeedarrConfig
+from app.config import SpeedarrConfig, FailsafeConfig
 
 
 class ControllerManager:
@@ -230,6 +230,107 @@ class ControllerManager:
         results_list = await asyncio.gather(*[
             restore_client_with_retry(name, client)
             for name, client in self.clients.items()
+        ])
+        return dict(results_list)
+
+    def _split_shutdown_speed(
+        self,
+        total_mbps: float,
+        target_ids: list,
+        percents: Dict[str, float],
+    ) -> Dict[str, float]:
+        """
+        Split a total shutdown speed across clients by configured type percentages.
+
+        Falls back to equal split unless every target's type has a configured
+        percentage (same rule as the decision engine's client_percents handling).
+        """
+        if not target_ids:
+            return {}
+
+        all_configured = all(
+            self.client_configs[client_id].type in percents for client_id in target_ids
+        )
+        if all_configured:
+            raw = {c: percents[self.client_configs[c].type] for c in target_ids}
+            total_raw = sum(raw.values())
+            if total_raw > 0:
+                return {c: total_mbps * (v / total_raw) for c, v in raw.items()}
+
+        return {c: total_mbps / len(target_ids) for c in target_ids}
+
+    async def apply_shutdown_speeds(
+        self,
+        failsafe: FailsafeConfig,
+        retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> Dict[str, bool]:
+        """
+        Apply configured failsafe shutdown speeds to clients in parallel.
+
+        Directions with a configured total are split across clients per the
+        failsafe percent config; unset directions are restored to normal speeds.
+        Upload limits only apply to clients that support upload (torrents).
+
+        Args:
+            failsafe: Failsafe config (passed explicitly; self.config may be stale)
+            retries: Number of retry attempts per client (default: 3)
+            retry_delay: Delay between retries in seconds (default: 1.0)
+
+        Returns:
+            Dict mapping client IDs to success status
+        """
+        if not self.clients:
+            return {}
+
+        download_limits: Dict[str, float] = {}
+        if failsafe.shutdown_download_speed is not None:
+            download_limits = self._split_shutdown_speed(
+                failsafe.shutdown_download_speed,
+                list(self.clients.keys()),
+                failsafe.shutdown_download_client_percents,
+            )
+
+        upload_limits: Dict[str, float] = {}
+        if failsafe.shutdown_upload_speed is not None:
+            upload_targets = [
+                client_id for client_id in self.clients
+                if self.client_configs[client_id].supports_upload
+            ]
+            upload_limits = self._split_shutdown_speed(
+                failsafe.shutdown_upload_speed,
+                upload_targets,
+                failsafe.shutdown_upload_client_percents,
+            )
+
+        async def apply_to_client(client_id: str, client: Any) -> tuple[str, bool]:
+            dl = download_limits.get(client_id)
+            ul = upload_limits.get(client_id)
+            for attempt in range(1, retries + 1):
+                try:
+                    # Restore first so unset directions return to normal speeds,
+                    # then overlay the shutdown limits (None = leave unchanged)
+                    await client.restore_speed_limits()
+                    if dl is not None or ul is not None:
+                        await client.set_speed_limits(download_limit=dl, upload_limit=ul)
+                    logger.info(
+                        f"Shutdown speeds applied to {client_id}: "
+                        f"DL={f'{dl:.1f} Mbps' if dl is not None else 'restored'}, "
+                        f"UL={f'{ul:.1f} Mbps' if ul is not None else 'restored'}"
+                    )
+                    return (client_id, True)
+                except Exception as e:
+                    if attempt < retries:
+                        logger.warning(f"Failed to apply shutdown speeds to {client_id} (attempt {attempt}/{retries}): {e}")
+                        await asyncio.sleep(retry_delay)
+                    else:
+                        logger.error(f"Failed to apply shutdown speeds to {client_id} after {retries} attempts: {e}")
+                        return (client_id, False)
+            return (client_id, False)
+
+        results_list = await asyncio.gather(*[
+            apply_to_client(client_id, client)
+            for client_id, client in self.clients.items()
         ])
         return dict(results_list)
 

@@ -334,37 +334,15 @@ export const BandwidthSettings: React.FC = () => {
     });
   }, []);
 
-  // Get scheduled percent for a client type
-  // Normalizes stored percentages to account for enabled/disabled client changes
+  // Get scheduled percent for a client type (raw stored value, or equal-split default)
   const getDownloadScheduledPercent = (clientType: string): number => {
     const storedPercents = config?.download.scheduled?.client_percents || {};
-
-    // Calculate total of stored percentages for enabled clients only
-    const enabledTotal = enabledClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      return Math.round((value / enabledTotal) * 100);
-    }
-    return defaultPercent;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledClients, clientType);
   };
 
   const getUploadScheduledPercent = (clientType: string): number => {
     const storedPercents = config?.upload.scheduled?.client_percents || {};
-    const defaultUploadPercent = enabledUploadClients.length > 0 ? Math.round(100 / enabledUploadClients.length) : 0;
-
-    // Calculate total of stored percentages for enabled upload clients only
-    const enabledTotal = enabledUploadClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      return Math.round((value / enabledTotal) * 100);
-    }
-    return defaultUploadPercent;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledUploadClients, clientType);
   };
 
   const enabledClients = clients.filter(c => c.enabled);
@@ -376,25 +354,20 @@ export const BandwidthSettings: React.FC = () => {
   const hasMultipleUploadClients = enabledUploadClients.length >= 2;
   const hasThreeOrMoreUploadClients = enabledUploadClients.length >= 3;
 
-  // Default equal split percentage
-  const defaultPercent = enabledClients.length > 0 ? Math.round(100 / enabledClients.length) : 50;
+  // Equal-split default that sums to exactly 100 (last client gets the remainder)
+  const equalSplitPercent = (clientList: { type: string }[], clientType: string): number => {
+    const n = clientList.length;
+    if (n === 0) return 0;
+    const base = Math.floor(100 / n);
+    const index = clientList.findIndex(c => c.type === clientType);
+    return index === n - 1 ? 100 - base * (n - 1) : base;
+  };
 
-  // Get client allocation percentage (used when multiple clients are downloading)
-  // Normalizes stored percentages to account for enabled/disabled client changes
+  // Get client allocation percentage (raw stored value, or equal-split default).
+  // Values are shown as entered; the decision engine normalizes at allocation time.
   const getClientPercent = (clientType: string): number => {
     const storedPercents = config?.download.client_percents || {};
-
-    // Calculate total of stored percentages for enabled clients only
-    const enabledTotal = enabledClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      // Normalize: stored value / total of enabled * 100
-      return Math.round((value / enabledTotal) * 100);
-    }
-    return defaultPercent;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledClients, clientType);
   };
 
   // Update client percentage for slider mode (2 clients)
@@ -429,23 +402,11 @@ export const BandwidthSettings: React.FC = () => {
   // Calculate total percentage
   const clientTotal = enabledClients.reduce((sum, c) => sum + getClientPercent(c.type), 0);
 
-  // Get upload percentage for a client type
-  // Normalizes stored percentages to account for enabled/disabled client changes
+  // Get upload percentage for a client type (raw stored value, or equal-split default).
+  // Values are shown as entered; the decision engine normalizes at allocation time.
   const getUploadPercent = (clientType: string): number => {
     const storedPercents = config?.upload.upload_client_percents || {};
-
-    // Calculate total of stored percentages for enabled upload clients only
-    const enabledTotal = enabledUploadClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      // Normalize: stored value / total of enabled * 100
-      return Math.round((value / enabledTotal) * 100);
-    }
-    // Default equal split for unlisted clients
-    return enabledUploadClients.length > 0 ? Math.round(100 / enabledUploadClients.length) : 0;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledUploadClients, clientType);
   };
 
   // Update upload percentage for a client (slider mode - 2 clients)
@@ -1052,28 +1013,30 @@ export const BandwidthSettings: React.FC = () => {
                 disabled={isSaving}
               />
               <p className="text-sm text-muted-foreground">
-                Fixed bandwidth allocation per active stream
+                Exact bandwidth reserved per active stream (no overhead added)
               </p>
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="overhead-percent">Protocol Overhead %</Label>
-            <Input
-              id="overhead-percent"
-              type="number"
-              min="0"
-              max="300"
-              value={config.streams.overhead_percent}
-              onChange={(e) => updateStreamsConfig('overhead_percent', parseFloat(e.target.value))}
-              disabled={isSaving}
-              className="w-24"
-            />
-            <p className="text-sm text-muted-foreground">
-              Extra bandwidth to account for protocol overhead.
-              {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps reserved.
-            </p>
-          </div>
+          {config.streams.bandwidth_calculation === 'auto' && (
+            <div className="space-y-2">
+              <Label htmlFor="overhead-percent">Protocol Overhead %</Label>
+              <Input
+                id="overhead-percent"
+                type="number"
+                min="0"
+                max="300"
+                value={config.streams.overhead_percent}
+                onChange={(e) => updateStreamsConfig('overhead_percent', parseFloat(e.target.value))}
+                disabled={isSaving}
+                className="w-24"
+              />
+              <p className="text-sm text-muted-foreground">
+                Extra bandwidth to account for protocol overhead.
+                {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps reserved.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="download-reserve-percent">Download Bandwidth Reserve %</Label>
@@ -1089,8 +1052,17 @@ export const BandwidthSettings: React.FC = () => {
             />
             <p className="text-sm text-muted-foreground">
               Percentage of stream upload bandwidth to reserve from downloads for TCP ACKs and control traffic.
-              {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps upload reserved
-              {' '}&times; {config.streams.download_reserve_percent}% = {(8 * (1 + config.streams.overhead_percent / 100) * config.streams.download_reserve_percent / 100).toFixed(1)} Mbps download reserved.
+              {config.streams.bandwidth_calculation === 'manual' ? (
+                <>
+                  {' '}Example: A stream reserving {config.streams.manual_per_stream} Mbps upload
+                  {' '}&times; {config.streams.download_reserve_percent}% = {(config.streams.manual_per_stream * config.streams.download_reserve_percent / 100).toFixed(1)} Mbps download reserved.
+                </>
+              ) : (
+                <>
+                  {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps upload reserved
+                  {' '}&times; {config.streams.download_reserve_percent}% = {(8 * (1 + config.streams.overhead_percent / 100) * config.streams.download_reserve_percent / 100).toFixed(1)} Mbps download reserved.
+                </>
+              )}
               {' '}Set to 0 to disable.
             </p>
           </div>

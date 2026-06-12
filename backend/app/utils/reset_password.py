@@ -21,9 +21,10 @@ logging.disable(logging.CRITICAL)
 
 from app.models.user import User
 from app.api.auth import get_password_hash
+from app.config import settings
 
 
-DATABASE_URL = "sqlite+aiosqlite:///data/speedarr.db"
+DATABASE_URL = settings.database_url
 
 
 async def reset_password(username: str, new_password: str) -> bool:

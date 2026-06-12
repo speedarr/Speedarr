@@ -414,7 +414,7 @@ class ApiClient {
   async setTemporaryLimits(params: {
     download_mbps?: number | null;
     upload_mbps?: number | null;
-    duration_hours: number;
+    duration_hours?: number;
     source?: string;
   }): Promise<{
     active: boolean;

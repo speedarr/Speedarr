@@ -123,9 +123,15 @@ class DecisionEngine:
                 s.get("stream_bitrate_mbps", 0) for s in bandwidth_streams
             )
 
-            # Calculate required bandwidth for streams (with overhead)
+            # Calculate required bandwidth for streams (with overhead, or fixed manual value)
+            streams_config = self.config.bandwidth.streams
             total_stream_bandwidth = sum(
-                calculate_stream_bandwidth(stream, self.config.bandwidth.streams.overhead_percent)
+                calculate_stream_bandwidth(
+                    stream,
+                    streams_config.overhead_percent,
+                    bandwidth_calculation=streams_config.bandwidth_calculation,
+                    manual_per_stream=streams_config.manual_per_stream,
+                )
                 for stream in bandwidth_streams
             )
 

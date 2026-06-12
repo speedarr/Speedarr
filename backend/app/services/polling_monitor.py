@@ -379,11 +379,18 @@ class PollingMonitor:
                 return None, None
 
             expires_at = self._temporary_limits.get('expires_at')
-            if not expires_at or datetime.now(timezone.utc) > expires_at:
+
+            if expires_at is None:
+                # Indefinite limit — active until explicitly cleared
+                return (
+                    self._temporary_limits.get('download_mbps'),
+                    self._temporary_limits.get('upload_mbps')
+                )
+
+            if datetime.now(timezone.utc) > expires_at:
                 # Expired - clear and return None
-                if self._temporary_limits:
-                    logger.info("Temporary bandwidth limits expired, reverting to normal limits")
-                    self._temporary_limits = None
+                logger.info("Temporary bandwidth limits expired, reverting to normal limits")
+                self._temporary_limits = None
                 return None, None
 
             return (
@@ -618,10 +625,12 @@ class PollingMonitor:
             }
             delay = self.decision_engine.calculate_restoration_delay(stream_info)
 
-            # Calculate bandwidth freed by this stream ending (with overhead)
+            # Calculate bandwidth freed by this stream ending (with overhead, or fixed manual value)
             freed_bandwidth = calculate_stream_bandwidth(
                 stream,
-                self.config.bandwidth.streams.overhead_percent
+                self.config.bandwidth.streams.overhead_percent,
+                bandwidth_calculation=self.config.bandwidth.streams.bandwidth_calculation,
+                manual_per_stream=self.config.bandwidth.streams.manual_per_stream,
             )
 
             logger.info(

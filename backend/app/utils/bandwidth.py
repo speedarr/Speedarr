@@ -31,17 +31,28 @@ def format_speed(mbps: float) -> str:
     return f"{mbps:.1f} Mbps"
 
 
-def calculate_stream_bandwidth(stream: Dict[str, Any], overhead_percent: float = 20) -> float:
+def calculate_stream_bandwidth(
+    stream: Dict[str, Any],
+    overhead_percent: float = 20,
+    bandwidth_calculation: str = "auto",
+    manual_per_stream: float = 15.0,
+) -> float:
     """
     Calculate required bandwidth for a stream.
 
     Args:
         stream: Stream data dict
-        overhead_percent: Protocol overhead percentage to add (clamped to 0-300)
+        overhead_percent: Protocol overhead percentage to add (clamped to 0-300, auto mode only)
+        bandwidth_calculation: "auto" (Plex-reported bitrate + overhead) or "manual" (fixed value)
+        manual_per_stream: Exact reservation per stream in Mbps when manual
 
     Returns:
         Required bandwidth in Mbps (always >= 0)
     """
+    # Manual mode: the configured value is the exact reservation, no overhead applied
+    if bandwidth_calculation == "manual" and manual_per_stream > 0:
+        return manual_per_stream
+
     # Clamp overhead to reasonable range (0-300%)
     overhead_percent = max(0, min(300, overhead_percent))
 

@@ -279,6 +279,11 @@ class ConfigManager:
         if section_name == "bandwidth":
             await self.cleanup_legacy_bandwidth_keys(db, user_id)
 
+        # Clean up per-client-type percent keys for failsafe section so removed
+        # client types don't resurrect on reload (flatten_dict drops empty dicts)
+        if section_name == "failsafe":
+            await self.cleanup_failsafe_percent_keys(db, user_id)
+
         # Flatten the section data
         flat_data = flatten_dict({section_name: config_data})
 
@@ -394,6 +399,36 @@ class ConfigManager:
                 # Record in history
                 history_entry = ConfigurationHistory(
                     key=key,
+                    old_value=existing.value,
+                    new_value="[DELETED]",
+                    value_type=existing.value_type,
+                    changed_by=user_id,
+                )
+                db.add(history_entry)
+
+    async def cleanup_failsafe_percent_keys(self, db: AsyncSession, user_id: Optional[int] = None):
+        """
+        Remove all failsafe shutdown client percent keys from database.
+
+        Called before saving the failsafe section: the percent dicts are stored
+        as one row per client type, and update_section never deletes rows for
+        keys absent from the new data, so stale types must be cleared first.
+        """
+        prefixes = [
+            "failsafe.shutdown_download_client_percents.",
+            "failsafe.shutdown_upload_client_percents.",
+        ]
+
+        for prefix in prefixes:
+            result = await db.execute(
+                select(Configuration).where(Configuration.key.startswith(prefix))
+            )
+            for existing in result.scalars().all():
+                await db.execute(delete(Configuration).where(Configuration.key == existing.key))
+                logger.debug(f"Cleared failsafe percent key: {existing.key}")
+
+                history_entry = ConfigurationHistory(
+                    key=existing.key,
                     old_value=existing.value,
                     new_value="[DELETED]",
                     value_type=existing.value_type,

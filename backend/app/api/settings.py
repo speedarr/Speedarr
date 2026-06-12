@@ -325,26 +325,21 @@ async def test_connection(
             username = config_data.get("username", "")
             password = config_data.get("password", "")
 
-            # Get existing client config for use_existing
+            # Resolve masked password from the saved config; username and password
+            # are otherwise optional (qBittorrent supports auth bypass / proxies)
             if test_request.use_existing or password == "***REDACTED***":
                 existing = _find_existing_client(app_config, config_data.get("id"), "qbittorrent")
-                if existing:
-                    if not url:
-                        url = existing.url
-                    if not username:
-                        username = existing.username
-                    if existing.password and password in ("", "***REDACTED***"):
-                        password = existing.password
+                if existing and existing.password and password in ("", "***REDACTED***"):
+                    password = existing.password
                 elif password == "***REDACTED***":
                     return TestConnectionResponse(
                         success=False,
                         message="No qBittorrent password configured. Please enter a password.",
                     )
 
-            if not url or not username or not password:
+            if not url:
                 return TestConnectionResponse(
-                    success=False,
-                    message="Missing required fields: url, username, and password",
+                    success=False, message="Missing required field: url"
                 )
 
             client = QBittorrentClient(url=url, username=username, password=password)
