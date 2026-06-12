@@ -110,9 +110,10 @@ class NZBGetClient(BaseDownloadClient):
         """Set speed limits in Mbps."""
         try:
             if download_limit is not None:
-                # Convert Mbps to KB/s (NZBGet uses KB/s)
-                # 1 Mbps = 125 KB/s (1,000,000 bits / 8,000 bits per KB)
-                limit_kbps = int(download_limit * 125)
+                # Convert Mbps to KB/s (NZBGet uses KB/s where 1 KB = 1024 bytes)
+                # mbps * 1,048,576 / 8 / 1024 = mbps * 128, symmetric with the
+                # binary bytes/s -> Mbps conversion in get_speed_limits
+                limit_kbps = int(download_limit * 128)
                 await self._rpc_call("rate", [limit_kbps])
                 logger.debug(f"Set NZBGet download limit: {download_limit:.1f} Mbps ({limit_kbps} KB/s)")
         except Exception as e:
