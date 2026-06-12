@@ -1052,28 +1052,30 @@ export const BandwidthSettings: React.FC = () => {
                 disabled={isSaving}
               />
               <p className="text-sm text-muted-foreground">
-                Fixed bandwidth allocation per active stream
+                Exact bandwidth reserved per active stream (no overhead added)
               </p>
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="overhead-percent">Protocol Overhead %</Label>
-            <Input
-              id="overhead-percent"
-              type="number"
-              min="0"
-              max="300"
-              value={config.streams.overhead_percent}
-              onChange={(e) => updateStreamsConfig('overhead_percent', parseFloat(e.target.value))}
-              disabled={isSaving}
-              className="w-24"
-            />
-            <p className="text-sm text-muted-foreground">
-              Extra bandwidth to account for protocol overhead.
-              {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps reserved.
-            </p>
-          </div>
+          {config.streams.bandwidth_calculation === 'auto' && (
+            <div className="space-y-2">
+              <Label htmlFor="overhead-percent">Protocol Overhead %</Label>
+              <Input
+                id="overhead-percent"
+                type="number"
+                min="0"
+                max="300"
+                value={config.streams.overhead_percent}
+                onChange={(e) => updateStreamsConfig('overhead_percent', parseFloat(e.target.value))}
+                disabled={isSaving}
+                className="w-24"
+              />
+              <p className="text-sm text-muted-foreground">
+                Extra bandwidth to account for protocol overhead.
+                {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps reserved.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="download-reserve-percent">Download Bandwidth Reserve %</Label>
@@ -1089,8 +1091,17 @@ export const BandwidthSettings: React.FC = () => {
             />
             <p className="text-sm text-muted-foreground">
               Percentage of stream upload bandwidth to reserve from downloads for TCP ACKs and control traffic.
-              {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps upload reserved
-              {' '}&times; {config.streams.download_reserve_percent}% = {(8 * (1 + config.streams.overhead_percent / 100) * config.streams.download_reserve_percent / 100).toFixed(1)} Mbps download reserved.
+              {config.streams.bandwidth_calculation === 'manual' ? (
+                <>
+                  {' '}Example: A stream reserving {config.streams.manual_per_stream} Mbps upload
+                  {' '}&times; {config.streams.download_reserve_percent}% = {(config.streams.manual_per_stream * config.streams.download_reserve_percent / 100).toFixed(1)} Mbps download reserved.
+                </>
+              ) : (
+                <>
+                  {' '}Example: An 8 Mbps stream with {config.streams.overhead_percent}% overhead = {(8 * (1 + config.streams.overhead_percent / 100)).toFixed(1)} Mbps upload reserved
+                  {' '}&times; {config.streams.download_reserve_percent}% = {(8 * (1 + config.streams.overhead_percent / 100) * config.streams.download_reserve_percent / 100).toFixed(1)} Mbps download reserved.
+                </>
+              )}
               {' '}Set to 0 to disable.
             </p>
           </div>

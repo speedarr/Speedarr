@@ -625,10 +625,12 @@ class PollingMonitor:
             }
             delay = self.decision_engine.calculate_restoration_delay(stream_info)
 
-            # Calculate bandwidth freed by this stream ending (with overhead)
+            # Calculate bandwidth freed by this stream ending (with overhead, or fixed manual value)
             freed_bandwidth = calculate_stream_bandwidth(
                 stream,
-                self.config.bandwidth.streams.overhead_percent
+                self.config.bandwidth.streams.overhead_percent,
+                bandwidth_calculation=self.config.bandwidth.streams.bandwidth_calculation,
+                manual_per_stream=self.config.bandwidth.streams.manual_per_stream,
             )
 
             logger.info(

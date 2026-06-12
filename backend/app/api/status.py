@@ -57,10 +57,16 @@ async def get_current_status(request: Request):
         active_streams, config.plex.include_lan_streams
     )
 
-    # Calculate reserved bandwidth (with overhead) - only counts WAN streams when toggle is off
-    overhead_percent = config.bandwidth.streams.overhead_percent
+    # Calculate reserved bandwidth (with overhead, or fixed manual value) - only counts WAN streams when toggle is off
+    streams_config = config.bandwidth.streams
     reserved_bandwidth = sum(
-        calculate_stream_bandwidth(stream, overhead_percent) for stream in bandwidth_streams
+        calculate_stream_bandwidth(
+            stream,
+            streams_config.overhead_percent,
+            bandwidth_calculation=streams_config.bandwidth_calculation,
+            manual_per_stream=streams_config.manual_per_stream,
+        )
+        for stream in bandwidth_streams
     )
 
     # Get holding bandwidth (from ended streams in restoration delay period)
