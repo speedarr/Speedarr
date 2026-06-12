@@ -334,37 +334,15 @@ export const BandwidthSettings: React.FC = () => {
     });
   }, []);
 
-  // Get scheduled percent for a client type
-  // Normalizes stored percentages to account for enabled/disabled client changes
+  // Get scheduled percent for a client type (raw stored value, or equal-split default)
   const getDownloadScheduledPercent = (clientType: string): number => {
     const storedPercents = config?.download.scheduled?.client_percents || {};
-
-    // Calculate total of stored percentages for enabled clients only
-    const enabledTotal = enabledClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      return Math.round((value / enabledTotal) * 100);
-    }
-    return defaultPercent;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledClients, clientType);
   };
 
   const getUploadScheduledPercent = (clientType: string): number => {
     const storedPercents = config?.upload.scheduled?.client_percents || {};
-    const defaultUploadPercent = enabledUploadClients.length > 0 ? Math.round(100 / enabledUploadClients.length) : 0;
-
-    // Calculate total of stored percentages for enabled upload clients only
-    const enabledTotal = enabledUploadClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      return Math.round((value / enabledTotal) * 100);
-    }
-    return defaultUploadPercent;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledUploadClients, clientType);
   };
 
   const enabledClients = clients.filter(c => c.enabled);
@@ -376,25 +354,20 @@ export const BandwidthSettings: React.FC = () => {
   const hasMultipleUploadClients = enabledUploadClients.length >= 2;
   const hasThreeOrMoreUploadClients = enabledUploadClients.length >= 3;
 
-  // Default equal split percentage
-  const defaultPercent = enabledClients.length > 0 ? Math.round(100 / enabledClients.length) : 50;
+  // Equal-split default that sums to exactly 100 (last client gets the remainder)
+  const equalSplitPercent = (clientList: { type: string }[], clientType: string): number => {
+    const n = clientList.length;
+    if (n === 0) return 0;
+    const base = Math.floor(100 / n);
+    const index = clientList.findIndex(c => c.type === clientType);
+    return index === n - 1 ? 100 - base * (n - 1) : base;
+  };
 
-  // Get client allocation percentage (used when multiple clients are downloading)
-  // Normalizes stored percentages to account for enabled/disabled client changes
+  // Get client allocation percentage (raw stored value, or equal-split default).
+  // Values are shown as entered; the decision engine normalizes at allocation time.
   const getClientPercent = (clientType: string): number => {
     const storedPercents = config?.download.client_percents || {};
-
-    // Calculate total of stored percentages for enabled clients only
-    const enabledTotal = enabledClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      // Normalize: stored value / total of enabled * 100
-      return Math.round((value / enabledTotal) * 100);
-    }
-    return defaultPercent;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledClients, clientType);
   };
 
   // Update client percentage for slider mode (2 clients)
@@ -429,23 +402,11 @@ export const BandwidthSettings: React.FC = () => {
   // Calculate total percentage
   const clientTotal = enabledClients.reduce((sum, c) => sum + getClientPercent(c.type), 0);
 
-  // Get upload percentage for a client type
-  // Normalizes stored percentages to account for enabled/disabled client changes
+  // Get upload percentage for a client type (raw stored value, or equal-split default).
+  // Values are shown as entered; the decision engine normalizes at allocation time.
   const getUploadPercent = (clientType: string): number => {
     const storedPercents = config?.upload.upload_client_percents || {};
-
-    // Calculate total of stored percentages for enabled upload clients only
-    const enabledTotal = enabledUploadClients.reduce((sum, c) => {
-      return sum + (storedPercents[c.type] ?? 0);
-    }, 0);
-
-    const value = storedPercents[clientType];
-    if (value !== undefined && enabledTotal > 0) {
-      // Normalize: stored value / total of enabled * 100
-      return Math.round((value / enabledTotal) * 100);
-    }
-    // Default equal split for unlisted clients
-    return enabledUploadClients.length > 0 ? Math.round(100 / enabledUploadClients.length) : 0;
+    return storedPercents[clientType] ?? equalSplitPercent(enabledUploadClients, clientType);
   };
 
   // Update upload percentage for a client (slider mode - 2 clients)
