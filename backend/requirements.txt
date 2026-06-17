@@ -8,7 +8,7 @@ sqlalchemy==2.0.25
 aiosqlite==0.20.0
 
 # HTTP Client
-aiohttp==3.9.1
+aiohttp==3.14.1
 
 # Configuration
 pydantic==2.5.3
