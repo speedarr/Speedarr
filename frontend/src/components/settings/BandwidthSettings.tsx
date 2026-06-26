@@ -56,12 +56,14 @@ interface TimeBasedSchedule {
 interface BandwidthConfig {
   download: {
     total_limit: number;
+    min_limit_mbps: number;
     inactive_safety_net_percent: number;
     client_percents: Record<string, number>;
     scheduled?: TimeBasedSchedule;
   };
   upload: {
     total_limit: number;
+    min_limit_mbps: number;
     upload_client_percents: Record<string, number>;
     scheduled?: TimeBasedSchedule;
   };
@@ -129,6 +131,12 @@ export const BandwidthSettings: React.FC = () => {
       }
       if (!loadedConfig.upload.upload_client_percents) {
         loadedConfig.upload.upload_client_percents = {};
+      }
+      if (loadedConfig.download.min_limit_mbps == null) {
+        loadedConfig.download.min_limit_mbps = 1;
+      }
+      if (loadedConfig.upload.min_limit_mbps == null) {
+        loadedConfig.upload.min_limit_mbps = 1;
       }
       // Initialize scheduled configs if not present
       if (!loadedConfig.download.scheduled) {
@@ -513,6 +521,28 @@ export const BandwidthSettings: React.FC = () => {
             </p>
           </div>
 
+          <div className="space-y-2">
+            <Label htmlFor="download-min-limit">Minimum Speed per Client (Mbps)</Label>
+            <Input
+              id="download-min-limit"
+              type="number"
+              min="0"
+              step="0.1"
+              value={config.download.min_limit_mbps}
+              onChange={(e) => {
+                const value = parseFloat(e.target.value);
+                if (!isNaN(value)) {
+                  updateDownloadConfig('min_limit_mbps', value);
+                }
+              }}
+              disabled={isSaving}
+            />
+            <p className="text-sm text-muted-foreground">
+              Each client is never throttled below this, even when streams consume all bandwidth.
+              Set 0 to slow clients to a trickle instead of removing the limit.
+            </p>
+          </div>
+
           {/* Client Allocation - 2 clients: Split Slider */}
           {hasMultipleClients && !hasThreeOrMoreClients && (
             <div className="space-y-4 pt-4 border-t">
@@ -773,6 +803,28 @@ export const BandwidthSettings: React.FC = () => {
             />
             <p className="text-sm text-muted-foreground">
               Total available upload bandwidth in Mbps
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="upload-min-limit">Minimum Speed per Client (Mbps)</Label>
+            <Input
+              id="upload-min-limit"
+              type="number"
+              min="0"
+              step="0.1"
+              value={config.upload.min_limit_mbps}
+              onChange={(e) => {
+                const value = parseFloat(e.target.value);
+                if (!isNaN(value)) {
+                  updateUploadConfig('min_limit_mbps', value);
+                }
+              }}
+              disabled={isSaving}
+            />
+            <p className="text-sm text-muted-foreground">
+              Each client is never throttled below this, even when streams consume all bandwidth.
+              Set 0 to slow clients to a trickle instead of removing the limit.
             </p>
           </div>
 
