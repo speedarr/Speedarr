@@ -7,6 +7,10 @@ from loguru import logger
 from app.config import SpeedarrConfig, TimeBasedScheduleConfig
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 
+# Smallest throttle (~1 KB/s). Guarantees a throttle is never 0, which every
+# download client interprets as "unlimited". See issue #43.
+HARD_MIN_MBPS = 0.01
+
 
 def is_within_schedule(schedule: TimeBasedScheduleConfig) -> bool:
     """
@@ -55,6 +59,10 @@ class DecisionEngine:
         self._inactive_counter: Dict[str, int] = {}
         # Track consecutive intervals each upload client has been below the active threshold
         self._upload_inactive_counter: Dict[str, int] = {}
+
+    def _floor(self, limit: float, configured_min: float) -> float:
+        """Clamp a throttle allocation so it is never 0 (which clients read as 'unlimited')."""
+        return max(limit, configured_min, HARD_MIN_MBPS)
 
     def calculate_throttle(
         self,
@@ -167,20 +175,6 @@ class DecisionEngine:
         upload_before_reservation = upload_total_limit - total_stream_bandwidth
         available_upload = max(0, upload_before_reservation - reserved_bandwidth_mbps)
 
-        # Check if plex reserved bandwidth exceeds total upload limit
-        # In this case, allocate only 1% per upload client as a safety measure
-        plex_exceeds_limit = total_stream_bandwidth > upload_total_limit
-        if plex_exceeds_limit:
-            # Calculate 1% per upload client
-            upload_clients = [c for c, stats in download_stats.items() if stats.get("supports_upload", False)]
-            if upload_clients:
-                emergency_upload = upload_total_limit * 0.01 * len(upload_clients)
-                available_upload = emergency_upload
-                logger.warning(
-                    f"Plex reserved ({total_stream_bandwidth:.1f} Mbps) exceeds upload limit ({upload_total_limit:.1f} Mbps). "
-                    f"Upload clients limited to 1% each."
-                )
-
         # Get all available clients (we always apply limits to all clients)
         all_clients = list(download_stats.keys())
 
@@ -248,12 +242,21 @@ class DecisionEngine:
             if reserved_bandwidth_mbps > 0:
                 reason += f", Holding: {reserved_bandwidth_mbps:.1f} Mbps"
 
-        # Apply decisions to all clients
+        # Apply decisions to all clients, flooring throttles so a limit of 0
+        # (which clients treat as "unlimited") can never be emitted. See issue #43.
+        dl_min = self.config.bandwidth.download.min_limit_mbps
+        ul_min = self.config.bandwidth.upload.min_limit_mbps
         for client_name in all_clients:
+            download_limit = self._floor(download_allocations[client_name], dl_min)
+            # Upload floor only applies to upload-capable clients; others keep 0.
+            if download_stats.get(client_name, {}).get("supports_upload", False):
+                upload_limit = self._floor(upload_allocations.get(client_name, 0), ul_min)
+            else:
+                upload_limit = 0
             decisions[client_name] = {
                 "action": "throttle",
-                "download_limit": round(download_allocations[client_name], 2),
-                "upload_limit": round(upload_allocations.get(client_name, 0), 2),
+                "download_limit": round(download_limit, 2),
+                "upload_limit": round(upload_limit, 2),
                 "reason": reason,
             }
 
