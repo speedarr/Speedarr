@@ -326,7 +326,7 @@ export const Home: React.FC = () => {
                 <Alert variant="destructive" className="py-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients limited to 1% each.
+                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
                   </AlertDescription>
                 </Alert>
               )}
@@ -335,7 +335,7 @@ export const Home: React.FC = () => {
                 <Alert variant="destructive" className="py-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients limited to 1% each.
+                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
                   </AlertDescription>
                 </Alert>
               )}
