@@ -86,6 +86,12 @@ class TimeBasedScheduleConfig(BaseModel):
 class DownloadBandwidthConfig(BaseModel):
     """Download bandwidth configuration."""
     total_limit: float = Field(..., description="Total download bandwidth in Mbps")
+    min_limit_mbps: float = Field(
+        1.0, ge=0,
+        description="Minimum speed each client is throttled to (Mbps). "
+                    "Clients are never throttled below this; 0 = trickle to near-zero. "
+                    "Prevents the limit from being removed entirely."
+    )
 
     # Client percentages when multiple clients are downloading (maps client_type -> percent)
     # When no clients are downloading: equal split
@@ -112,6 +118,12 @@ class DownloadBandwidthConfig(BaseModel):
 class UploadBandwidthConfig(BaseModel):
     """Upload bandwidth configuration."""
     total_limit: float = Field(..., description="Total upload bandwidth in Mbps")
+    min_limit_mbps: float = Field(
+        1.0, ge=0,
+        description="Minimum speed each client is throttled to (Mbps). "
+                    "Clients are never throttled below this; 0 = trickle to near-zero. "
+                    "Prevents the limit from being removed entirely."
+    )
     # Client percentages for upload bandwidth splitting (maps client_type -> percent)
     upload_client_percents: Dict[str, int] = Field(
         default_factory=dict,
