@@ -567,9 +567,7 @@ class PollingMonitor:
             # Check stream count and bitrate thresholds for notifications
             # Filter by LAN/WAN to match the streams the decision engine manages
             if self.notification_service:
-                threshold_streams = filter_streams_for_bandwidth(
-                    self._cached_streams, self.config.plex.include_lan_streams
-                )
+                threshold_streams = filter_streams_for_bandwidth(self._cached_streams)
                 # Use stream_bandwidth_mbps (real-time) with fallback to stream_bitrate_mbps (media file bitrate)
                 total_bandwidth = sum(
                     s.get("stream_bandwidth_mbps", 0) or s.get("stream_bitrate_mbps", 0)

@@ -65,9 +65,7 @@ async def get_current_bandwidth(request: Request):
         config = decision_engine.config
 
         # Filter streams for reserved bandwidth based on LAN/WAN config
-        bandwidth_streams = filter_streams_for_bandwidth(
-            active_streams, config.plex.include_lan_streams
-        )
+        bandwidth_streams = filter_streams_for_bandwidth(active_streams)
         reserved_stream_bandwidth = sum(s.get("stream_bitrate_mbps", 0) for s in bandwidth_streams)
 
         # Get current client stats

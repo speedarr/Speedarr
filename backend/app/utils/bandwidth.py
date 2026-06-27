@@ -82,21 +82,21 @@ def calculate_stream_bandwidth(
 
 def filter_streams_for_bandwidth(
     streams: List[Dict[str, Any]],
-    include_lan_streams: bool = False
 ) -> List[Dict[str, Any]]:
     """
-    Filter streams for bandwidth calculations based on LAN/WAN config.
+    Filter streams for bandwidth calculations using each stream's OWN server policy.
 
-    Args:
-        streams: List of stream data dicts
-        include_lan_streams: If False, excludes LAN streams from calculations
-
-    Returns:
-        Filtered list of streams to use for bandwidth calculations
+    A LAN stream is included only when the server it came from has
+    include_lan_streams=True (carried on the stream dict). WAN streams are
+    always included. Missing policy defaults to excluding LAN (legacy default).
     """
-    if include_lan_streams:
-        return streams
-    return [s for s in streams if not s.get("is_lan", False)]
+    kept = []
+    for s in streams:
+        if not s.get("is_lan", False):
+            kept.append(s)
+        elif s.get("include_lan_streams", False):
+            kept.append(s)
+    return kept
 
 
 def calculate_total_stream_bitrate(streams: List[Dict[str, Any]]) -> float:

@@ -116,9 +116,7 @@ class DecisionEngine:
             logger.debug("No active streams, using full bandwidth with allocation rules")
         else:
             # Filter streams based on LAN/WAN config
-            bandwidth_streams = filter_streams_for_bandwidth(
-                active_streams, self.config.plex.include_lan_streams
-            )
+            bandwidth_streams = filter_streams_for_bandwidth(active_streams)
             lan_count = len(active_streams) - len(bandwidth_streams)
             if lan_count > 0:
                 logger.debug(f"Excluding {lan_count} LAN stream(s) from bandwidth calculations")

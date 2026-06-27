@@ -54,9 +54,7 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
     )
 
     # Filter streams for bandwidth calculation based on LAN/WAN config
-    bandwidth_streams = filter_streams_for_bandwidth(
-        active_streams, config.plex.include_lan_streams
-    )
+    bandwidth_streams = filter_streams_for_bandwidth(active_streams)
 
     # Calculate reserved bandwidth (with overhead, or fixed manual value) - only counts WAN streams when toggle is off
     streams_config = config.bandwidth.streams
