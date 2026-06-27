@@ -1407,6 +1407,7 @@ class MediaServersUpdateRequest(BaseModel):
 
 
 def _mask_media_server(d: Dict[str, Any]) -> Dict[str, Any]:
+    d = dict(d)
     if d.get("token"):
         d["token"] = "***REDACTED***"
     if d.get("api_key"):
