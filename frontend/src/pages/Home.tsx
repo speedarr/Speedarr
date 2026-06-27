@@ -91,6 +91,11 @@ export const Home: React.FC = () => {
     );
   }
 
+  // Configured media servers (every server in media_server_statuses, connected or not).
+  const configuredServerCount = status?.media_server_statuses
+    ? Object.keys(status.media_server_statuses).length
+    : 0;
+
   return (
     <div className="space-y-6">
       {error && (
@@ -401,6 +406,7 @@ export const Home: React.FC = () => {
           setDataInterval={setDataInterval}
           timeRanges={timeRanges}
           onZoomChange={setZoomRange}
+          configuredServerCount={configuredServerCount}
         />
       </ErrorBoundary>
 
@@ -410,6 +416,7 @@ export const Home: React.FC = () => {
           timeRange={timeRange}
           dataInterval={dataInterval}
           zoomRange={zoomRange}
+          configuredServerCount={configuredServerCount}
         />
       </ErrorBoundary>
     </div>

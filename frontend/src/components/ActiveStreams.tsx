@@ -66,9 +66,10 @@ interface ActiveStreamsProps {
   timeRange: TimeRange;
   dataInterval: DataInterval;
   zoomRange?: ZoomRange | null;
+  configuredServerCount: number;
 }
 
-export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange }) => {
+export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange, configuredServerCount }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -122,8 +123,10 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
     }
   };
 
-  // Show the Server column only when streams span more than one distinct server.
-  const showServer = new Set(streams.map((s) => s.server_id).filter(Boolean)).size > 1;
+  // Show the Server column when 2+ media servers are configured, or when the current
+  // streams span more than one distinct server (e.g. data from a since-removed server).
+  const showServer =
+    configuredServerCount >= 2 || new Set(streams.map((s) => s.server_id).filter(Boolean)).size > 1;
 
   if (isLoading) {
     return (

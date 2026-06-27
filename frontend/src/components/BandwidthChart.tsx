@@ -150,6 +150,7 @@ interface BandwidthChartProps {
   setDataInterval: (interval: DataInterval) => void;
   timeRanges: TimeRange[];
   onZoomChange?: (zoomRange: ZoomRange | null) => void;
+  configuredServerCount: number;
 }
 
 // Default visible series configuration
@@ -203,6 +204,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   setDataInterval,
   timeRanges,
   onZoomChange,
+  configuredServerCount,
 }) => {
   const [rawData, setRawData] = useState<ChartDataPoint[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -694,6 +696,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     return Math.abs(value).toFixed(0);
   };
 
+  // Show per-server UI when 2+ media servers are configured, or when the chart
+  // data itself spans more than one server (e.g. a since-removed server's history).
+  const hasMultipleServers = configuredServerCount >= 2 || perServerSeries.length > 1;
+
   return (
     <Card>
       <CardHeader>
@@ -789,7 +795,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
               {flipped ? 'UL on Top' : 'DL on Top'}
             </Button>
-            {perServerSeries.length > 1 && (
+            {hasMultipleServers && (
               <Button
                 variant={showPerServer ? 'default' : 'outline'}
                 size="sm"
@@ -1226,7 +1232,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-          {showPerServer && perServerSeries.length > 1 && (
+          {showPerServer && hasMultipleServers && (
             <div className="mt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">
                 Stream bandwidth by media server (Mbps)
