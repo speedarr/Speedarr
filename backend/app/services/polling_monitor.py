@@ -40,11 +40,13 @@ class PollingMonitor:
         self._get_db_session = get_db_session
         self.notification_service = notification_service
 
-        # Initialize Plex client
-        self.plex = PlexClient(
-            url=self.config.plex.url,
-            token=self.config.plex.token
-        )
+        # Initialize Plex client (single instance in Phase 1; becomes a dict in Phase 2)
+        from app.config import MediaServerConfig
+        self.plex = PlexClient(MediaServerConfig(
+            id="plex", type="plex", name="Plex",
+            url=self.config.plex.url, token=self.config.plex.token,
+            include_lan_streams=self.config.plex.include_lan_streams,
+        ))
 
         # Initialize SNMP monitor if enabled
         self.snmp_monitor = None

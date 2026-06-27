@@ -454,10 +454,12 @@ class ConfigManager:
 
                     polling_monitor = self.app.state.polling_monitor
                     await polling_monitor.plex.close()
-                    polling_monitor.plex = PlexClient(
-                        url=config.plex.url,
-                        token=config.plex.token
-                    )
+                    from app.config import MediaServerConfig
+                    polling_monitor.plex = PlexClient(MediaServerConfig(
+                        id="plex", type="plex", name="Plex",
+                        url=config.plex.url, token=config.plex.token,
+                        include_lan_streams=config.plex.include_lan_streams,
+                    ))
                     # Reset failure tracking so dashboard reflects new state
                     polling_monitor._plex_consecutive_failures = 0
                     polling_monitor._plex_unreachable_warned = False
