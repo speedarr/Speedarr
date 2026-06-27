@@ -7,7 +7,7 @@ Bitrates are in BPS (not kbps). There is no /statistics/bandwidth equivalent,
 so stream_bandwidth_mbps is always 0.
 """
 import ipaddress
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import aiohttp
 from loguru import logger
@@ -33,6 +33,17 @@ class JellyfinBaseServer(BaseMediaServer):
 
     def _auth_headers(self) -> Dict[str, str]:
         raise NotImplementedError
+
+    @staticmethod
+    def _host_from_endpoint(endpoint: str) -> str:
+        ep = (endpoint or "").strip()
+        if not ep:
+            return ""
+        if ep.startswith("["):            # [ipv6] or [ipv6]:port
+            return ep[1:ep.index("]")] if "]" in ep else ep[1:]
+        if ep.count(":") == 1:            # ipv4:port
+            return ep.split(":")[0]
+        return ep                          # bare ipv4 or bare ipv6 (multiple colons)
 
     @staticmethod
     def _is_private_ip(ip: str) -> bool:
@@ -94,7 +105,7 @@ class JellyfinBaseServer(BaseMediaServer):
         media_type = _MEDIA_TYPE_MAP.get(raw_type, raw_type)
 
         remote = raw.get("RemoteEndPoint") or ""
-        ip = remote.split(":")[0] if remote else ""
+        ip = self._host_from_endpoint(remote)
         is_lan = bool(raw.get("IsLocal")) or self._is_private_ip(ip)
 
         state = "paused" if play_state.get("IsPaused") else "playing"

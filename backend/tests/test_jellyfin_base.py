@@ -50,3 +50,26 @@ def test_is_lan_from_private_remote_endpoint():
 def test_is_lan_from_islocal_flag():
     raw = {"Id": "s", "NowPlayingItem": {"Type": "Movie", "MediaStreams": []}, "PlayState": {}, "IsLocal": True, "RemoteEndPoint": "203.0.113.5"}
     assert _srv()._normalize_session(raw)["is_lan"] is True
+
+
+def test_is_lan_from_bare_ipv6():
+    # fe80::1 is link-local; ipaddress treats it as private
+    raw = {"Id": "s", "NowPlayingItem": {"Type": "Movie", "MediaStreams": []}, "PlayState": {}, "RemoteEndPoint": "fe80::1"}
+    assert _srv()._normalize_session(raw)["is_lan"] is True
+
+
+def test_is_lan_from_bracketed_ipv6_with_port():
+    # fd00::/8 is ULA (Unique Local Address); ipaddress treats it as private
+    raw = {"Id": "s", "NowPlayingItem": {"Type": "Movie", "MediaStreams": []}, "PlayState": {}, "RemoteEndPoint": "[fd00::5]:8096"}
+    assert _srv()._normalize_session(raw)["is_lan"] is True
+
+
+def test_wan_public_ipv4_with_port():
+    # 8.8.8.8 is Google DNS (genuinely public); is_private=False, exercises ipv4:port parsing
+    raw = {"Id": "s", "NowPlayingItem": {"Type": "Movie", "MediaStreams": []}, "PlayState": {}, "RemoteEndPoint": "8.8.8.8:54321"}
+    assert _srv()._normalize_session(raw)["is_lan"] is False
+
+
+def test_media_type_musicvideo_maps_to_track():
+    raw = {"Id": "s", "NowPlayingItem": {"Type": "MusicVideo", "MediaStreams": []}, "PlayState": {}, "RemoteEndPoint": "8.8.8.8"}
+    assert _srv()._normalize_session(raw)["media_type"] == "track"
