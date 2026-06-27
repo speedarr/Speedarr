@@ -29,6 +29,19 @@ export interface ActiveStream {
   player?: string;
   platform?: string;
   is_lan?: boolean;
+  server_id?: string;
+  server_name?: string;
+}
+
+export interface MediaServer {
+  id: string;
+  type: 'plex' | 'emby' | 'jellyfin';
+  name: string;
+  enabled: boolean;
+  url: string;
+  token?: string;
+  api_key?: string;
+  include_lan_streams: boolean;
 }
 
 export interface StreamReservation {
@@ -211,6 +224,7 @@ export interface SystemStatus {
   setup_required?: boolean;
   snmp_enabled?: boolean;
   plex_status?: { connected: boolean; consecutive_failures: number };
+  media_server_statuses?: Record<string, { connected: boolean; consecutive_failures: number; type: string; name: string }>;
   snmp_status?: { enabled: boolean; connected: boolean };
   clients: {
     qbittorrent: boolean;

@@ -405,6 +405,23 @@ class ApiClient {
     return response.data;
   }
 
+  // Media Servers endpoints
+  async getMediaServers(): Promise<{
+    servers: Array<import('@/types').MediaServer>;
+    connection_results?: Record<string, boolean>;
+  }> {
+    const response = await this.client.get('/settings/media-servers');
+    return response.data;
+  }
+
+  async updateMediaServers(servers: Array<import('@/types').MediaServer>): Promise<{
+    servers: Array<import('@/types').MediaServer>;
+    connection_results?: Record<string, boolean>;
+  }> {
+    const response = await this.client.put('/settings/media-servers', { servers });
+    return response.data;
+  }
+
   // Temporary Limits endpoints
   async getTemporaryLimits(): Promise<{
     active: boolean;
