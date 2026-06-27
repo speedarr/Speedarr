@@ -12,7 +12,7 @@ from app.database import get_db
 from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
-from app.config import SpeedarrConfig, DownloadClientConfig
+from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -1391,5 +1391,99 @@ def _mask_sensitive_values(config: Dict[str, Any]) -> Dict[str, Any]:
             sensitive in key.lower() for sensitive in sensitive_keys
         ):
             masked[key] = "***REDACTED***"
+
+
+# Media Servers Management Endpoints
+
+class MediaServerResponse(BaseModel):
+    """Response for media servers."""
+    servers: List[Dict[str, Any]]
+    connection_results: Optional[Dict[str, bool]] = None
+
+
+class MediaServersUpdateRequest(BaseModel):
+    """Request to update media servers."""
+    servers: List[Dict[str, Any]]
+
+
+def _mask_media_server(d: Dict[str, Any]) -> Dict[str, Any]:
+    if d.get("token"):
+        d["token"] = "***REDACTED***"
+    if d.get("api_key"):
+        d["api_key"] = "***REDACTED***"
+    return d
+
+
+@router.get("/media-servers", response_model=MediaServerResponse)
+async def get_media_servers(request: Request, current_user: User = Depends(get_current_user)):
+    """Get all media servers (merged, with legacy Plex synthesized)."""
+    config: SpeedarrConfig = request.app.state.config
+    servers = [_mask_media_server(s.model_dump()) for s in config.get_all_media_servers()]
+    return MediaServerResponse(servers=servers)
+
+
+@router.put("/media-servers", response_model=MediaServerResponse)
+async def update_media_servers(
+    update_request: MediaServersUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Replace the media_servers list, clear legacy plex, reload adapters."""
+    if not hasattr(request.app.state, "config_manager"):
+        request.app.state.config_manager = ConfigManager(request.app)
+    config_manager: ConfigManager = request.app.state.config_manager
+    config: SpeedarrConfig = request.app.state.config
+    is_setup_mode = config is None
+
+    try:
+        existing = {} if is_setup_mode else {s.id: s for s in config.get_all_media_servers()}
+        processed = []
+        for data in update_request.servers:
+            sid = data.get("id")
+            prev = existing.get(sid) if sid else None
+            # Preserve masked secrets
+            if data.get("token") == "***REDACTED***":
+                data["token"] = prev.token if prev and prev.token else ""
+            if data.get("api_key") == "***REDACTED***":
+                data["api_key"] = prev.api_key if prev and prev.api_key else ""
+            try:
+                processed.append(MediaServerConfig(**data))
+            except Exception as e:
+                raise ValueError(f"Invalid media server '{data.get('name', 'unknown')}': {e}")
+
+        if is_setup_mode:
+            config = await config_manager.load_config_from_db(db)
+            if not config:
+                raise ValueError("Configuration not initialized. Call /initialize-config first.")
+
+        new_config_data = config.model_dump()
+        new_config_data["media_servers"] = [s.model_dump() for s in processed]
+        # Clear legacy single Plex so it doesn't double-add
+        new_config_data["plex"] = {"url": "", "token": "", "include_lan_streams": False}
+
+        updated_config = await config_manager.update_full_config(
+            config_data=new_config_data, db=db, user_id=current_user.id,
+        )
+
+        # Explicitly reload media server adapters (update_full_config does not do this)
+        await config_manager._reload_services("media_servers", updated_config)
+
+        # Test connections after reload
+        connection_results: Dict[str, bool] = {}
+        if hasattr(request.app.state, "polling_monitor"):
+            for sid, server in request.app.state.polling_monitor.media_servers.items():
+                try:
+                    connection_results[sid] = await server.test_connection()
+                except Exception:
+                    connection_results[sid] = False
+
+        servers = [_mask_media_server(s.model_dump()) for s in updated_config.get_all_media_servers()]
+        return MediaServerResponse(servers=servers, connection_results=connection_results)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to update media servers: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to update media servers: {str(e)}")
 
     return masked

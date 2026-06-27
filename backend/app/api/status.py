@@ -165,6 +165,16 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
     # Check if SNMP is enabled in config
     snmp_enabled = config.snmp.enabled if hasattr(config, 'snmp') and config.snmp else False
 
+    media_server_statuses = {}
+    for s in config.get_all_media_servers():
+        st = getattr(polling_monitor, "_server_state", {}).get(s.id, {})
+        media_server_statuses[s.id] = {
+            "connected": st.get("failures", 0) == 0,
+            "consecutive_failures": st.get("failures", 0),
+            "type": s.type,
+            "name": s.name,
+        }
+
     return {
         "status": "running",
         "setup_required": False,
@@ -176,6 +186,7 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
             "connected": polling_monitor._plex_consecutive_failures == 0,
             "consecutive_failures": polling_monitor._plex_consecutive_failures,
         },
+        "media_server_statuses": media_server_statuses,
         "snmp_status": {
             "enabled": snmp_enabled,
             "connected": polling_monitor._last_snmp_data is not None if snmp_enabled else True,

@@ -447,23 +447,23 @@ class ConfigManager:
         logger.info(f"Reloading services affected by '{section_name}' change")
 
         try:
-            if section_name == "plex":
-                # Reload PollingMonitor Plex client
+            if section_name in ("plex", "media_servers"):
+                # Reload all media server adapters (handles both legacy plex saves and new media_servers list)
                 if hasattr(self.app.state, "polling_monitor"):
-                    from app.clients.plex import PlexClient
-
-                    polling_monitor = self.app.state.polling_monitor
-                    await polling_monitor.plex.close()
-                    from app.config import MediaServerConfig
-                    polling_monitor.plex = PlexClient(MediaServerConfig(
-                        id="plex", type="plex", name="Plex",
-                        url=config.plex.url, token=config.plex.token,
-                        include_lan_streams=config.plex.include_lan_streams,
-                    ))
-                    # Reset failure tracking so dashboard reflects new state
-                    polling_monitor._plex_consecutive_failures = 0
-                    polling_monitor._plex_unreachable_warned = False
-                    logger.info("Plex client reloaded with updated config")
+                    from app.clients.media_server_factory import create_media_server
+                    pm = self.app.state.polling_monitor
+                    for server in pm.media_servers.values():
+                        await server.close()
+                    pm.media_servers = {
+                        s.id: create_media_server(s) for s in config.get_enabled_media_servers()
+                    }
+                    pm._server_state = {
+                        sid: {"failures": 0, "warned": False, "last_streams": [], "last_success": None}
+                        for sid in pm.media_servers
+                    }
+                    if hasattr(self.app.state, "media_servers"):
+                        self.app.state.media_servers = pm.media_servers
+                    logger.info(f"Reloaded {len(pm.media_servers)} media server adapter(s)")
 
             elif section_name in ["qbittorrent", "sabnzbd", "transmission", "nzbget", "deluge"]:
                 # Reload ControllerManager clients
