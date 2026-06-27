@@ -286,18 +286,34 @@ async def test_connection(
         if service == "plex":
             from app.clients.plex import PlexClient
 
-            url = config_data.get("url") or app_config.plex.url
+            url = config_data.get("url")
             token = config_data.get("token")
 
-            # If use_existing or token is masked, use the saved config
+            # If use_existing or token is masked, resolve from saved server
+            # (covers both legacy plex.* [synthesized id "plex"] and new media_servers entries)
             if test_request.use_existing or token == "***REDACTED***":
-                if app_config.plex.token:
-                    token = app_config.plex.token
+                saved = next(
+                    (s for s in app_config.get_all_media_servers()
+                     if s.type == "plex" and (config_data.get("id") in (None, s.id))),
+                    None,
+                )
+                if saved and saved.token:
+                    token = saved.token
+                    if not url:
+                        url = saved.url
                 else:
                     return TestConnectionResponse(
                         success=False,
                         message="No Plex token configured. Please enter a token.",
                     )
+
+            # Fall back to saved url if still missing
+            if not url:
+                saved_url = next(
+                    (s.url for s in app_config.get_all_media_servers() if s.type == "plex"),
+                    None,
+                )
+                url = saved_url
 
             if not url or not token:
                 return TestConnectionResponse(
@@ -306,10 +322,12 @@ async def test_connection(
 
             from app.config import MediaServerConfig
             client = PlexClient(MediaServerConfig(
-                id="plex", type="plex", name="Plex", url=url, token=token,
+                id=config_data.get("id", "plex"), type="plex", name="Plex", url=url, token=token,
             ))
-            success = await client.test_connection()
-            await client.close()
+            try:
+                success = await client.test_connection()
+            finally:
+                await client.close()
 
             if success:
                 return TestConnectionResponse(

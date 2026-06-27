@@ -145,7 +145,11 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
         c.id: download_stats.get(c.id, {}).get("active", False)
         for c in enabled_clients
     }
-    clients_status["plex"] = polling_monitor._plex_consecutive_failures == 0
+    # plex_status / clients["plex"] are legacy back-compat; superseded by media_server_statuses.
+    # Prefer per-server state when available (accurate for multi-server setups).
+    _plex_state = getattr(polling_monitor, "_server_state", {}).get("plex")
+    plex_connected = (_plex_state.get("failures", 0) == 0) if _plex_state else (polling_monitor._plex_consecutive_failures == 0)
+    clients_status["plex"] = plex_connected
 
     # Calculate effective total limits (use scheduled if in schedule window)
     download_in_schedule = is_within_schedule(config.bandwidth.download.scheduled)
@@ -182,9 +186,10 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
         "is_throttled": len(active_streams) > 0,
         "monitoring_enabled": not polling_monitor._paused if hasattr(polling_monitor, '_paused') else True,
         "snmp_enabled": snmp_enabled,
+        # Legacy back-compat; superseded by media_server_statuses for multi-server accuracy.
         "plex_status": {
-            "connected": polling_monitor._plex_consecutive_failures == 0,
-            "consecutive_failures": polling_monitor._plex_consecutive_failures,
+            "connected": plex_connected,
+            "consecutive_failures": _plex_state.get("failures", 0) if _plex_state else polling_monitor._plex_consecutive_failures,
         },
         "media_server_statuses": media_server_statuses,
         "snmp_status": {
