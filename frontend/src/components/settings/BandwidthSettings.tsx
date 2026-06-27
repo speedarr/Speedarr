@@ -1043,12 +1043,12 @@ export const BandwidthSettings: React.FC = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="auto">Auto (from Plex)</SelectItem>
+                <SelectItem value="auto">Auto (from media server)</SelectItem>
                 <SelectItem value="manual">Manual (fixed per stream)</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-sm text-muted-foreground">
-              Auto reads from Plex, Manual uses fixed value
+              Auto reads from your media server(s), Manual uses a fixed value
             </p>
           </div>
 

@@ -203,7 +203,7 @@ export const SystemSettings: React.FC = () => {
                 disabled={isSaving}
               />
               <p className="text-sm text-muted-foreground">
-                How often to poll Plex, download clients, and SNMP (5-300 seconds, default: 5)
+                How often to poll media servers, download clients, and SNMP (5-300 seconds, default: 5)
               </p>
             </div>
 

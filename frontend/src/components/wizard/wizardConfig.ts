@@ -124,7 +124,7 @@ export const WIZARD_STEPS: WizardStepConfig[] = [
   {
     id: 'plex',
     title: 'Media Servers',
-    description: 'Connect Plex / Emby',
+    description: 'Connect your media servers',
     icon: Server,
     component: MediaServerStep,
     required: true,

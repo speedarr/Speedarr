@@ -249,7 +249,7 @@ export const FailsafeSettings: React.FC = () => {
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="plex-timeout">Plex Timeout (seconds)</Label>
+            <Label htmlFor="plex-timeout">Media Server Timeout (seconds)</Label>
             <Input
               id="plex-timeout"
               type="number"
@@ -261,7 +261,7 @@ export const FailsafeSettings: React.FC = () => {
               className="w-24"
             />
             <p className="text-sm text-muted-foreground">
-              Assume no active streams after this many seconds without Plex response
+              Assume no active streams after this many seconds without a media server response
             </p>
           </div>
         </div>
