@@ -34,7 +34,7 @@ const WizardContent: React.FC = () => {
       case 'speedarr-url':
         return state.speedarr;
       case 'plex':
-        return state.plex;
+        return state.mediaServers;
       case 'download-clients':
         return state.downloadClients;
       case 'bandwidth':
@@ -55,7 +55,7 @@ const WizardContent: React.FC = () => {
         updateState({ speedarr: data });
         break;
       case 'plex':
-        updateState({ plex: data });
+        updateState({ mediaServers: data });
         break;
       case 'download-clients':
         updateState({ downloadClients: data });

@@ -8,7 +8,7 @@
 import { Rocket, Server, Download, Gauge, Activity, Bell, CheckCircle } from 'lucide-react';
 import { WizardStepConfig, WizardState, ValidationResult } from './types';
 import { WelcomeStep } from './steps/WelcomeStep';
-import { PlexStep } from './steps/PlexStep';
+import { MediaServerStep } from './steps/MediaServerStep';
 import { DownloadClientsStep } from './steps/DownloadClientsStep';
 import { BandwidthStep } from './steps/BandwidthStep';
 import { SNMPStep } from './steps/SNMPStep';
@@ -16,21 +16,19 @@ import { NotificationsStep } from './steps/NotificationsStep';
 import { SummaryStep } from './steps/SummaryStep';
 
 // Validation functions for each step
-export const validatePlex = async (state: WizardState): Promise<ValidationResult> => {
+export const validateMediaServers = async (state: WizardState): Promise<ValidationResult> => {
   const errors: string[] = [];
 
-  if (!state.plex) {
-    errors.push('Plex configuration is required');
+  if (!state.mediaServers || state.mediaServers.length === 0) {
+    errors.push('At least one media server is required');
     return { valid: false, errors };
   }
 
-  if (!state.plex.url || state.plex.url.trim() === '') {
-    errors.push('Plex server URL is required');
-  }
-
-  if (!state.plex.token || state.plex.token.trim() === '') {
-    errors.push('Plex token is required');
-  }
+  state.mediaServers.forEach((s, i) => {
+    if (!s.url?.trim()) errors.push(`Server ${i + 1}: URL is required`);
+    const secret = s.type === 'plex' ? s.token : s.api_key;
+    if (!secret?.trim()) errors.push(`Server ${i + 1}: ${s.type === 'plex' ? 'token' : 'API key'} is required`);
+  });
 
   return { valid: errors.length === 0, errors };
 };
@@ -125,12 +123,12 @@ export const WIZARD_STEPS: WizardStepConfig[] = [
   },
   {
     id: 'plex',
-    title: 'Plex',
-    description: 'Connect to Plex',
+    title: 'Media Servers',
+    description: 'Connect Plex / Emby',
     icon: Server,
-    component: PlexStep,
+    component: MediaServerStep,
     required: true,
-    validate: validatePlex,
+    validate: validateMediaServers,
   },
   {
     id: 'download-clients',

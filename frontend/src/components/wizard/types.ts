@@ -23,10 +23,22 @@ export interface SpeedarrConfig {
   url: string;
 }
 
-// Plex configuration
+// Plex configuration (kept for back-compat; no longer used in wizard state)
 export interface PlexConfig {
   url: string;
   token: string;
+}
+
+// Media server configuration (multi-server: Plex, Emby)
+export interface MediaServerConfig {
+  id: string;
+  type: 'plex' | 'emby';
+  name: string;
+  enabled: boolean;
+  url: string;
+  token?: string;
+  api_key?: string;
+  include_lan_streams: boolean;
 }
 
 // Bandwidth configuration with client allocation percentages
@@ -89,7 +101,7 @@ export interface SNMPConfig {
 // Complete wizard state containing all configuration data
 export interface WizardState {
   speedarr: SpeedarrConfig | null;
-  plex: PlexConfig | null;
+  mediaServers: MediaServerConfig[];
   downloadClients: DownloadClientConfig[];
   bandwidth: BandwidthConfig | null;
   notifications: NotificationsConfig | null;
@@ -172,7 +184,7 @@ export interface WizardContextType {
 // Default empty wizard state
 export const DEFAULT_WIZARD_STATE: WizardState = {
   speedarr: null,
-  plex: null,
+  mediaServers: [],
   downloadClients: [],
   bandwidth: null,
   notifications: null,

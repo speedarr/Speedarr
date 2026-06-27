@@ -11,7 +11,7 @@ export * from './types';
 
 // Step components
 export { WelcomeStep } from './steps/WelcomeStep';
-export { PlexStep } from './steps/PlexStep';
+export { MediaServerStep } from './steps/MediaServerStep';
 export { DownloadClientsStep } from './steps/DownloadClientsStep';
 export { BandwidthStep } from './steps/BandwidthStep';
 export { SNMPStep } from './steps/SNMPStep';
