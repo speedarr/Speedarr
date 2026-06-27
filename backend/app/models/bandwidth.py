@@ -2,7 +2,7 @@
 Bandwidth metrics models.
 """
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, Float, Boolean, DateTime, Date, Index
+from sqlalchemy import Column, Integer, Float, Boolean, DateTime, Date, Index, Text
 from app.database import Base
 
 
@@ -13,6 +13,9 @@ class BandwidthMetric(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, nullable=False, index=True)
+
+    # Per-server in-use stream bandwidth, JSON: {server_id: mbps}
+    per_server = Column(Text, nullable=True)
 
     # Download bandwidth
     total_download_limit = Column(Float, nullable=True)
