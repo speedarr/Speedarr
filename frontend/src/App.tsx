@@ -5,6 +5,8 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { SetupGuard } from '@/components/SetupGuard';
+import { RequireAuthIfPrivate } from '@/components/RequireAuthIfPrivate';
+import { BootstrapProvider } from '@/contexts/BootstrapContext';
 import { Dashboard } from '@/components/Dashboard';
 import { Login } from '@/pages/Login';
 import { Home } from '@/pages/Home';
@@ -28,24 +30,35 @@ const App: React.FC = () => {
       <ThemeProvider>
         <BrowserRouter>
           <AuthProvider>
-            <ErrorBoundary>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route
-                  path="/setup"
-                  element={
-                    <ProtectedRoute>
-                      <Setup />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="/" element={<SetupGuard><Dashboard /></SetupGuard>}>
-                  <Route index element={<ErrorBoundary><Home /></ErrorBoundary>} />
-                  <Route path="settings" element={<ProtectedRoute><ErrorBoundary><Settings /></ErrorBoundary></ProtectedRoute>} />
-                </Route>
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </ErrorBoundary>
+            <BootstrapProvider>
+              <ErrorBoundary>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route
+                    path="/setup"
+                    element={
+                      <ProtectedRoute>
+                        <Setup />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/"
+                    element={
+                      <SetupGuard>
+                        <RequireAuthIfPrivate>
+                          <Dashboard />
+                        </RequireAuthIfPrivate>
+                      </SetupGuard>
+                    }
+                  >
+                    <Route index element={<ErrorBoundary><Home /></ErrorBoundary>} />
+                    <Route path="settings" element={<ProtectedRoute><ErrorBoundary><Settings /></ErrorBoundary></ProtectedRoute>} />
+                  </Route>
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </ErrorBoundary>
+            </BootstrapProvider>
           </AuthProvider>
         </BrowserRouter>
       </ThemeProvider>
