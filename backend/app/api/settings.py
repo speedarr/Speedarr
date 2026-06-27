@@ -9,7 +9,7 @@ import yaml
 from loguru import logger
 
 from app.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
 from app.config import SpeedarrConfig, DownloadClientConfig
@@ -77,7 +77,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 
 @router.get("/sections", response_model=Dict[str, List[SectionMetadata]])
-async def get_sections():
+async def get_sections(_auth=Depends(require_auth_if_private)):
     """Get metadata about all configuration sections."""
     sections = [
         SectionMetadata(
@@ -166,7 +166,7 @@ async def get_sections():
 
 
 @router.get("/section/{section_name}", response_model=SectionResponse)
-async def get_section(section_name: str, request: Request):
+async def get_section(section_name: str, request: Request, _auth=Depends(require_auth_if_private)):
     """Get configuration for a specific section."""
     config: SpeedarrConfig = request.app.state.config
 

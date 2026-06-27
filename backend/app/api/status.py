@@ -2,9 +2,10 @@
 Status API routes.
 """
 from datetime import datetime
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Depends
 from loguru import logger
 from app import __version__, __commit__, __branch__
+from app.api.auth import require_auth_if_private
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 from app.services.decision_engine import is_within_schedule
 from app.services.version_service import version_checker
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 
 
 @router.get("/current")
-async def get_current_status(request: Request):
+async def get_current_status(request: Request, _auth=Depends(require_auth_if_private)):
     """Get current system status."""
     # Check if setup is required
     setup_flag = getattr(request.app.state, 'setup_required', False)

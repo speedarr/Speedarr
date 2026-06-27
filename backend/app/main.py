@@ -5,7 +5,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -62,6 +62,7 @@ from app.utils.logger import setup_logger
 from app.services import DecisionEngine, ControllerManager, PollingMonitor, NotificationService, RetentionService
 from app.services.config_manager import ConfigManager
 from app.api import auth, status, control, streams, bandwidth, settings as settings_api, decisions
+from app.api.auth import require_auth_if_private
 
 class BackgroundTaskMonitor:
     """
@@ -343,10 +344,10 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(status.router)
 app.include_router(control.router)
-app.include_router(streams.router)
-app.include_router(bandwidth.router)
+app.include_router(streams.router, dependencies=[Depends(require_auth_if_private)])
+app.include_router(bandwidth.router, dependencies=[Depends(require_auth_if_private)])
 app.include_router(settings_api.router)
-app.include_router(decisions.router)
+app.include_router(decisions.router, dependencies=[Depends(require_auth_if_private)])
 
 
 @app.get("/api/status/health")
