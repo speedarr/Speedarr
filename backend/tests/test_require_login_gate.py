@@ -54,3 +54,23 @@ def test_gate_propagates_401_when_require_login_true_and_unauthenticated(monkeyp
     with pytest.raises(HTTPException) as exc:
         asyncio.run(require_auth_if_private(request=_request(config), credentials=None, db=None))
     assert exc.value.status_code == 401
+
+
+from app.api.auth import get_bootstrap
+
+
+def test_bootstrap_no_config_reports_setup_required_login_false():
+    out = asyncio.run(get_bootstrap(request=_request(None)))
+    assert out == {"setup_required": True, "require_login": False}
+
+
+def test_bootstrap_with_config_reports_require_login_true():
+    config = make_config()
+    config.system = SystemConfig(require_login=True)
+    out = asyncio.run(get_bootstrap(request=_request(config)))
+    assert out == {"setup_required": False, "require_login": True}
+
+
+def test_bootstrap_with_config_defaults_require_login_false():
+    out = asyncio.run(get_bootstrap(request=_request(make_config())))
+    assert out == {"setup_required": False, "require_login": False}

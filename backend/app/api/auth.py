@@ -69,6 +69,21 @@ async def check_first_run(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/bootstrap")
+async def get_bootstrap(request: Request):
+    """Public pre-login bootstrap flags for the SPA (no auth).
+
+    setup_required: true when no config exists yet or setup_required flag is set.
+    require_login:  the SystemConfig flag (false when no config, so setup is never locked out).
+    """
+    setup_flag = getattr(request.app.state, "setup_required", False)
+    config = getattr(request.app.state, "config", None)
+    return {
+        "setup_required": bool(setup_flag or config is None),
+        "require_login": bool(config and getattr(config.system, "require_login", False)),
+    }
+
+
 @router.post("/register")
 async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Register the first admin user. Only works when no users exist."""
