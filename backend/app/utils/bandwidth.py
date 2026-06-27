@@ -110,3 +110,22 @@ def calculate_total_stream_bitrate(streams: List[Dict[str, Any]]) -> float:
         Total bitrate in Mbps
     """
     return sum(s.get("stream_bitrate_mbps", 0) for s in streams)
+
+
+def split_stream_bitrate_by_network(
+    streams: List[Dict[str, Any]],
+) -> tuple[float, float]:
+    """
+    Split total stream bitrate into (WAN, LAN) totals using each stream's
+    is_lan flag.
+
+    A stream counts as LAN only when is_lan is truthy; missing/falsy is_lan
+    counts as WAN. Returns (wan_bitrate_mbps, lan_bitrate_mbps); the two
+    always sum to the total stream bitrate.
+    """
+    wan_streams = [s for s in streams if not s.get("is_lan", False)]
+    lan_streams = [s for s in streams if s.get("is_lan", False)]
+    return (
+        calculate_total_stream_bitrate(wan_streams),
+        calculate_total_stream_bitrate(lan_streams),
+    )

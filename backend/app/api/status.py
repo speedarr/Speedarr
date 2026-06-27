@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request, Depends
 from loguru import logger
 from app import __version__, __commit__, __branch__
 from app.api.auth import require_auth_if_private
-from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
+from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth, split_stream_bitrate_by_network
 from app.services.decision_engine import is_within_schedule
 from app.services.version_service import version_checker
 
@@ -52,6 +52,9 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
     total_stream_bandwidth = sum(
         stream.get("stream_bitrate_mbps", 0) for stream in active_streams
     )
+
+    # Split stream bitrate into WAN/LAN for the WAN-focused dashboard card
+    wan_stream_bandwidth, lan_stream_bandwidth = split_stream_bitrate_by_network(active_streams)
 
     # Filter streams for bandwidth calculation based on LAN/WAN config
     bandwidth_streams = filter_streams_for_bandwidth(active_streams)
@@ -224,6 +227,8 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
                 "snmp_speed": snmp_upload,
                 "available": max(0, effective_upload_limit - reserved_bandwidth - holding_bandwidth),
                 "stream_bandwidth": total_stream_bandwidth,
+                "wan_stream_bandwidth": wan_stream_bandwidth,
+                "lan_stream_bandwidth": lan_stream_bandwidth,
                 "reserved_bandwidth": reserved_bandwidth,
                 "holding_bandwidth": holding_bandwidth,
                 "scheduled_active": upload_in_schedule,
