@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, CheckCircle, Download, Info, ExternalLink, RefreshCw, Bug, Lightbulb } from 'lucide-react';
@@ -22,6 +23,7 @@ interface SystemConfig {
   update_frequency: number;
   log_level: string;
   speedarr_url: string;
+  require_login: boolean;
 }
 
 export const SystemSettings: React.FC = () => {
@@ -226,6 +228,24 @@ export const SystemSettings: React.FC = () => {
               <p className="text-sm text-muted-foreground">
                 Logging verbosity level (default: INFO)
               </p>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="require-login">Require login to view dashboard</Label>
+                  <p className="text-sm text-muted-foreground">
+                    When enabled, the dashboard and read APIs require authentication. Anyone not
+                    logged in is sent to the login screen. Automation should use an API key.
+                  </p>
+                </div>
+                <Switch
+                  id="require-login"
+                  checked={config.require_login}
+                  onCheckedChange={(checked) => updateConfig('require_login', checked)}
+                  disabled={isSaving}
+                />
+              </div>
             </div>
 
             <div className="space-y-2 pt-4 border-t">
