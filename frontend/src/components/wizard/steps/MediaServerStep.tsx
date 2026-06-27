@@ -1,5 +1,5 @@
 /**
- * MediaServerStep - Configure media server connections (Plex, Emby)
+ * MediaServerStep - Configure media server connections (Plex, Emby, Jellyfin)
  *
  * Supports multiple servers; streams from all servers combine into one bandwidth pool.
  */
@@ -68,7 +68,7 @@ export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange,
       <div className="text-center space-y-2">
         <h2 className="text-xl font-semibold">Connect your media servers</h2>
         <p className="text-sm text-muted-foreground">
-          Add one or more Plex or Emby servers. Their streams combine into one bandwidth pool.
+          Add one or more Plex, Emby, or Jellyfin servers. Their streams combine into one bandwidth pool.
         </p>
       </div>
 

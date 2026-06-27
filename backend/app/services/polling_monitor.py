@@ -494,7 +494,7 @@ class PollingMonitor:
             try:
                 await self._plex_poll_cycle()
             except Exception as e:
-                logger.error(f"Error in Plex polling cycle: {e}")
+                logger.error(f"Error in media server polling cycle: {e}")
 
             await asyncio.sleep(self.config.system.update_frequency)
 

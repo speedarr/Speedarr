@@ -216,7 +216,7 @@ export const MediaServerSettings: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Media Servers</CardTitle>
-              <CardDescription>Configure Plex / Emby servers for stream detection. All servers' streams combine into one bandwidth pool.</CardDescription>
+              <CardDescription>Configure Plex, Emby, or Jellyfin servers for stream detection. All servers' streams combine into one bandwidth pool.</CardDescription>
             </div>
             <Select value="" onValueChange={handleAdd}>
               <SelectTrigger className="w-[200px]"><Plus className="h-4 w-4 mr-2" /><SelectValue placeholder="Add Media Server" /></SelectTrigger>
