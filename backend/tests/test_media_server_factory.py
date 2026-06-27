@@ -14,3 +14,12 @@ def test_creates_plex():
 def test_unknown_type_raises():
     with pytest.raises(ValueError):
         create_media_server(MediaServerConfig(id="x", name="x", type="nope", url="u"))
+
+
+def test_creates_emby_and_jellyfin():
+    from app.clients.emby import EmbyServer
+    from app.clients.jellyfin import JellyfinServer
+    e = create_media_server(MediaServerConfig(id="e", name="E", type="emby", url="http://e:8096", api_key="k"))
+    j = create_media_server(MediaServerConfig(id="j", name="J", type="jellyfin", url="http://j:8096", api_key="k"))
+    assert isinstance(e, EmbyServer)
+    assert isinstance(j, JellyfinServer)

@@ -776,6 +776,33 @@ async def test_connection(
                     message="Failed to connect to SNMP device. Check host, port, and credentials.",
                 )
 
+        elif service in ("emby", "jellyfin"):
+            from app.clients.media_server_factory import create_media_server
+
+            url = config_data.get("url")
+            api_key = config_data.get("api_key")
+            # Reuse saved api_key if masked / use_existing
+            if test_request.use_existing or api_key == "***REDACTED***":
+                existing = next(
+                    (s for s in app_config.get_all_media_servers()
+                     if s.type == service and (config_data.get("id") in (None, s.id))),
+                    None,
+                )
+                api_key = existing.api_key if existing else None
+            if not url or not api_key:
+                return TestConnectionResponse(success=False, message="Missing required fields: url and api_key")
+            client = create_media_server(MediaServerConfig(
+                id=config_data.get("id", service), type=service, name=service.title(),
+                url=url, api_key=api_key,
+            ))
+            success = await client.test_connection()
+            await client.close()
+            return TestConnectionResponse(
+                success=success,
+                message=f"Successfully connected to {service.title()}" if success
+                else f"Failed to connect to {service.title()}. Check URL and API key.",
+            )
+
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

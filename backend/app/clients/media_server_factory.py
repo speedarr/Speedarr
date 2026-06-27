@@ -1,11 +1,14 @@
 """Factory for creating media server adapters from config."""
 from app.clients.base_media_server import BaseMediaServer
 from app.clients.plex import PlexClient
+from app.clients.emby import EmbyServer
+from app.clients.jellyfin import JellyfinServer
 from app.config import MediaServerConfig
 
-# Emby/Jellyfin are registered in Phase 3.
 _REGISTRY = {
     "plex": PlexClient,
+    "emby": EmbyServer,
+    "jellyfin": JellyfinServer,
 }
 
 
