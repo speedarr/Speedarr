@@ -246,6 +246,11 @@ export interface SystemStatus {
   };
 }
 
+export interface BootstrapResponse {
+  setup_required: boolean;
+  require_login: boolean;
+}
+
 // Control types
 export interface RestoreSpeedsResponse {
   message: string;

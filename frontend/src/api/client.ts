@@ -4,6 +4,7 @@ import type {
   LoginResponse,
   User,
   SystemStatus,
+  BootstrapResponse,
   ActiveStreamsResponse,
   StreamsHistoryResponse,
   StreamHistory,
@@ -63,7 +64,8 @@ class ApiClient {
       (error: AxiosError) => {
         const isAuthRequest = error.config?.url?.includes('/auth/login') ||
                               error.config?.url?.includes('/auth/me') ||
-                              error.config?.url?.includes('/auth/first-run');
+                              error.config?.url?.includes('/auth/first-run') ||
+                              error.config?.url?.includes('/auth/bootstrap');
         if (error.response?.status === 401 && !isAuthRequest && this.getToken()) {
           this.clearToken();
           window.location.href = '/login';
@@ -146,6 +148,11 @@ class ApiClient {
   // Authentication endpoints
   async checkFirstRun(): Promise<{ first_run: boolean; user_count: number }> {
     const response = await this.client.get('/auth/first-run');
+    return response.data;
+  }
+
+  async getBootstrap(): Promise<BootstrapResponse> {
+    const response = await this.client.get<BootstrapResponse>('/auth/bootstrap');
     return response.data;
   }
 
