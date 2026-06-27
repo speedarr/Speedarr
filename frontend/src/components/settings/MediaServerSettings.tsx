@@ -15,29 +15,43 @@ import { TestConnectionButton } from './TestConnectionButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 import { MediaServer } from '@/types';
+import { Badge } from '@/components/ui/badge';
+import { FEEDBACK_URL } from '@/lib/constants';
 
-// Plex, Emby, and Jellyfin are user-selectable.
-const SERVER_TYPES = {
+// Plex, Emby, and Jellyfin are user-selectable. Emby/Jellyfin are experimental.
+// `help` is a link (Plex) OR plain instruction text (Emby/Jellyfin — no reliable doc URL).
+type ServerTypeInfo = {
+  name: string;
+  color: string;
+  auth: 'token' | 'api_key';
+  defaultUrl: string;
+  experimental?: boolean;
+  help: { label: string; url: string } | { text: string };
+};
+
+const SERVER_TYPES: Record<'plex' | 'emby' | 'jellyfin', ServerTypeInfo> = {
   plex: {
     name: 'Plex',
     color: '#e5a00d',
-    auth: 'token' as const,
+    auth: 'token',
     defaultUrl: 'http://192.168.1.100:32400',
     help: { label: 'How to find your X-Plex-Token', url: 'https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/' },
   },
   emby: {
     name: 'Emby',
     color: '#52b54b',
-    auth: 'api_key' as const,
+    auth: 'api_key',
     defaultUrl: 'http://192.168.1.100:8096',
-    help: { label: 'Create an API key in Emby: Settings → API Keys', url: 'https://emby.media/support/articles/Api-Key.html' },
+    experimental: true,
+    help: { text: 'Create one in Emby: Dashboard → Advanced → API Keys' },
   },
   jellyfin: {
     name: 'Jellyfin',
     color: '#00A4DC',
-    auth: 'api_key' as const,
+    auth: 'api_key',
     defaultUrl: 'http://192.168.1.100:8096',
-    help: { label: 'Create an API key in Jellyfin: Dashboard → API Keys', url: 'https://jellyfin.org/docs/general/server/api-keys/' },
+    experimental: true,
+    help: { text: 'Create one in Jellyfin: Dashboard → Advanced → API Keys' },
   },
 };
 
@@ -53,6 +67,19 @@ const MediaServerCard: React.FC<{
   const typeInfo = SERVER_TYPES[server.type as keyof typeof SERVER_TYPES];
   const update = (field: keyof MediaServer, value: any) => onUpdate({ ...server, [field]: value });
 
+  // Plex renders a clickable help link; Emby/Jellyfin render plain instruction text.
+  const helpNode = typeInfo?.help ? (
+    'url' in typeInfo.help ? (
+      <p className="text-sm text-muted-foreground flex items-center gap-1">
+        <a href={typeInfo.help.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center">
+          {typeInfo.help.label} <ExternalLink className="h-3 w-3 ml-1" />
+        </a>
+      </p>
+    ) : (
+      <p className="text-sm text-muted-foreground">{typeInfo.help.text}</p>
+    )
+  ) : null;
+
   return (
     <Card>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -63,6 +90,7 @@ const MediaServerCard: React.FC<{
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-lg leading-none">{server.name}</CardTitle>
+                  {typeInfo?.experimental && <Badge variant="outline">Experimental</Badge>}
                   {connectionStatus === true && <CheckCircle className="h-4 w-4 text-green-500" aria-hidden="true" />}
                   {connectionStatus === false && <XCircle className="h-4 w-4 text-red-500" aria-hidden="true" />}
                 </div>
@@ -96,11 +124,7 @@ const MediaServerCard: React.FC<{
                   placeholder={server.token === '***REDACTED***' ? 'Current token is set' : 'Enter X-Plex-Token'}
                   disabled={isSaving || !server.enabled} maxLength={128}
                 />
-                <p className="text-sm text-muted-foreground flex items-center gap-1">
-                  <a href={typeInfo.help.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center">
-                    {typeInfo.help.label} <ExternalLink className="h-3 w-3 ml-1" />
-                  </a>
-                </p>
+                {helpNode}
               </div>
             )}
             {typeInfo?.auth === 'api_key' && (
@@ -112,12 +136,16 @@ const MediaServerCard: React.FC<{
                   placeholder={server.api_key === '***REDACTED***' ? 'Current API key is set' : 'Enter API key'}
                   disabled={isSaving || !server.enabled} maxLength={128}
                 />
-                <p className="text-sm text-muted-foreground flex items-center gap-1">
-                  <a href={typeInfo.help.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center">
-                    {typeInfo.help.label} <ExternalLink className="h-3 w-3 ml-1" />
-                  </a>
-                </p>
+                {helpNode}
               </div>
+            )}
+            {typeInfo?.experimental && (
+              <p className="text-sm text-muted-foreground flex items-center gap-1">
+                {typeInfo.name} support is experimental —{' '}
+                <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center">
+                  we'd love your feedback <ExternalLink className="h-3 w-3 ml-1" />
+                </a>
+              </p>
             )}
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
@@ -223,7 +251,7 @@ export const MediaServerSettings: React.FC = () => {
               <SelectContent>
                 {Object.entries(SERVER_TYPES).map(([type, info]) => (
                   <SelectItem key={type} value={type}>
-                    <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />{info.name}</div>
+                    <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />{info.name}{info.experimental ? ' (Experimental)' : ''}</div>
                   </SelectItem>
                 ))}
               </SelectContent>
