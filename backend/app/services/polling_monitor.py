@@ -2,6 +2,7 @@
 Polling monitor service for stream detection and client monitoring.
 """
 import asyncio
+import json
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from datetime import datetime, timedelta, timezone
 from loguru import logger
@@ -19,6 +20,17 @@ from app.utils.formatting import format_display_title
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.services.notification_service import NotificationService
+
+
+def aggregate_per_server_bandwidth(streams: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Sum in-use stream bitrate (Mbps) per server_id for the per_server metric."""
+    totals: Dict[str, float] = {}
+    for s in streams:
+        sid = s.get("server_id")
+        if not sid:
+            continue
+        totals[sid] = totals.get(sid, 0.0) + (s.get("stream_bitrate_mbps", 0) or 0)
+    return totals
 
 
 class PollingMonitor:
@@ -998,7 +1010,9 @@ class PollingMonitor:
                             lan_streams_count=len(lan_streams),
                             lan_stream_bandwidth=sum(s.get("stream_bitrate_mbps", 0) for s in lan_streams),
                             # State
-                            is_throttled=bool(decisions)
+                            is_throttled=bool(decisions),
+                            # Per-server breakdown
+                            per_server=json.dumps(aggregate_per_server_bandwidth(self._cached_streams)),
                         )
                         db.add(metric)
                         await db.commit()
