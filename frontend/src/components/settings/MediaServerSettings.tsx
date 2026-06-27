@@ -16,7 +16,7 @@ import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 import { MediaServer } from '@/types';
 
-// Only Plex and Emby are user-selectable this round (Jellyfin built but hidden).
+// Plex, Emby, and Jellyfin are user-selectable.
 const SERVER_TYPES = {
   plex: {
     name: 'Plex',
@@ -31,6 +31,13 @@ const SERVER_TYPES = {
     auth: 'api_key' as const,
     defaultUrl: 'http://192.168.1.100:8096',
     help: { label: 'Create an API key in Emby: Settings → API Keys', url: 'https://emby.media/support/articles/Api-Key.html' },
+  },
+  jellyfin: {
+    name: 'Jellyfin',
+    color: '#00A4DC',
+    auth: 'api_key' as const,
+    defaultUrl: 'http://192.168.1.100:8096',
+    help: { label: 'Create an API key in Jellyfin: Dashboard → API Keys', url: 'https://jellyfin.org/docs/general/server/api-keys/' },
   },
 };
 

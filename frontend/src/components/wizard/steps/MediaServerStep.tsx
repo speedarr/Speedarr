@@ -18,6 +18,7 @@ import { WizardStepProps, MediaServerConfig } from '../types';
 const TYPES = {
   plex: { name: 'Plex', authField: 'token' as const, authLabel: 'X-Plex-Token', defaultUrl: 'http://192.168.1.100:32400' },
   emby: { name: 'Emby', authField: 'api_key' as const, authLabel: 'API Key', defaultUrl: 'http://192.168.1.100:8096' },
+  jellyfin: { name: 'Jellyfin', authField: 'api_key' as const, authLabel: 'API Key', defaultUrl: 'http://192.168.1.100:8096' },
 };
 
 export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange, showValidation, isLoading }) => {

@@ -29,10 +29,10 @@ export interface PlexConfig {
   token: string;
 }
 
-// Media server configuration (multi-server: Plex, Emby)
+// Media server configuration (multi-server: Plex, Emby, Jellyfin)
 export interface MediaServerConfig {
   id: string;
-  type: 'plex' | 'emby';
+  type: 'plex' | 'emby' | 'jellyfin';
   name: string;
   enabled: boolean;
   url: string;
