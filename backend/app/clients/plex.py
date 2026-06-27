@@ -7,14 +7,18 @@ import ipaddress
 from xml.etree import ElementTree
 from loguru import logger
 
+from app.clients.base_media_server import BaseMediaServer
+from app.config import MediaServerConfig
 
-class PlexClient:
-    """Client for interacting with Plex Media Server API."""
 
-    def __init__(self, url: str, token: str):
-        self.url = url.rstrip("/")
-        self.token = token
-        self._session: Optional[aiohttp.ClientSession] = None
+class PlexClient(BaseMediaServer):
+    """Plex Media Server adapter."""
+
+    type = "plex"
+
+    def __init__(self, cfg: MediaServerConfig):
+        super().__init__(cfg)
+        self.token = cfg.token
 
     @property
     def session(self) -> aiohttp.ClientSession:
@@ -281,21 +285,19 @@ class PlexClient:
                      f"plex_local={plex_says_local}, location_lan={location_says_lan}, "
                      f"ip_private={ip_is_private}, is_lan={is_lan}")
 
-        return {
-            "session_id": session_info.get("id"),
+        return self._finalize_stream({
             "session_key": session.get("sessionKey"),
             "user_name": self._get_nested(session, "User", "title", default="Unknown"),
             "user_id": self._get_nested(session, "User", "id", default=""),
-            "media_type": session.get("type"),
+            "media_type": (session.get("type") or "").lower(),
             "media_title": session.get("title"),
             "parent_title": session.get("parentTitle"),
             "grandparent_title": session.get("grandparentTitle"),
             "season_number": session.get("parentIndex"),
             "episode_number": session.get("index"),
             "year": session.get("year"),
-            # Two SEPARATE metrics - no fallback relationship
-            "stream_bitrate_mbps": stream_bitrate_mbps,  # Media file bitrate from session
-            "stream_bandwidth_mbps": actual_bandwidth_mbps,  # Actual network throughput
+            "stream_bitrate_mbps": stream_bitrate_mbps,
+            "stream_bandwidth_mbps": actual_bandwidth_mbps,
             "quality_profile": media.get("videoResolution"),
             "transcode_decision": transcode.get("videoDecision", "direct play") if transcode else "direct play",
             "video_codec": media.get("videoCodec"),
@@ -307,7 +309,7 @@ class PlexClient:
             "platform": self._get_nested(session, "Player", "platform", default="Unknown"),
             "ip_address": ip_address,
             "is_lan": is_lan,
-        }
+        }, raw_session_id=session_info.get("id"))
 
     @staticmethod
     def _get_nested(data: Dict, *keys: str, default: Any = None) -> Any:
