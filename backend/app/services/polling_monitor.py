@@ -623,7 +623,7 @@ class PollingMonitor:
                 await self.notification_service.check_stream_bitrate_threshold(total_bandwidth, stream_count)
 
         except Exception as e:
-            logger.error(f"Error in Plex poll cycle: {e}")
+            logger.error(f"Error in media server poll cycle: {e}")
 
     async def _handle_stopped_stream(self, stream: Dict[str, Any]):
         """
@@ -640,8 +640,8 @@ class PollingMonitor:
             media_type = stream.get("media_type")
             is_lan = stream.get("is_lan", False)
 
-            # Skip holding bandwidth for LAN streams if toggle is disabled
-            if not self.config.plex.include_lan_streams and is_lan:
+            # Skip holding bandwidth for LAN streams if this server's policy excludes them
+            if not stream.get("include_lan_streams", False) and is_lan:
                 logger.debug(f"Skipping bandwidth hold for LAN stream: {user_name} - {display_title}")
                 # Still send notification but don't hold bandwidth
                 if self.notification_service:
