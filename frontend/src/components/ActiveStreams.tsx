@@ -206,7 +206,7 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                   <TableHead>Transcode</TableHead>
                   <TableHead className="text-right">Bitrate</TableHead>
                   <TableHead>Network</TableHead>
-                  <TableHead>Platform</TableHead>
+                  <TableHead>Player</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -261,8 +261,8 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {stream.platform || stream.player || 'Unknown'}
+                      <span className="text-sm text-muted-foreground" title={stream.platform || undefined}>
+                        {stream.player || 'Unknown'}
                       </span>
                     </TableCell>
                   </TableRow>
