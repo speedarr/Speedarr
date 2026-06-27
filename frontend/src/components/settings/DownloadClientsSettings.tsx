@@ -417,7 +417,9 @@ export const DownloadClientsSettings: React.FC = () => {
                 Configure your download clients for bandwidth management
               </CardDescription>
             </div>
-            <Select onValueChange={handleAddClient}>
+            {/* Controlled with empty value so the trigger always shows the placeholder
+                and re-selecting the same type fires onValueChange again */}
+            <Select value="" onValueChange={handleAddClient}>
               <SelectTrigger className="w-[200px]">
                 <Plus className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Add Client" />

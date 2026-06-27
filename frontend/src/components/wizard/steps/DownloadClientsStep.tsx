@@ -314,7 +314,9 @@ export const DownloadClientsStep: React.FC<WizardStepProps> = ({
 
       {/* Add client dropdown */}
       <div className="flex items-center gap-2">
-        <Select onValueChange={(value) => addClient(value as ClientType)}>
+        {/* Controlled with empty value so the trigger always shows the placeholder
+            and re-selecting the same type fires onValueChange again */}
+        <Select value="" onValueChange={(value) => addClient(value as ClientType)}>
           <SelectTrigger className="w-full sm:w-64">
             <SelectValue placeholder="Add download client..." />
           </SelectTrigger>
