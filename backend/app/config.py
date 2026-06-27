@@ -283,6 +283,10 @@ class FailsafeConfig(BaseModel):
         default_factory=dict,
         description="Per-client-type percentage split of shutdown upload speed (empty = equal split)"
     )
+    server_hold_grace_seconds: int = Field(
+        300, ge=0,
+        description="How long to keep a down media server's last-known streams before dropping them (partial outage). 0 = drop immediately.",
+    )
 
 
 class SystemConfig(BaseModel):

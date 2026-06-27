@@ -46,3 +46,8 @@ def test_get_enabled_filters_disabled():
     ]
     cfg.plex = PlexConfig()  # no legacy
     assert [s.id for s in cfg.get_enabled_media_servers()] == ["a"]
+
+
+def test_failsafe_grace_default():
+    cfg = make_config()
+    assert cfg.failsafe.server_hold_grace_seconds == 300
