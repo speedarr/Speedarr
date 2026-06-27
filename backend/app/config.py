@@ -9,6 +9,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 import os
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,21 @@ class PlexConfig(BaseModel):
     include_lan_streams: bool = Field(
         default=False,
         description="Include LAN streams in bandwidth calculations (WAN-only by default)"
+    )
+
+
+class MediaServerConfig(BaseModel):
+    """Unified media server configuration supporting multiple server types."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Stable unique id (not derived from URL)")
+    name: str = Field("Plex", description="Display name for this server")
+    type: str = Field("plex", description="Server type: plex, emby, jellyfin")
+    enabled: bool = True
+    url: str = ""
+    token: str = ""        # Plex (X-Plex-Token)
+    api_key: str = ""      # Emby / Jellyfin
+    include_lan_streams: bool = Field(
+        default=False,
+        description="Include LAN streams from this server in bandwidth calculations",
     )
 
 
@@ -402,6 +418,8 @@ class SpeedarrConfig(BaseModel):
     """Main Speedarr configuration stored in database."""
     system: SystemConfig = Field(default_factory=SystemConfig)
     plex: PlexConfig = Field(default_factory=PlexConfig)
+    # New multi-server config (legacy `plex` above is kept for backward compatibility)
+    media_servers: List[MediaServerConfig] = Field(default_factory=list)
     # Legacy single-client configs (for backward compatibility)
     qbittorrent: Optional[QBittorrentConfig] = None
     sabnzbd: Optional[SABnzbdConfig] = None
@@ -459,6 +477,28 @@ class SpeedarrConfig(BaseModel):
     def get_upload_clients(self) -> List[DownloadClientConfig]:
         """Get enabled clients that support upload (torrent clients)."""
         return [c for c in self.get_enabled_download_clients() if c.supports_upload]
+
+    def get_all_media_servers(self) -> List["MediaServerConfig"]:
+        """
+        Get all media servers, merging the legacy single Plex into the new format.
+        Mirrors get_all_download_clients(): legacy entry uses the fixed id "plex".
+        """
+        servers = list(self.media_servers)
+        existing_ids = {s.id for s in servers}
+        if self.plex.url and "plex" not in existing_ids:
+            servers.append(MediaServerConfig(
+                id="plex",
+                type="plex",
+                name="Plex",
+                url=self.plex.url,
+                token=self.plex.token,
+                include_lan_streams=self.plex.include_lan_streams,
+            ))
+        return servers
+
+    def get_enabled_media_servers(self) -> List["MediaServerConfig"]:
+        """Get only enabled media servers."""
+        return [s for s in self.get_all_media_servers() if s.enabled]
 
 
 # Global settings instance
