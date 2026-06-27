@@ -5,11 +5,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta, time, timezone
 from loguru import logger
 from app.config import SpeedarrConfig, TimeBasedScheduleConfig
+from app.constants import HARD_MIN_MBPS
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
-
-# Smallest throttle (~1 KB/s). Guarantees a throttle is never 0, which every
-# download client interprets as "unlimited". See issue #43.
-HARD_MIN_MBPS = 0.01
 
 
 def is_within_schedule(schedule: TimeBasedScheduleConfig) -> bool:

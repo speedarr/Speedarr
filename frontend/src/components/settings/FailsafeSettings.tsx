@@ -306,13 +306,17 @@ export const FailsafeSettings: React.FC = () => {
                       step="0.1"
                       className="w-24"
                       value={config.shutdown_download_speed}
-                      onChange={(e) => updateConfig('shutdown_download_speed', parseFloat(e.target.value))}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        updateConfig('shutdown_download_speed', isNaN(v) ? 0 : Math.max(0, v));
+                      }}
                       disabled={isSaving}
                     />
                     <span className="text-sm text-muted-foreground">Mbps</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Default: 10% of bandwidth limit ({getDefaultDownloadSpeed()} Mbps)
+                    Default: 10% of bandwidth limit ({getDefaultDownloadSpeed()} Mbps).
+                    0 throttles to a minimum trickle (never unlimited).
                   </p>
                 </div>
 
@@ -433,13 +437,17 @@ export const FailsafeSettings: React.FC = () => {
                       step="0.1"
                       className="w-24"
                       value={config.shutdown_upload_speed}
-                      onChange={(e) => updateConfig('shutdown_upload_speed', parseFloat(e.target.value))}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        updateConfig('shutdown_upload_speed', isNaN(v) ? 0 : Math.max(0, v));
+                      }}
                       disabled={isSaving}
                     />
                     <span className="text-sm text-muted-foreground">Mbps</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Default: 10% of bandwidth limit ({getDefaultUploadSpeed()} Mbps)
+                    Default: 10% of bandwidth limit ({getDefaultUploadSpeed()} Mbps).
+                    0 throttles to a minimum trickle (never unlimited).
                   </p>
                 </div>
 

@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 from loguru import logger
 from app.clients import QBittorrentClient, SABnzbdClient, create_download_client
 from app.config import SpeedarrConfig, FailsafeConfig
+from app.constants import HARD_MIN_MBPS
 
 
 class ControllerManager:
@@ -244,6 +245,10 @@ class ControllerManager:
 
         Falls back to equal split unless every target's type has a configured
         percentage (same rule as the decision engine's client_percents handling).
+
+        Every per-client limit is floored to HARD_MIN_MBPS so a shutdown speed of
+        0 (or a 0% client share) becomes a non-zero trickle rather than 0, which
+        clients read as "unlimited". Mirrors the live-throttle floor (#43). See #48.
         """
         if not target_ids:
             return {}
@@ -255,9 +260,9 @@ class ControllerManager:
             raw = {c: percents[self.client_configs[c].type] for c in target_ids}
             total_raw = sum(raw.values())
             if total_raw > 0:
-                return {c: total_mbps * (v / total_raw) for c, v in raw.items()}
+                return {c: max(total_mbps * (v / total_raw), HARD_MIN_MBPS) for c, v in raw.items()}
 
-        return {c: total_mbps / len(target_ids) for c in target_ids}
+        return {c: max(total_mbps / len(target_ids), HARD_MIN_MBPS) for c in target_ids}
 
     async def apply_shutdown_speeds(
         self,
