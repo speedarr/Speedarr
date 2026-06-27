@@ -243,6 +243,23 @@ async def get_current_user(
     )
 
 
+async def require_auth_if_private(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    """Enforce authentication only when SystemConfig.require_login is enabled.
+
+    - No config yet (setup in progress) or require_login == False -> allow (return None).
+    - require_login == True -> delegate to get_current_user (raises 401 if no/invalid token).
+    """
+    config = getattr(request.app.state, "config", None)
+    require_login = bool(config and getattr(config.system, "require_login", False))
+    if not require_login:
+        return None
+    return await get_current_user(request=request, credentials=credentials, db=db)
+
+
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user information."""
