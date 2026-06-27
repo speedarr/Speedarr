@@ -795,8 +795,10 @@ async def test_connection(
                 id=config_data.get("id", service), type=service, name=service.title(),
                 url=url, api_key=api_key,
             ))
-            success = await client.test_connection()
-            await client.close()
+            try:
+                success = await client.test_connection()
+            finally:
+                await client.close()
             return TestConnectionResponse(
                 success=success,
                 message=f"Successfully connected to {service.title()}" if success
