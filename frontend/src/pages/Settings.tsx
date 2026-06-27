@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Settings as SettingsIcon, Server, Gauge, Clock, Bell, Database, Shield, Network, UserCog, Puzzle } from 'lucide-react';
 import { SystemSettings } from '@/components/settings/SystemSettings';
-import { PlexSettings } from '@/components/settings/PlexSettings';
+import { MediaServerSettings } from '@/components/settings/MediaServerSettings';
 import { DownloadClientsSettings } from '@/components/settings/DownloadClientsSettings';
 import { BandwidthSettings } from '@/components/settings/BandwidthSettings';
 import { RestorationSettings } from '@/components/settings/RestorationSettings';
@@ -118,7 +118,7 @@ export const Settings: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="services" className="space-y-4">
-          <PlexSettings />
+          <MediaServerSettings />
           <DownloadClientsSettings />
         </TabsContent>
 
