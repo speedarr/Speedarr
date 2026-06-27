@@ -210,8 +210,11 @@ async def get_section(section_name: str, request: Request, _auth=Depends(require
             detail=f"Section '{section_name}' not found",
         )
 
-    # Mask sensitive values
-    masked_config = _mask_sensitive_values(section_config)
+    # Mask sensitive values. A section that is unset (Optional=None, e.g. an
+    # unconfigured qbittorrent/sabnzbd) or list-typed (media_servers /
+    # download_clients, which have dedicated endpoints) yields no dict here —
+    # return an empty config rather than crashing the endpoint with a 500.
+    masked_config = _mask_sensitive_values(section_config) if section_config else {}
 
     return SectionResponse(section=section_name, config=masked_config)
 
@@ -1438,6 +1441,8 @@ def _mask_sensitive_values(config: Dict[str, Any]) -> Dict[str, Any]:
             sensitive in key.lower() for sensitive in sensitive_keys
         ):
             masked[key] = "***REDACTED***"
+
+    return masked
 
 
 # Media Servers Management Endpoints
