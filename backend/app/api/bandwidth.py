@@ -1,6 +1,7 @@
 """
 Bandwidth API routes for viewing bandwidth metrics and usage.
 """
+import json
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
@@ -16,6 +17,24 @@ from app.utils.bandwidth import filter_streams_for_bandwidth
 from app.utils.errors import ErrorCode, raise_error
 
 router = APIRouter(prefix="/api/bandwidth", tags=["bandwidth"])
+
+
+def pivot_per_server(rows):
+    """rows: iterable of (timestamp, per_server_json). Returns (series_ids, points)."""
+    series_ids = set()
+    points = []
+    for ts, raw in rows:
+        point = {"timestamp": ts}
+        if raw:
+            try:
+                data = json.loads(raw)
+                for sid, mbps in data.items():
+                    point[sid] = mbps
+                    series_ids.add(sid)
+            except (ValueError, TypeError):
+                pass
+        points.append(point)
+    return sorted(series_ids), points
 
 
 class TemporaryLimitRequest(BaseModel):
@@ -328,11 +347,20 @@ async def get_bandwidth_chart_data(
                 "snmp_upload_speed": m.snmp_upload_speed,
             })
 
+        # Build per-server pivot from raw BandwidthMetric rows.
+        # v1 limitation: per_server data is only available on raw metrics (this
+        # window); hourly/daily rollups do not carry the per_server JSON column.
+        server_series, server_points = pivot_per_server(
+            [(m.timestamp.isoformat() + 'Z', m.per_server) for m in metrics]
+        )
+
         return {
             "data": chart_data,
             "start_time": chart_data[0]["timestamp"] if chart_data else (datetime.now(timezone.utc).isoformat() + 'Z'),
             "end_time": chart_data[-1]["timestamp"] if chart_data else (datetime.now(timezone.utc).isoformat() + 'Z'),
             "interval_minutes": interval_minutes,
+            "per_server_series": server_series,
+            "per_server_points": server_points,
         }
 
     except Exception as e:

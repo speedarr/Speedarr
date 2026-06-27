@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   ReferenceArea,
   Line,
+  LineChart,
 } from 'recharts';
 import { formatInTimeZone } from 'date-fns-tz';
 import { apiClient } from '@/api/client';
@@ -25,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown, ZoomOut } from 'lucide-react';
+import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown, ZoomOut, Server } from 'lucide-react';
 import { useChartZoom, type ZoomRange } from '@/hooks/useChartZoom';
 
 // Gradient ID mapping for each client
@@ -42,6 +43,9 @@ const UPLOAD_GRADIENT_IDS: Record<string, string> = {
   transmission: 'transmissionUpload',
   deluge: 'delugeUpload',
 };
+
+// Color palette for per-server stream breakdown lines
+const PER_SERVER_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#06b6d4', '#84cc16'];
 
 interface DownloadClient {
   id: string;
@@ -206,6 +210,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>(loadVisibleSeries);
   const [downloadClients, setDownloadClients] = useState<DownloadClient[]>([]);
   const [snmpEnabled, setSnmpEnabled] = useState<boolean>(false);
+  const [mediaServerNames, setMediaServerNames] = useState<Record<string, string>>({});
   const [stackChart, setStackChart] = useState<boolean>(() => {
     const saved = localStorage.getItem('speedarr_chart_stacked');
     return saved !== null ? JSON.parse(saved) : true;
@@ -221,6 +226,11 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     } catch {}
     return [];
   });
+
+  // Per-server stream breakdown (from per_server_series / per_server_points in chart-data response)
+  const [perServerSeries, setPerServerSeries] = useState<string[]>([]);
+  const [perServerPoints, setPerServerPoints] = useState<Array<Record<string, number | string>>>([]);
+  const [showPerServer, setShowPerServer] = useState<boolean>(false);
 
   // Chart zoom state
   const {
@@ -298,6 +308,15 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
         });
 
         setSnmpEnabled(status.snmp_enabled ?? false);
+
+        // Capture media server display names for per-server chart labels
+        if (status.media_server_statuses) {
+          const names: Record<string, string> = {};
+          for (const [id, info] of Object.entries(status.media_server_statuses)) {
+            names[id] = info.name;
+          }
+          setMediaServerNames(names);
+        }
       } catch (err) {
         console.error('Failed to load client info:', err);
       }
@@ -484,6 +503,9 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       });
 
       setRawData(chartResponse.data);
+      // Capture per-server breakdown if present
+      setPerServerSeries(chartResponse.per_server_series ?? []);
+      setPerServerPoints(chartResponse.per_server_points ?? []);
     } catch (err) {
       setError('Failed to load bandwidth data');
       console.error('Error fetching bandwidth chart data:', err);
@@ -767,6 +789,20 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
               {flipped ? 'UL on Top' : 'DL on Top'}
             </Button>
+            {perServerSeries.length > 0 && (
+              <Button
+                variant={showPerServer ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setShowPerServer(!showPerServer)}
+                className="gap-2"
+                title={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
+                aria-label={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
+                aria-pressed={showPerServer}
+              >
+                <Server className="h-4 w-4" aria-hidden="true" />
+                Per Server
+              </Button>
+            )}
             {isZoomed && (
               <Button
                 variant="outline"
@@ -1190,6 +1226,67 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+          {showPerServer && perServerSeries.length > 0 && (
+            <div className="mt-6">
+              <p className="text-sm font-medium text-muted-foreground mb-2">
+                Stream bandwidth by media server (Mbps)
+              </p>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart
+                  data={perServerPoints}
+                  margin={{ top: 4, right: 10, left: 10, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={formatXAxis}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                    stroke="#888"
+                  />
+                  <YAxis
+                    tickFormatter={(v) => `${Number(v).toFixed(0)}`}
+                    stroke="#888"
+                    label={{
+                      value: 'Mbps',
+                      angle: -90,
+                      position: 'insideLeft',
+                      style: { fill: '#888', textAnchor: 'middle' },
+                    }}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [`${Number(value).toFixed(2)} Mbps`, name]}
+                    labelFormatter={(label) => {
+                      const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
+                      return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
+                    }}
+                    contentStyle={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                      border: '1px solid #666',
+                      borderRadius: '4px',
+                    }}
+                  />
+                  <Legend />
+                  {perServerSeries.map((serverId, idx) => (
+                    <Line
+                      key={serverId}
+                      type="monotone"
+                      dataKey={serverId}
+                      name={mediaServerNames[serverId] ?? serverId}
+                      stroke={PER_SERVER_COLORS[idx % PER_SERVER_COLORS.length]}
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={true}
+                      animationDuration={300}
+                      animationEasing="ease-in-out"
+                      connectNulls={true}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
           </>
         )}
       </CardContent>

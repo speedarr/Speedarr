@@ -202,6 +202,8 @@ export interface BandwidthChartDataResponse {
   start_time: string;
   end_time: string;
   interval_minutes: number;
+  per_server_series?: string[];
+  per_server_points?: Array<Record<string, number | string>>;
 }
 
 // Client status for bandwidth cards
