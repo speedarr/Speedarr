@@ -10,15 +10,26 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle, XCircle, Plus, Trash2 } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Plus, Trash2, ExternalLink } from 'lucide-react';
 import { PasswordInput } from '@/components/settings/PasswordInput';
 import { apiClient } from '@/api/client';
 import { WizardStepProps, MediaServerConfig } from '../types';
+import { Badge } from '@/components/ui/badge';
+import { FEEDBACK_URL } from '@/lib/constants';
 
-const TYPES = {
-  plex: { name: 'Plex', authField: 'token' as const, authLabel: 'X-Plex-Token', defaultUrl: 'http://192.168.1.100:32400' },
-  emby: { name: 'Emby', authField: 'api_key' as const, authLabel: 'API Key', defaultUrl: 'http://192.168.1.100:8096' },
-  jellyfin: { name: 'Jellyfin', authField: 'api_key' as const, authLabel: 'API Key', defaultUrl: 'http://192.168.1.100:8096' },
+// Emby/Jellyfin are experimental (UI signal only — both remain fully usable).
+type WizardServerTypeInfo = {
+  name: string;
+  authField: 'token' | 'api_key';
+  authLabel: string;
+  defaultUrl: string;
+  experimental?: boolean;
+};
+
+const TYPES: Record<'plex' | 'emby' | 'jellyfin', WizardServerTypeInfo> = {
+  plex: { name: 'Plex', authField: 'token', authLabel: 'X-Plex-Token', defaultUrl: 'http://192.168.1.100:32400' },
+  emby: { name: 'Emby', authField: 'api_key', authLabel: 'API Key', defaultUrl: 'http://192.168.1.100:8096', experimental: true },
+  jellyfin: { name: 'Jellyfin', authField: 'api_key', authLabel: 'API Key', defaultUrl: 'http://192.168.1.100:8096', experimental: true },
 };
 
 export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange, showValidation, isLoading }) => {
@@ -82,7 +93,7 @@ export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange,
           </SelectTrigger>
           <SelectContent>
             {Object.entries(TYPES).map(([t, i]) => (
-              <SelectItem key={t} value={t}>{i.name}</SelectItem>
+              <SelectItem key={t} value={t}>{i.name}{i.experimental ? ' (Experimental)' : ''}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -104,6 +115,7 @@ export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange,
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-muted-foreground">{info.name}</span>
+                {info.experimental && <Badge variant="outline">Experimental</Badge>}
                 <Input
                   value={s.name}
                   onChange={(e) => upd(s.id, 'name', e.target.value)}
@@ -145,6 +157,19 @@ export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange,
                 disabled={isLoading}
                 maxLength={128}
               />
+              {info.authField === 'api_key' && (
+                <p className="text-sm text-muted-foreground">
+                  Create one in {info.name}: Dashboard → Advanced → API Keys
+                </p>
+              )}
+              {info.experimental && (
+                <p className="text-sm text-muted-foreground flex items-center gap-1">
+                  {info.name} support is experimental —{' '}
+                  <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center">
+                    we'd love your feedback <ExternalLink className="h-3 w-3 ml-1" />
+                  </a>
+                </p>
+              )}
             </div>
 
             <Button
