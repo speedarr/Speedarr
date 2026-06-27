@@ -202,7 +202,7 @@ export const Home: React.FC = () => {
                     {(() => {
                       const unreachableServers = status.media_server_statuses
                         ? Object.values(status.media_server_statuses).filter(s => !s.connected)
-                        : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Plex' }]);
+                        : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Media server' }]);
                       if (unreachableServers.length > 0) {
                         return (
                           <>
@@ -263,7 +263,7 @@ export const Home: React.FC = () => {
                   {(() => {
                     const unreachableServers = status.media_server_statuses
                       ? Object.values(status.media_server_statuses).filter(s => !s.connected)
-                      : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Plex' }]);
+                      : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Media server' }]);
                     if (unreachableServers.length > 0) {
                       return (
                         <>
@@ -343,7 +343,7 @@ export const Home: React.FC = () => {
                 </div>
               ))}
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Plex Reserved:</span>
+                <span className="text-sm text-muted-foreground">Stream Reserved:</span>
                 <span className="font-semibold text-orange-500 dark:text-orange-400">
                   {(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps
                 </span>
@@ -352,7 +352,7 @@ export const Home: React.FC = () => {
                 <Alert variant="destructive" className="py-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
+                    Stream reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
                   </AlertDescription>
                 </Alert>
               )}
@@ -361,7 +361,7 @@ export const Home: React.FC = () => {
                 <Alert variant="destructive" className="py-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
+                    Stream reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
                   </AlertDescription>
                 </Alert>
               )}
