@@ -144,7 +144,7 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Plex Streams</CardTitle>
+        <CardTitle>Active Streams</CardTitle>
       </CardHeader>
 
       <CardContent>

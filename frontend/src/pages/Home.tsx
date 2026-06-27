@@ -172,7 +172,7 @@ export const Home: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Plex Streams Count with WAN Usage (when SNMP enabled) */}
+          {/* Stream Count with WAN Usage (when SNMP enabled) */}
           <Card className="flex items-center">
             <CardContent className="py-6 px-2 sm:px-4 w-full">
               {status.snmp_enabled ? (
@@ -197,31 +197,44 @@ export const Home: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Plex Streams - Center */}
+                  {/* Stream Count - Center */}
                   <div className="flex flex-col items-center justify-center border-x border-border py-2 w-full">
-                    {status.plex_status && !status.plex_status.connected ? (
-                      <>
-                        <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
-                        <p className="text-sm text-red-500 dark:text-red-400 mt-2">Plex Unreachable</p>
-                      </>
-                    ) : status.active_streams === 0 ? (
-                      <>
-                        <Frown className="h-16 w-16 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground mt-2">No Plex Streams</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
-                          {status.active_streams}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Plex {status.active_streams === 1 ? 'Stream' : 'Streams'}
-                        </p>
-                        <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
-                          {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
-                        </p>
-                      </>
-                    )}
+                    {(() => {
+                      const unreachableServers = status.media_server_statuses
+                        ? Object.values(status.media_server_statuses).filter(s => !s.connected)
+                        : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Plex' }]);
+                      if (unreachableServers.length > 0) {
+                        return (
+                          <>
+                            <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
+                            {unreachableServers.map((s, i) => (
+                              <p key={i} className="text-sm text-red-500 dark:text-red-400 mt-2">{s.name} Unreachable</p>
+                            ))}
+                          </>
+                        );
+                      }
+                      if (status.active_streams === 0) {
+                        return (
+                          <>
+                            <Frown className="h-16 w-16 text-muted-foreground" />
+                            <p className="text-sm text-muted-foreground mt-2">No Streams</p>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
+                            {status.active_streams}
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {status.active_streams === 1 ? 'Stream' : 'Streams'}
+                          </p>
+                          <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
+                            {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
+                          </p>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* WAN Upload - Right */}
@@ -245,31 +258,44 @@ export const Home: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                /* Plex Streams Only (no SNMP) - Centered */
+                /* Stream Count Only (no SNMP) - Centered */
                 <div className="flex flex-col items-center justify-center">
-                  {status.plex_status && !status.plex_status.connected ? (
-                    <>
-                      <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
-                      <p className="text-sm text-red-500 dark:text-red-400 mt-2">Plex Unreachable</p>
-                    </>
-                  ) : status.active_streams === 0 ? (
-                    <>
-                      <Frown className="h-16 w-16 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground mt-2">No Plex Streams</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
-                        {status.active_streams}
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Plex {status.active_streams === 1 ? 'Stream' : 'Streams'}
-                      </p>
-                      <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
-                        {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
-                      </p>
-                    </>
-                  )}
+                  {(() => {
+                    const unreachableServers = status.media_server_statuses
+                      ? Object.values(status.media_server_statuses).filter(s => !s.connected)
+                      : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Plex' }]);
+                    if (unreachableServers.length > 0) {
+                      return (
+                        <>
+                          <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
+                          {unreachableServers.map((s, i) => (
+                            <p key={i} className="text-sm text-red-500 dark:text-red-400 mt-2">{s.name} Unreachable</p>
+                          ))}
+                        </>
+                      );
+                    }
+                    if (status.active_streams === 0) {
+                      return (
+                        <>
+                          <Frown className="h-16 w-16 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground mt-2">No Streams</p>
+                        </>
+                      );
+                    }
+                    return (
+                      <>
+                        <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
+                          {status.active_streams}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {status.active_streams === 1 ? 'Stream' : 'Streams'}
+                        </p>
+                        <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
+                          {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </CardContent>
