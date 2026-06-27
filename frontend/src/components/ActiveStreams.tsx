@@ -30,6 +30,12 @@ import type { TimeRange, DataInterval } from './BandwidthChart';
 import type { ZoomRange } from '@/hooks/useChartZoom';
 import { formatInTimeZone } from 'date-fns-tz';
 
+const SERVER_TYPE_COLORS: Record<string, string> = {
+  plex: '#e5a00d',
+  emby: '#52b54b',
+  jellyfin: '#00A4DC',
+};
+
 const getStateIcon = (state: string) => {
   switch (state) {
     case 'playing':
@@ -116,6 +122,9 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
     }
   };
 
+  // Show the Server column only when streams span more than one distinct server.
+  const showServer = new Set(streams.map((s) => s.server_id).filter(Boolean)).size > 1;
+
   if (isLoading) {
     return (
       <>
@@ -189,6 +198,7 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                   <TableHead>Status</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Title</TableHead>
+                  {showServer && <TableHead>Server</TableHead>}
                   <TableHead>Quality</TableHead>
                   <TableHead>Transcode</TableHead>
                   <TableHead className="text-right">Bitrate</TableHead>
@@ -213,6 +223,18 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                         {stream.display_title}
                       </div>
                     </TableCell>
+                    {showServer && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: SERVER_TYPE_COLORS[stream.server_type ?? ''] ?? '#888888' }}
+                            aria-hidden="true"
+                          />
+                          <span className="text-sm">{stream.server_name || '—'}</span>
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell>
                       {stream.quality_profile && (
                         <Badge variant="outline">{stream.quality_profile}</Badge>

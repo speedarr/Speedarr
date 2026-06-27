@@ -31,6 +31,7 @@ export interface ActiveStream {
   is_lan?: boolean;
   server_id?: string;
   server_name?: string;
+  server_type?: 'plex' | 'emby' | 'jellyfin';
 }
 
 export interface MediaServer {
