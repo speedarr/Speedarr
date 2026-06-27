@@ -789,7 +789,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
               {flipped ? 'UL on Top' : 'DL on Top'}
             </Button>
-            {perServerSeries.length > 0 && (
+            {perServerSeries.length > 1 && (
               <Button
                 variant={showPerServer ? 'default' : 'outline'}
                 size="sm"
@@ -1226,7 +1226,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-          {showPerServer && perServerSeries.length > 0 && (
+          {showPerServer && perServerSeries.length > 1 && (
             <div className="mt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">
                 Stream bandwidth by media server (Mbps)
