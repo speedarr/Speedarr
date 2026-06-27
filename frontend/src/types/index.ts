@@ -257,6 +257,8 @@ export interface SystemStatus {
       qbittorrent_limit?: number | null;
       snmp_speed?: number | null;
       stream_bandwidth?: number | null;
+      wan_stream_bandwidth?: number | null;
+      lan_stream_bandwidth?: number | null;
       reserved_bandwidth?: number | null;
       holding_bandwidth?: number | null;
     };

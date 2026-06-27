@@ -4,11 +4,12 @@ import { BandwidthChart } from '@/components/BandwidthChart';
 import { ActiveStreams } from '@/components/ActiveStreams';
 import type { ZoomRange } from '@/hooks/useChartZoom';
 import { TemporaryLimits } from '@/components/TemporaryLimits';
+import { StreamCountDisplay } from '@/components/StreamCountDisplay';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { SystemStatus } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, AlertTriangle, Frown, Clock } from 'lucide-react';
+import { Loader2, AlertCircle, AlertTriangle, Clock } from 'lucide-react';
 
 interface TemporaryLimitState {
   active: boolean;
@@ -204,42 +205,7 @@ export const Home: React.FC = () => {
 
                   {/* Stream Count - Center */}
                   <div className="flex flex-col items-center justify-center border-x border-border py-2 w-full">
-                    {(() => {
-                      const unreachableServers = status.media_server_statuses
-                        ? Object.values(status.media_server_statuses).filter(s => !s.connected)
-                        : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Media server' }]);
-                      if (unreachableServers.length > 0) {
-                        return (
-                          <>
-                            <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
-                            {unreachableServers.map((s, i) => (
-                              <p key={i} className="text-sm text-red-500 dark:text-red-400 mt-2">{s.name} Unreachable</p>
-                            ))}
-                          </>
-                        );
-                      }
-                      if (status.active_streams === 0) {
-                        return (
-                          <>
-                            <Frown className="h-16 w-16 text-muted-foreground" />
-                            <p className="text-sm text-muted-foreground mt-2">No Streams</p>
-                          </>
-                        );
-                      }
-                      return (
-                        <>
-                          <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
-                            {status.active_streams}
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {status.active_streams === 1 ? 'Stream' : 'Streams'}
-                          </p>
-                          <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
-                            {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
-                          </p>
-                        </>
-                      );
-                    })()}
+                    <StreamCountDisplay status={status} />
                   </div>
 
                   {/* WAN Upload - Right */}
@@ -265,42 +231,7 @@ export const Home: React.FC = () => {
               ) : (
                 /* Stream Count Only (no SNMP) - Centered */
                 <div className="flex flex-col items-center justify-center">
-                  {(() => {
-                    const unreachableServers = status.media_server_statuses
-                      ? Object.values(status.media_server_statuses).filter(s => !s.connected)
-                      : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Media server' }]);
-                    if (unreachableServers.length > 0) {
-                      return (
-                        <>
-                          <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
-                          {unreachableServers.map((s, i) => (
-                            <p key={i} className="text-sm text-red-500 dark:text-red-400 mt-2">{s.name} Unreachable</p>
-                          ))}
-                        </>
-                      );
-                    }
-                    if (status.active_streams === 0) {
-                      return (
-                        <>
-                          <Frown className="h-16 w-16 text-muted-foreground" />
-                          <p className="text-sm text-muted-foreground mt-2">No Streams</p>
-                        </>
-                      );
-                    }
-                    return (
-                      <>
-                        <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
-                          {status.active_streams}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {status.active_streams === 1 ? 'Stream' : 'Streams'}
-                        </p>
-                        <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
-                          {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
-                        </p>
-                      </>
-                    );
-                  })()}
+                  <StreamCountDisplay status={status} />
                 </div>
               )}
             </CardContent>
