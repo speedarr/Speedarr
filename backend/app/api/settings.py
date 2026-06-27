@@ -928,7 +928,7 @@ async def complete_setup(
         request.app.state.controller_manager = controller_manager
         request.app.state.polling_monitor = polling_monitor
         request.app.state.notification_service = notification_service
-        request.app.state.plex_client = polling_monitor.plex
+        request.app.state.media_servers = polling_monitor.media_servers
         request.app.state.config = config
         request.app.state.setup_required = False
 

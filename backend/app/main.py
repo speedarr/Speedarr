@@ -233,7 +233,7 @@ async def lifespan(app: FastAPI):
         app.state.controller_manager = controller_manager
         app.state.polling_monitor = polling_monitor
         app.state.notification_service = notification_service
-        app.state.plex_client = polling_monitor.plex
+        app.state.media_servers = polling_monitor.media_servers
         app.state.config = config
         app.state.setup_required = False
 
@@ -263,7 +263,7 @@ async def lifespan(app: FastAPI):
         app.state.controller_manager = None
         app.state.polling_monitor = None
         app.state.notification_service = None
-        app.state.plex_client = None
+        app.state.media_servers = {}
         app.state.task_monitor = None
 
     yield

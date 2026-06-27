@@ -2,11 +2,12 @@
 Polling monitor service for stream detection and client monitoring.
 """
 import asyncio
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple
 from datetime import datetime, timedelta, timezone
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.plex import PlexClient
+from app.clients.base_media_server import BaseMediaServer
 from app.config import SpeedarrConfig
 from app.services.decision_engine import DecisionEngine
 from app.services.controller_manager import ControllerManager
@@ -40,13 +41,15 @@ class PollingMonitor:
         self._get_db_session = get_db_session
         self.notification_service = notification_service
 
-        # Initialize Plex client (single instance in Phase 1; becomes a dict in Phase 2)
-        from app.config import MediaServerConfig
-        self.plex = PlexClient(MediaServerConfig(
-            id="plex", type="plex", name="Plex",
-            url=self.config.plex.url, token=self.config.plex.token,
-            include_lan_streams=self.config.plex.include_lan_streams,
-        ))
+        # Initialize media servers (one adapter per enabled server)
+        from app.clients.media_server_factory import create_media_server
+        self.media_servers: Dict[str, BaseMediaServer] = {
+            s.id: create_media_server(s) for s in self.config.get_enabled_media_servers()
+        }
+        self._server_state: Dict[str, Dict[str, Any]] = {
+            sid: {"failures": 0, "warned": False, "last_streams": [], "last_success": None}
+            for sid in self.media_servers
+        }
 
         # Initialize SNMP monitor if enabled
         self.snmp_monitor = None
@@ -127,7 +130,8 @@ class PollingMonitor:
                         await reservation['task']
                     except asyncio.CancelledError:
                         pass
-        await self.plex.close()
+        for server in self.media_servers.values():
+            await server.close()
         logger.info("Polling monitor stopped")
 
     async def store_session_bandwidth(self, session_id: str, bandwidth_mbps: float):
@@ -425,6 +429,53 @@ class PollingMonitor:
         except Exception as e:
             logger.error(f"Error in reservation cleanup for {reservation_id}: {e}")
 
+    async def _poll_one(self, server: "BaseMediaServer") -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Poll one media server. Never raises.
+
+        Returns (reachable_this_cycle, effective_streams). On success, records
+        last_streams. On failure, holds last_streams within the grace period,
+        then drops to []. Tags each stream with the server's LAN policy.
+        """
+        state = self._server_state[server.server_id]
+        try:
+            streams = await server.get_active_streams()
+            for s in streams:
+                s["include_lan_streams"] = server.include_lan_streams
+            state["failures"] = 0
+            state["last_streams"] = streams
+            state["last_success"] = datetime.now(timezone.utc)
+            if state["warned"]:
+                logger.info(f"Media server '{server.name}' connection restored")
+                state["warned"] = False
+                if self.notification_service:
+                    await self.notification_service.notify(
+                        "service_unreachable",
+                        f"Media server '{server.name}' is back online.",
+                        {"service": server.name, "server_id": server.server_id, "status": "recovered"},
+                    )
+            return True, streams
+        except Exception as err:
+            state["failures"] += 1
+            grace = self.config.failsafe.server_hold_grace_seconds
+            last_success = state["last_success"]
+            within_grace = (
+                last_success is not None
+                and (datetime.now(timezone.utc) - last_success).total_seconds() < grace
+            )
+            held = state["last_streams"] if within_grace else []
+            if state["failures"] > self._plex_max_failures and not state["warned"]:
+                logger.error(f"Media server '{server.name}' unreachable for {state['failures']} polls: {err}")
+                state["warned"] = True
+                if self.notification_service:
+                    await self.notification_service.notify(
+                        "service_unreachable",
+                        f"Media server '{server.name}' is unreachable. Bandwidth limits maintained.",
+                        {"service": server.name, "server_id": server.server_id,
+                         "status": "unreachable", "consecutive_failures": state["failures"]},
+                    )
+            return False, [dict(s) for s in held]
+
     async def _plex_poll_loop(self):
         """Plex stream monitoring loop."""
         while self._running:
@@ -442,46 +493,28 @@ class PollingMonitor:
             old_streams = self._cached_streams.copy()
             old_session_ids = {s.get("session_id") for s in old_streams if s.get("session_id")}
 
-            # Try to get active streams from Plex
-            try:
-                new_streams = await self.plex.get_active_streams()
-                # Success - reset failure tracking
-                self._plex_consecutive_failures = 0
-                self._plex_last_success = datetime.now(timezone.utc)
-                if self._plex_unreachable_warned:
-                    logger.info("Plex connection restored")
-                    self._plex_unreachable_warned = False
-                    if self.notification_service:
-                        await self.notification_service.notify(
-                            "service_unreachable",
-                            "Plex server is back online.",
-                            {"service": "Plex", "status": "recovered"}
-                        )
-                self._cached_streams = new_streams
-            except Exception as plex_error:
-                # Plex unreachable - increment failure counter
-                self._plex_consecutive_failures += 1
+            # Poll every server in parallel; _poll_one never raises.
+            if self.media_servers:
+                results = await asyncio.gather(
+                    *[self._poll_one(s) for s in self.media_servers.values()]
+                )
+            else:
+                results = []
+            any_reachable = any(reachable for reachable, _ in results)
+            merged = [s for _, streams in results for s in streams]
 
-                if self._plex_consecutive_failures == 1:
-                    logger.warning(f"Plex unreachable: {plex_error}. Keeping last known streams ({len(old_streams)} streams).")
-                elif self._plex_consecutive_failures <= self._plex_max_failures:
-                    logger.debug(f"Plex still unreachable (failure {self._plex_consecutive_failures}/{self._plex_max_failures})")
-                elif not self._plex_unreachable_warned:
-                    logger.error(f"Plex has been unreachable for {self._plex_consecutive_failures} consecutive polls. "
-                                f"Bandwidth limits are being maintained at current levels. "
-                                f"Last successful poll: {self._plex_last_success}")
-                    self._plex_unreachable_warned = True
-                    # Send notification if configured
-                    if self.notification_service:
-                        await self.notification_service.notify(
-                            "service_unreachable",
-                            "Plex server is unreachable. Bandwidth limits maintained at current levels.",
-                            {"service": "Plex", "status": "unreachable", "consecutive_failures": self._plex_consecutive_failures}
-                        )
+            # TOTAL OUTAGE: no server reachable this cycle -> maintain current
+            # limits (do NOT recompute or restore). Mirrors the legacy single-Plex
+            # behavior of keeping _cached_streams and skipping the rest of the cycle.
+            if self.media_servers and not any_reachable:
+                self._plex_consecutive_failures = max(
+                    (st["failures"] for st in self._server_state.values()), default=0
+                )
+                return
 
-                # FAILSAFE: Keep the last known streams - do NOT clear to empty
-                # This prevents restoring all speeds when Plex is temporarily down
-                return  # Skip rest of cycle when Plex is unreachable
+            self._plex_consecutive_failures = 0
+            new_streams = merged
+            self._cached_streams = new_streams
 
             new_session_ids = {s.get("session_id") for s in self._cached_streams if s.get("session_id")}
 
