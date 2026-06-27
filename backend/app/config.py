@@ -274,6 +274,10 @@ class SystemConfig(BaseModel):
     update_frequency: int = Field(5, ge=5, description="Polling interval in seconds (minimum 5)")
     log_level: str = "INFO"
     speedarr_url: str = Field("", description="Base URL of Speedarr instance for webhooks (empty = auto-detect from browser)")
+    require_login: bool = Field(
+        False,
+        description="When true, the dashboard and read APIs require authentication. Default false (public).",
+    )
 
 
 def _atomic_write_file(file_path: Path, content: bytes | str, mode: str = "text") -> bool:
