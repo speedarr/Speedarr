@@ -167,26 +167,6 @@ export interface ChartDataPoint {
   download_speed: number;
   upload_speed: number;
   stream_bandwidth: number;
-  // Per-client download speeds
-  qbittorrent_speed: number;
-  sabnzbd_speed: number;
-  nzbget_speed: number;
-  transmission_speed: number;
-  deluge_speed: number;
-  // Per-client upload speeds
-  qbittorrent_upload_speed: number;
-  transmission_upload_speed: number;
-  deluge_upload_speed: number;
-  // Per-client download limits
-  qbittorrent_download_limit: number | null;
-  sabnzbd_download_limit: number | null;
-  nzbget_download_limit: number | null;
-  transmission_download_limit: number | null;
-  deluge_download_limit: number | null;
-  // Per-client upload limits
-  qbittorrent_upload_limit: number | null;
-  transmission_upload_limit: number | null;
-  deluge_upload_limit: number | null;
   // WAN/LAN stream split
   wan_stream_bandwidth: number | null;
   lan_stream_bandwidth: number | null;
@@ -196,6 +176,10 @@ export interface ChartDataPoint {
   active_streams_count: number;
   snmp_download_speed: number | null;
   snmp_upload_speed: number | null;
+  // Per-client-id metrics are dynamic, keyed by client id (and legacy `<type>`
+  // for pre-fix rows): `<id>_speed`, `<id>_upload_speed`, `<id>_download_limit`,
+  // `<id>_upload_limit`. Accessed via the index signature below.
+  [key: string]: number | string | null | undefined;
 }
 
 export interface BandwidthChartDataResponse {
@@ -205,10 +189,12 @@ export interface BandwidthChartDataResponse {
   interval_minutes: number;
   per_server_series?: string[];
   per_server_points?: Array<Record<string, number | string>>;
+  client_series?: Array<{ id: string; type: string }>;
 }
 
 // Client status for bandwidth cards
 export interface ClientBandwidthStatus {
+  id: string;
   type: string;
   name: string;
   color: string;

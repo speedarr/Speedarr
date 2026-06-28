@@ -28,33 +28,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown, ZoomOut, Server } from 'lucide-react';
 import { useChartZoom, type ZoomRange } from '@/hooks/useChartZoom';
+import { buildChartSeries, resolveSeriesColors, type ChartSeriesDescriptor } from '@/lib/chartSeries';
 
-// Gradient ID mapping for each client
-const DOWNLOAD_GRADIENT_IDS: Record<string, string> = {
-  qbittorrent: 'qbDownload',
-  sabnzbd: 'sabDownload',
-  nzbget: 'nzbgetDownload',
-  transmission: 'transmissionDownload',
-  deluge: 'delugeDownload',
-};
-
-const UPLOAD_GRADIENT_IDS: Record<string, string> = {
-  qbittorrent: 'qbUpload',
-  transmission: 'transmissionUpload',
-  deluge: 'delugeUpload',
-};
+// Dynamic SVG gradient ids for a series (id is safe for SVG: letters/digits/underscore).
+const dlGradientId = (id: string) => `grad_dl_${id}`;
+const ulGradientId = (id: string) => `grad_ul_${id}`;
 
 // Color palette for per-server stream breakdown lines
 const PER_SERVER_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#06b6d4', '#84cc16'];
-
-interface DownloadClient {
-  id: string;
-  type: string;
-  name: string;
-  enabled: boolean;
-  color: string;
-  supports_upload: boolean;
-}
 
 interface LegendItem {
   value: string;
@@ -72,23 +53,15 @@ interface CustomLegendProps {
 const CustomLegend: React.FC<CustomLegendProps> = ({ payload, visibleSeries, onToggle }) => {
   if (!payload) return null;
 
-  // Define which series are "download" type vs "upload" type
-  const downloadKeys = [
-    'qbittorrent_download', 'sabnzbd_download', 'nzbget_download', 'transmission_download', 'deluge_download',
-    'qbittorrent_download_limit_line', 'sabnzbd_download_limit_line', 'nzbget_download_limit_line',
-    'transmission_download_limit_line', 'deluge_download_limit_line', 'snmp_download'
-  ];
-  // uploadKeys used for categorization - items not in downloadKeys are considered uploads
-  const _uploadKeys = [
-    'qbittorrent_upload', 'transmission_upload', 'deluge_upload', 'wan_streams', 'lan_streams',
-    'qbittorrent_upload_limit_line', 'transmission_upload_limit_line', 'deluge_upload_limit_line', 'snmp_upload'
-  ];
-  void _uploadKeys; // Suppress unused variable warning
+  // Downloads sort before uploads. A key is a download if it carries a download
+  // suffix or is the SNMP download line; everything else (uploads, streams) sorts after.
+  const isDownloadKey = (key: string) =>
+    key === 'snmp_download' || key.endsWith('_download') || key.endsWith('_download_limit_line');
 
   // Sort payload: downloads first (alphabetically by name), then uploads (alphabetically by name)
   const sortedPayload = [...payload].sort((a, b) => {
-    const aIsDownload = downloadKeys.includes(a.dataKey);
-    const bIsDownload = downloadKeys.includes(b.dataKey);
+    const aIsDownload = isDownloadKey(a.dataKey);
+    const bIsDownload = isDownloadKey(b.dataKey);
 
     // Downloads come before uploads
     if (aIsDownload && !bIsDownload) return -1;
@@ -153,31 +126,13 @@ interface BandwidthChartProps {
   configuredServerCount: number;
 }
 
-// Default visible series configuration
+// Default visibility for the non-per-client (fixed-key) series only. Per-client
+// series visibility (`<id>_download`, `<id>_upload`, and the `_limit_line`
+// variants) is seeded per id when the series load — see the effect in the
+// component body — so no client-type keys belong here.
 const defaultVisibleSeries: Record<string, boolean> = {
-  // Download speeds
-  qbittorrent_download: true,
-  sabnzbd_download: true,
-  nzbget_download: true,
-  transmission_download: true,
-  deluge_download: true,
-  // Upload speeds
-  qbittorrent_upload: true,
-  transmission_upload: true,
-  deluge_upload: true,
   wan_streams: true,
   lan_streams: false,
-  // Download limits
-  qbittorrent_download_limit_line: false,
-  sabnzbd_download_limit_line: false,
-  nzbget_download_limit_line: false,
-  transmission_download_limit_line: false,
-  deluge_download_limit_line: false,
-  // Upload limits
-  qbittorrent_upload_limit_line: false,
-  transmission_upload_limit_line: false,
-  deluge_upload_limit_line: false,
-  // SNMP
   snmp_download: false,
   snmp_upload: false,
 };
@@ -210,7 +165,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState('');
   const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>(loadVisibleSeries);
-  const [downloadClients, setDownloadClients] = useState<DownloadClient[]>([]);
+  const [descriptors, setDescriptors] = useState<ChartSeriesDescriptor[]>([]);
+  const [historicalSeries, setHistoricalSeries] = useState<Array<{ id: string; type: string }>>([]);
   const [snmpEnabled, setSnmpEnabled] = useState<boolean>(false);
   const [mediaServerNames, setMediaServerNames] = useState<Record<string, string>>({});
   const [stackChart, setStackChart] = useState<boolean>(() => {
@@ -273,8 +229,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       try {
         const status = await apiClient.getSystemStatus();
 
-        // Build client list from status response
-        const clientMap = new Map<string, DownloadClient>();
+        // Build per-client-id descriptors from status (clients are keyed by id).
+        const clientMap = new Map<string, ChartSeriesDescriptor>();
         const dlClients = status.bandwidth?.download?.clients || [];
         const ulClients = status.bandwidth?.upload?.clients || [];
 
@@ -282,35 +238,32 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
           console.warn('[BandwidthChart] Status response returned 0 clients. Response status:', status.status);
         }
 
-        // NOTE: clients are intentionally keyed by type here. The chart-data API aggregates
-        // points per client type (e.g. qbittorrent_speed), so two clients of the same type
-        // render as one merged series. This is a known limitation; per-client-id chart series
-        // is a separate follow-up. Settings/engine allocations ARE keyed by client id.
         for (const c of dlClients) {
-          clientMap.set(c.type, {
-            id: c.type, type: c.type, name: c.name,
-            enabled: true, color: c.color, supports_upload: false,
+          clientMap.set(c.id, {
+            id: c.id, type: c.type, name: c.name,
+            color: c.color, supportsUpload: false,
           });
         }
         for (const c of ulClients) {
-          if (clientMap.has(c.type)) {
-            clientMap.get(c.type)!.supports_upload = true;
+          const existing = clientMap.get(c.id);
+          if (existing) {
+            existing.supportsUpload = true;
           } else {
-            clientMap.set(c.type, {
-              id: c.type, type: c.type, name: c.name,
-              enabled: true, color: c.color, supports_upload: true,
+            clientMap.set(c.id, {
+              id: c.id, type: c.type, name: c.name,
+              color: c.color, supportsUpload: true,
             });
           }
         }
         const clients = Array.from(clientMap.values());
-        setDownloadClients(clients);
+        setDescriptors(clients);
 
-        // Compute client order immediately (same batch)
-        const enabledTypes = clients.map(c => c.type);
+        // Compute client order immediately (same batch), keyed by id.
+        const enabledIds = clients.map(c => c.id);
         setClientOrder(prev => {
-          const kept = prev.filter(t => enabledTypes.includes(t));
-          const newClients = enabledTypes.filter(t => !kept.includes(t));
-          return kept.length > 0 ? [...kept, ...newClients] : enabledTypes;
+          const kept = prev.filter(id => enabledIds.includes(id));
+          const newClients = enabledIds.filter(id => !kept.includes(id));
+          return kept.length > 0 ? [...kept, ...newClients] : enabledIds;
         });
 
         setSnmpEnabled(status.snmp_enabled ?? false);
@@ -330,99 +283,82 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     loadClientInfo();
   }, []);
 
-  // Reconcile clientOrder with actual enabled clients
+  // Merge current clients with any historical-only series ids from chart-data,
+  // then resolve collision-free colors. `series` is the single source of truth
+  // for every per-client chart element.
+  const series = useMemo(
+    () => buildChartSeries(descriptors, historicalSeries),
+    [descriptors, historicalSeries],
+  );
+  const seriesColors = useMemo(() => resolveSeriesColors(series), [series]);
+  const seriesById = useMemo(() => {
+    const map = new Map<string, ChartSeriesDescriptor>();
+    for (const s of series) map.set(s.id, s);
+    return map;
+  }, [series]);
+
+  // Lookup by series id, with display color from the collision-resolved map.
+  const getSeriesInfo = useMemo(() => {
+    return (id: string) => {
+      const s = seriesById.get(id);
+      return {
+        name: s?.name ?? id,
+        color: seriesColors[id] ?? '#888888',
+        supportsUpload: s?.supportsUpload ?? false,
+      };
+    };
+  }, [seriesById, seriesColors]);
+
+  const seriesSupportsUpload = useMemo(() => {
+    return (id: string) => seriesById.get(id)?.supportsUpload ?? false;
+  }, [seriesById]);
+
+  // Reconcile clientOrder with the actual series ids.
   useEffect(() => {
-    if (downloadClients.length === 0) return;
-    const enabledTypes = downloadClients.map(c => c.type);
+    if (series.length === 0) return;
+    const ids = series.map(s => s.id);
     setClientOrder(prev => {
-      const kept = prev.filter(t => enabledTypes.includes(t));
-      const newClients = enabledTypes.filter(t => !kept.includes(t));
+      const kept = prev.filter(id => ids.includes(id));
+      const newClients = ids.filter(id => !kept.includes(id));
       const merged = [...kept, ...newClients];
-      if (merged.length === prev.length && merged.every((t, i) => t === prev[i])) return prev;
+      if (merged.length === prev.length && merged.every((id, i) => id === prev[i])) return prev;
       return merged;
     });
-  }, [downloadClients]);
+  }, [series]);
 
-  // Get client info by type with fallback defaults
-  const getClientInfo = useMemo(() => {
-    const defaults: Record<string, { name: string; color: string }> = {
-      qbittorrent: { name: 'qBittorrent', color: '#3b82f6' },
-      sabnzbd: { name: 'SABnzbd', color: '#facc15' },
-      nzbget: { name: 'NZBGet', color: '#22c55e' },
-      transmission: { name: 'Transmission', color: '#ef4444' },
-      deluge: { name: 'Deluge', color: '#8b5cf6' },
-    };
-
-    return (type: string) => {
-      const client = downloadClients.find(c => c.type === type);
-      if (client) {
-        return { name: client.name, color: client.color };
+  // Ensure default visibility keys exist for every series (download+upload on,
+  // limit lines off) without clobbering user toggles persisted in localStorage.
+  useEffect(() => {
+    if (series.length === 0) return;
+    setVisibleSeries(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const s of series) {
+        for (const [key, def] of [
+          [`${s.id}_download`, true],
+          [`${s.id}_upload`, true],
+          [`${s.id}_download_limit_line`, false],
+          [`${s.id}_upload_limit_line`, false],
+        ] as Array<[string, boolean]>) {
+          if (!(key in next)) { next[key] = def; changed = true; }
+        }
       }
-      return defaults[type] || { name: type, color: '#888888' };
-    };
-  }, [downloadClients]);
+      return changed ? next : prev;
+    });
+  }, [series]);
 
-  // Memoize client info lookups to avoid recalculating on every render
-  const clientInfos = useMemo(() => ({
-    qbittorrent: getClientInfo('qbittorrent'),
-    sabnzbd: getClientInfo('sabnzbd'),
-    nzbget: getClientInfo('nzbget'),
-    transmission: getClientInfo('transmission'),
-    deluge: getClientInfo('deluge'),
-  }), [getClientInfo]);
-
-  const qbitInfo = clientInfos.qbittorrent;
-  const sabInfo = clientInfos.sabnzbd;
-  const nzbgetInfo = clientInfos.nzbget;
-  const transmissionInfo = clientInfos.transmission;
-  const delugeInfo = clientInfos.deluge;
-
-  // Check if a client type is enabled
-  const isClientEnabled = useMemo(() => {
-    return (type: string) => {
-      const client = downloadClients.find(c => c.type === type);
-      return client?.enabled ?? false;
-    };
-  }, [downloadClients]);
-
-  // Check if a client supports upload
-  const clientSupportsUpload = useMemo(() => {
-    return (type: string) => {
-      const client = downloadClients.find(c => c.type === type);
-      return client?.supports_upload ?? false;
-    };
-  }, [downloadClients]);
-
-  // Check if all data series are hidden (only check enabled clients)
+  // Check if all data series are hidden (drives the "all hidden" hint).
   const allMetricsHidden = useMemo(() => {
-    // Build list of keys that are actually visible in the legend
     const activeKeys: string[] = [];
-
-    // Download clients - only include if enabled
-    if (isClientEnabled('qbittorrent')) activeKeys.push('qbittorrent_download');
-    if (isClientEnabled('sabnzbd')) activeKeys.push('sabnzbd_download');
-    if (isClientEnabled('nzbget')) activeKeys.push('nzbget_download');
-    if (isClientEnabled('transmission')) activeKeys.push('transmission_download');
-    if (isClientEnabled('deluge')) activeKeys.push('deluge_download');
-
-    // Upload clients - only include if enabled and supports upload
-    if (isClientEnabled('qbittorrent') && clientSupportsUpload('qbittorrent')) activeKeys.push('qbittorrent_upload');
-    if (isClientEnabled('transmission') && clientSupportsUpload('transmission')) activeKeys.push('transmission_upload');
-    if (isClientEnabled('deluge') && clientSupportsUpload('deluge')) activeKeys.push('deluge_upload');
-
-    // WAN/LAN streams are always shown in legend
-    activeKeys.push('wan_streams', 'lan_streams');
-
-    // SNMP is only shown in legend when SNMP is enabled
-    if (snmpEnabled) {
-      activeKeys.push('snmp_download', 'snmp_upload');
+    for (const s of series) {
+      activeKeys.push(`${s.id}_download`);
+      if (s.supportsUpload) activeKeys.push(`${s.id}_upload`);
     }
-
-    // If no clients are enabled at all, don't show the message
+    activeKeys.push('wan_streams', 'lan_streams');
+    if (snmpEnabled) activeKeys.push('snmp_download', 'snmp_upload');
     if (activeKeys.length === 0) return false;
-
     return activeKeys.every(key => !visibleSeries[key]);
-  }, [visibleSeries, isClientEnabled, clientSupportsUpload, snmpEnabled]);
+  }, [visibleSeries, series, snmpEnabled]);
 
   // Save visible series to localStorage when it changes
   useEffect(() => {
@@ -458,20 +394,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
     // Average each bucket, including limits
     const aggregated = Array.from(buckets.entries()).map(([bucketTime, points]) => {
-      const avg = {
+      const avg: Record<string, number | string> = {
         timestamp: new Date(bucketTime).toISOString(),
         download_speed: points.reduce((sum, p) => sum + (p.download_speed || 0), 0) / points.length,
-        // Per-client download speeds
-        qbittorrent_speed: points.reduce((sum, p) => sum + (p.qbittorrent_speed || 0), 0) / points.length,
-        sabnzbd_speed: points.reduce((sum, p) => sum + (p.sabnzbd_speed || 0), 0) / points.length,
-        nzbget_speed: points.reduce((sum, p) => sum + (p.nzbget_speed || 0), 0) / points.length,
-        transmission_speed: points.reduce((sum, p) => sum + (p.transmission_speed || 0), 0) / points.length,
-        deluge_speed: points.reduce((sum, p) => sum + (p.deluge_speed || 0), 0) / points.length,
         upload_speed: points.reduce((sum, p) => sum + (p.upload_speed || 0), 0) / points.length,
-        // Per-client upload speeds
-        qbittorrent_upload_speed: points.reduce((sum, p) => sum + (p.qbittorrent_upload_speed || 0), 0) / points.length,
-        transmission_upload_speed: points.reduce((sum, p) => sum + (p.transmission_upload_speed || 0), 0) / points.length,
-        deluge_upload_speed: points.reduce((sum, p) => sum + (p.deluge_upload_speed || 0), 0) / points.length,
         stream_bandwidth: points.reduce((sum, p) => sum + (p.stream_bandwidth || 0), 0) / points.length,
         // Backward compat: old data has null WAN/LAN — fall back to combined fields
         wan_stream_bandwidth: points.reduce((sum, p) => sum + (p.wan_stream_bandwidth != null ? p.wan_stream_bandwidth : (p.stream_bandwidth || 0)), 0) / points.length,
@@ -479,25 +405,22 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
         wan_streams_count: points.reduce((sum, p) => sum + (p.wan_streams_count != null ? p.wan_streams_count : (p.active_streams_count || 0)), 0) / points.length,
         lan_streams_count: points.reduce((sum, p) => sum + (p.lan_streams_count || 0), 0) / points.length,
         active_streams_count: points.reduce((sum, p) => sum + (p.active_streams_count || 0), 0) / points.length,
-        // Per-client download limits
-        qbittorrent_download_limit: points.reduce((sum, p) => sum + (p.qbittorrent_download_limit || 0), 0) / points.length,
-        sabnzbd_download_limit: points.reduce((sum, p) => sum + (p.sabnzbd_download_limit || 0), 0) / points.length,
-        nzbget_download_limit: points.reduce((sum, p) => sum + (p.nzbget_download_limit || 0), 0) / points.length,
-        transmission_download_limit: points.reduce((sum, p) => sum + (p.transmission_download_limit || 0), 0) / points.length,
-        deluge_download_limit: points.reduce((sum, p) => sum + (p.deluge_download_limit || 0), 0) / points.length,
-        // Per-client upload limits
-        qbittorrent_upload_limit: points.reduce((sum, p) => sum + (p.qbittorrent_upload_limit || 0), 0) / points.length,
-        transmission_upload_limit: points.reduce((sum, p) => sum + (p.transmission_upload_limit || 0), 0) / points.length,
-        deluge_upload_limit: points.reduce((sum, p) => sum + (p.deluge_upload_limit || 0), 0) / points.length,
         // Average SNMP data
         snmp_download_speed: points.reduce((sum, p) => sum + (p.snmp_download_speed || 0), 0) / points.length,
         snmp_upload_speed: points.reduce((sum, p) => sum + (p.snmp_upload_speed || 0), 0) / points.length,
       };
+      // Per-client-id averages (speeds + limits), keyed by series id.
+      for (const s of series) {
+        avg[`${s.id}_speed`] = points.reduce((sum, p) => sum + ((p[`${s.id}_speed`] as number) || 0), 0) / points.length;
+        avg[`${s.id}_upload_speed`] = points.reduce((sum, p) => sum + ((p[`${s.id}_upload_speed`] as number) || 0), 0) / points.length;
+        avg[`${s.id}_download_limit`] = points.reduce((sum, p) => sum + ((p[`${s.id}_download_limit`] as number) || 0), 0) / points.length;
+        avg[`${s.id}_upload_limit`] = points.reduce((sum, p) => sum + ((p[`${s.id}_upload_limit`] as number) || 0), 0) / points.length;
+      }
       return avg;
     });
 
-    return aggregated.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [zoomedRawData, dataInterval]);
+    return aggregated.sort((a, b) => new Date(a.timestamp as string).getTime() - new Date(b.timestamp as string).getTime());
+  }, [zoomedRawData, dataInterval, series]);
 
   const fetchData = useCallback(async () => {
     setError('');
@@ -512,6 +435,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
       // Capture per-server breakdown if present
       setPerServerSeries(chartResponse.per_server_series ?? []);
       setPerServerPoints(chartResponse.per_server_points ?? []);
+      // Capture per-client-id series ids present in this window (for historical/removed clients)
+      setHistoricalSeries(chartResponse.client_series ?? []);
     } catch (err) {
       setError('Failed to load bandwidth data');
       console.error('Error fetching bandwidth chart data:', err);
@@ -530,42 +455,27 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     let maxToNegate = 0;
 
     aggregatedData.forEach((point) => {
-      // Compute download totals from visible series
+      // Compute download totals from visible per-id series
       let totalDownload = 0;
-      if (visibleSeries.qbittorrent_download) totalDownload += point.qbittorrent_speed || 0;
-      if (visibleSeries.sabnzbd_download) totalDownload += point.sabnzbd_speed || 0;
-      if (visibleSeries.nzbget_download) totalDownload += point.nzbget_speed || 0;
-      if (visibleSeries.transmission_download) totalDownload += point.transmission_speed || 0;
-      if (visibleSeries.deluge_download) totalDownload += point.deluge_speed || 0;
-
-      const snmpDownloadVal = visibleSeries.snmp_download ? (point.snmp_download_speed || 0) : 0;
-
-      // Compute upload totals from visible series (stacked areas only)
+      let maxDownloadLimit = 0;
       let totalUpload = 0;
+      let maxUploadLimit = 0;
+      for (const s of series) {
+        if (visibleSeries[`${s.id}_download`]) totalDownload += (point[`${s.id}_speed`] as number) || 0;
+        if (s.supportsUpload && visibleSeries[`${s.id}_upload`]) totalUpload += (point[`${s.id}_upload_speed`] as number) || 0;
+        if (visibleSeries[`${s.id}_download_limit_line`]) maxDownloadLimit = Math.max(maxDownloadLimit, (point[`${s.id}_download_limit`] as number) || 0);
+        if (s.supportsUpload && visibleSeries[`${s.id}_upload_limit_line`]) maxUploadLimit = Math.max(maxUploadLimit, (point[`${s.id}_upload_limit`] as number) || 0);
+      }
+
+      const snmpDownloadVal = visibleSeries.snmp_download ? ((point.snmp_download_speed as number) || 0) : 0;
+
       // WAN streams: use wan_stream_bandwidth if available, fall back to combined stream_bandwidth for old data
-      if (visibleSeries.wan_streams) totalUpload += (point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0));
-      if (visibleSeries.qbittorrent_upload) totalUpload += point.qbittorrent_upload_speed || 0;
-      if (visibleSeries.transmission_upload) totalUpload += point.transmission_upload_speed || 0;
-      if (visibleSeries.deluge_upload) totalUpload += point.deluge_upload_speed || 0;
+      if (visibleSeries.wan_streams) totalUpload += ((point.wan_stream_bandwidth as number | null) != null ? (point.wan_stream_bandwidth as number) : ((point.stream_bandwidth as number) || 0));
 
       // LAN streams render as an independent Line (not stacked), so track separately
-      const lanBandwidth = visibleSeries.lan_streams ? (point.lan_stream_bandwidth || 0) : 0;
+      const lanBandwidth = visibleSeries.lan_streams ? ((point.lan_stream_bandwidth as number) || 0) : 0;
 
-      const snmpUploadVal = visibleSeries.snmp_upload ? (point.snmp_upload_speed || 0) : 0;
-
-      // Include upload limits only if their respective limit lines are visible
-      let maxUploadLimit = 0;
-      if (visibleSeries.qbittorrent_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.qbittorrent_upload_limit || 0);
-      if (visibleSeries.transmission_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.transmission_upload_limit || 0);
-      if (visibleSeries.deluge_upload_limit_line) maxUploadLimit = Math.max(maxUploadLimit, point.deluge_upload_limit || 0);
-
-      // Include download limits only if their respective limit lines are visible
-      let maxDownloadLimit = 0;
-      if (visibleSeries.qbittorrent_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.qbittorrent_download_limit || 0);
-      if (visibleSeries.sabnzbd_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.sabnzbd_download_limit || 0);
-      if (visibleSeries.nzbget_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.nzbget_download_limit || 0);
-      if (visibleSeries.transmission_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.transmission_download_limit || 0);
-      if (visibleSeries.deluge_download_limit_line) maxDownloadLimit = Math.max(maxDownloadLimit, point.deluge_download_limit || 0);
+      const snmpUploadVal = visibleSeries.snmp_upload ? ((point.snmp_upload_speed as number) || 0) : 0;
 
       if (flipped) {
         // Uploads on top (positive), downloads negated
@@ -607,35 +517,29 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     // When flipped, uploads stay positive and downloads get negated+scaled (and vice versa)
     const chartData = aggregatedData.map((point) => ({
       ...point,
-      // Download series
-      qbittorrent_download: flipped ? -Math.abs(point.qbittorrent_speed || 0) * negativeRatio : (point.qbittorrent_speed || 0) * positiveRatio,
-      sabnzbd_download: flipped ? -Math.abs(point.sabnzbd_speed || 0) * negativeRatio : (point.sabnzbd_speed || 0) * positiveRatio,
-      nzbget_download: flipped ? -Math.abs(point.nzbget_speed || 0) * negativeRatio : (point.nzbget_speed || 0) * positiveRatio,
-      transmission_download: flipped ? -Math.abs(point.transmission_speed || 0) * negativeRatio : (point.transmission_speed || 0) * positiveRatio,
-      deluge_download: flipped ? -Math.abs(point.deluge_speed || 0) * negativeRatio : (point.deluge_speed || 0) * positiveRatio,
       // Upload series — WAN/LAN stream split (backward compat: wan falls back to combined stream_bandwidth)
-      wan_streams: (() => { const v = point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0); return flipped ? Math.abs(v) * positiveRatio : -Math.abs(v) * negativeRatio; })(),
-      lan_streams: (() => { const v = point.lan_stream_bandwidth || 0; return flipped ? Math.abs(v) * positiveRatio : -Math.abs(v) * negativeRatio; })(),
-      qbittorrent_upload: flipped ? Math.abs(point.qbittorrent_upload_speed || 0) * positiveRatio : -Math.abs(point.qbittorrent_upload_speed || 0) * negativeRatio,
-      transmission_upload: flipped ? Math.abs(point.transmission_upload_speed || 0) * positiveRatio : -Math.abs(point.transmission_upload_speed || 0) * negativeRatio,
-      deluge_upload: flipped ? Math.abs(point.deluge_upload_speed || 0) * positiveRatio : -Math.abs(point.deluge_upload_speed || 0) * negativeRatio,
-      // Download limit lines
-      qbittorrent_download_limit_line: flipped ? (point.qbittorrent_download_limit ? -Math.abs(point.qbittorrent_download_limit) * negativeRatio : null) : (point.qbittorrent_download_limit ? Math.abs(point.qbittorrent_download_limit) * positiveRatio : null),
-      sabnzbd_download_limit_line: flipped ? (point.sabnzbd_download_limit ? -Math.abs(point.sabnzbd_download_limit) * negativeRatio : null) : (point.sabnzbd_download_limit ? Math.abs(point.sabnzbd_download_limit) * positiveRatio : null),
-      nzbget_download_limit_line: flipped ? (point.nzbget_download_limit ? -Math.abs(point.nzbget_download_limit) * negativeRatio : null) : (point.nzbget_download_limit ? Math.abs(point.nzbget_download_limit) * positiveRatio : null),
-      transmission_download_limit_line: flipped ? (point.transmission_download_limit ? -Math.abs(point.transmission_download_limit) * negativeRatio : null) : (point.transmission_download_limit ? Math.abs(point.transmission_download_limit) * positiveRatio : null),
-      deluge_download_limit_line: flipped ? (point.deluge_download_limit ? -Math.abs(point.deluge_download_limit) * negativeRatio : null) : (point.deluge_download_limit ? Math.abs(point.deluge_download_limit) * positiveRatio : null),
-      // Upload limit lines
-      qbittorrent_upload_limit_line: flipped ? (point.qbittorrent_upload_limit ? Math.abs(point.qbittorrent_upload_limit) * positiveRatio : null) : (point.qbittorrent_upload_limit ? -Math.abs(point.qbittorrent_upload_limit) * negativeRatio : null),
-      transmission_upload_limit_line: flipped ? (point.transmission_upload_limit ? Math.abs(point.transmission_upload_limit) * positiveRatio : null) : (point.transmission_upload_limit ? -Math.abs(point.transmission_upload_limit) * negativeRatio : null),
-      deluge_upload_limit_line: flipped ? (point.deluge_upload_limit ? Math.abs(point.deluge_upload_limit) * positiveRatio : null) : (point.deluge_upload_limit ? -Math.abs(point.deluge_upload_limit) * negativeRatio : null),
+      wan_streams: (() => { const v = point.wan_stream_bandwidth != null ? point.wan_stream_bandwidth : (point.stream_bandwidth || 0); return flipped ? Math.abs(v as number) * positiveRatio : -Math.abs(v as number) * negativeRatio; })(),
+      lan_streams: (() => { const v = point.lan_stream_bandwidth || 0; return flipped ? Math.abs(v as number) * positiveRatio : -Math.abs(v as number) * negativeRatio; })(),
+      // Per-client-id download/upload areas + limit lines (keyed by series id)
+      ...Object.fromEntries(series.flatMap((s) => {
+        const dlSpeed = (point[`${s.id}_speed`] as number) || 0;
+        const ulSpeed = (point[`${s.id}_upload_speed`] as number) || 0;
+        const dlLimit = (point[`${s.id}_download_limit`] as number) || 0;
+        const ulLimit = (point[`${s.id}_upload_limit`] as number) || 0;
+        return [
+          [`${s.id}_download`, flipped ? -Math.abs(dlSpeed) * negativeRatio : dlSpeed * positiveRatio],
+          [`${s.id}_upload`, flipped ? Math.abs(ulSpeed) * positiveRatio : -Math.abs(ulSpeed) * negativeRatio],
+          [`${s.id}_download_limit_line`, flipped ? (dlLimit ? -Math.abs(dlLimit) * negativeRatio : null) : (dlLimit ? Math.abs(dlLimit) * positiveRatio : null)],
+          [`${s.id}_upload_limit_line`, flipped ? (ulLimit ? Math.abs(ulLimit) * positiveRatio : null) : (ulLimit ? -Math.abs(ulLimit) * negativeRatio : null)],
+        ];
+      })),
       // SNMP bandwidth
-      snmp_download: flipped ? (point.snmp_download_speed != null ? -Math.abs(point.snmp_download_speed) * negativeRatio : null) : (point.snmp_download_speed != null ? Math.abs(point.snmp_download_speed) * positiveRatio : null),
-      snmp_upload: flipped ? (point.snmp_upload_speed != null ? Math.abs(point.snmp_upload_speed) * positiveRatio : null) : (point.snmp_upload_speed != null ? -Math.abs(point.snmp_upload_speed) * negativeRatio : null),
+      snmp_download: flipped ? ((point.snmp_download_speed as number | null) != null ? -Math.abs(point.snmp_download_speed as number) * negativeRatio : null) : ((point.snmp_download_speed as number | null) != null ? Math.abs(point.snmp_download_speed as number) * positiveRatio : null),
+      snmp_upload: flipped ? ((point.snmp_upload_speed as number | null) != null ? Math.abs(point.snmp_upload_speed as number) * positiveRatio : null) : ((point.snmp_upload_speed as number | null) != null ? -Math.abs(point.snmp_upload_speed as number) * negativeRatio : null),
     }));
 
     return { data: chartData, positiveRatio, negativeRatio, yDomain };
-  }, [aggregatedData, visibleSeries, stackChart, flipped]);
+  }, [aggregatedData, visibleSeries, stackChart, flipped, series]);
 
   const data = transformedData.data;
   const positiveScalingRatio = transformedData.positiveRatio;
@@ -722,9 +626,9 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {clientOrder.map((clientType) => (
-                      <SelectItem key={clientType} value={clientType}>
-                        {getClientInfo(clientType).name} first (bottom)
+                    {clientOrder.map((id) => (
+                      <SelectItem key={id} value={id}>
+                        {getSeriesInfo(id).name} first (bottom)
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -866,56 +770,26 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 style={{ cursor: isSelecting ? 'col-resize' : 'crosshair' }}
               >
                 <defs key={`chart-defs-${flipped}`}>
-                  {/* Download gradients - only for enabled clients */}
-                  {isClientEnabled('qbittorrent') && (
-                    <linearGradient id="qbDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
-                      <stop offset="5%" stopColor={qbitInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={qbitInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {isClientEnabled('sabnzbd') && (
-                    <linearGradient id="sabDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
-                      <stop offset="5%" stopColor={sabInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={sabInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {isClientEnabled('nzbget') && (
-                    <linearGradient id="nzbgetDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
-                      <stop offset="5%" stopColor={nzbgetInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={nzbgetInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {isClientEnabled('transmission') && (
-                    <linearGradient id="transmissionDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
-                      <stop offset="5%" stopColor={transmissionInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={transmissionInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {isClientEnabled('deluge') && (
-                    <linearGradient id="delugeDownload" x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
-                      <stop offset="5%" stopColor={delugeInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={delugeInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {/* Upload gradients - only for enabled clients that support upload */}
-                  {isClientEnabled('qbittorrent') && clientSupportsUpload('qbittorrent') && (
-                    <linearGradient id="qbUpload" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
-                      <stop offset="5%" stopColor={qbitInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={qbitInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {isClientEnabled('transmission') && clientSupportsUpload('transmission') && (
-                    <linearGradient id="transmissionUpload" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
-                      <stop offset="5%" stopColor={transmissionInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={transmissionInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
-                  {isClientEnabled('deluge') && clientSupportsUpload('deluge') && (
-                    <linearGradient id="delugeUpload" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
-                      <stop offset="5%" stopColor={delugeInfo.color} stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor={delugeInfo.color} stopOpacity={0.3}/>
-                    </linearGradient>
-                  )}
+                  {/* Per-client-id download gradients */}
+                  {series.map((s) => {
+                    const color = getSeriesInfo(s.id).color;
+                    return (
+                      <linearGradient key={dlGradientId(s.id)} id={dlGradientId(s.id)} x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
+                        <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor={color} stopOpacity={0.3}/>
+                      </linearGradient>
+                    );
+                  })}
+                  {/* Per-client-id upload gradients (only upload-capable series) */}
+                  {series.filter((s) => s.supportsUpload).map((s) => {
+                    const color = getSeriesInfo(s.id).color;
+                    return (
+                      <linearGradient key={ulGradientId(s.id)} id={ulGradientId(s.id)} x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                        <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor={color} stopOpacity={0.3}/>
+                      </linearGradient>
+                    );
+                  })}
                   {/* WAN streams gradient - always shown */}
                   <linearGradient id="wanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
                     <stop offset="5%" stopColor="#ff7300" stopOpacity={0.8}/>
@@ -987,144 +861,50 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                     strokeOpacity={0.4}
                   />
                 )}
-                {/* Per-client download limit lines - only show for enabled clients */}
-                {isClientEnabled('qbittorrent') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="qbittorrent_download_limit_line"
-                    stroke={qbitInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${qbitInfo.name} DL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.qbittorrent_download_limit_line}
-                  />
-                )}
-                {isClientEnabled('sabnzbd') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="sabnzbd_download_limit_line"
-                    stroke={sabInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${sabInfo.name} DL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.sabnzbd_download_limit_line}
-                  />
-                )}
-                {isClientEnabled('nzbget') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="nzbget_download_limit_line"
-                    stroke={nzbgetInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${nzbgetInfo.name} DL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.nzbget_download_limit_line}
-                  />
-                )}
-                {isClientEnabled('transmission') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="transmission_download_limit_line"
-                    stroke={transmissionInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${transmissionInfo.name} DL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.transmission_download_limit_line}
-                  />
-                )}
-                {isClientEnabled('deluge') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="deluge_download_limit_line"
-                    stroke={delugeInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${delugeInfo.name} DL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.deluge_download_limit_line}
-                  />
-                )}
-                {/* Per-client upload limit lines - only show for enabled clients that support upload */}
-                {isClientEnabled('qbittorrent') && clientSupportsUpload('qbittorrent') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="qbittorrent_upload_limit_line"
-                    stroke={qbitInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${qbitInfo.name} UL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.qbittorrent_upload_limit_line}
-                  />
-                )}
-                {isClientEnabled('transmission') && clientSupportsUpload('transmission') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="transmission_upload_limit_line"
-                    stroke={transmissionInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${transmissionInfo.name} UL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.transmission_upload_limit_line}
-                  />
-                )}
-                {isClientEnabled('deluge') && clientSupportsUpload('deluge') && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="deluge_upload_limit_line"
-                    stroke={delugeInfo.color}
-                    strokeDasharray="5 5"
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${delugeInfo.name} UL Limit`}
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.deluge_upload_limit_line}
-                  />
-                )}
+                {/* Per-client-id download limit lines */}
+                {series.map((s) => {
+                  const info = getSeriesInfo(s.id);
+                  return (
+                    <Line
+                      key={`${s.id}_download_limit_line`}
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey={`${s.id}_download_limit_line`}
+                      stroke={info.color}
+                      strokeDasharray="5 5"
+                      strokeWidth={2}
+                      dot={false}
+                      name={`${info.name} DL Limit`}
+                      isAnimationActive={true}
+                      animationDuration={300}
+                      animationEasing="ease-in-out"
+                      connectNulls={true}
+                      hide={!visibleSeries[`${s.id}_download_limit_line`]}
+                    />
+                  );
+                })}
+                {/* Per-client-id upload limit lines (upload-capable series only) */}
+                {series.filter((s) => s.supportsUpload).map((s) => {
+                  const info = getSeriesInfo(s.id);
+                  return (
+                    <Line
+                      key={`${s.id}_upload_limit_line`}
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey={`${s.id}_upload_limit_line`}
+                      stroke={info.color}
+                      strokeDasharray="5 5"
+                      strokeWidth={2}
+                      dot={false}
+                      name={`${info.name} UL Limit`}
+                      isAnimationActive={true}
+                      animationDuration={300}
+                      animationEasing="ease-in-out"
+                      connectNulls={true}
+                      hide={!visibleSeries[`${s.id}_upload_limit_line`]}
+                    />
+                  );
+                })}
                 {/* SNMP Actual Bandwidth Lines - only shown when SNMP is enabled */}
                 {snmpEnabled && (
                   <Line
@@ -1160,25 +940,23 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                     hide={!visibleSeries.snmp_upload}
                   />
                 )}
-                {/* Download Areas (stacked positive) - order controlled by stackOrder */}
-                {clientOrder.map((clientType) => {
-                  if (!isClientEnabled(clientType)) return null;
-                  const info = getClientInfo(clientType);
-                  const gradientId = DOWNLOAD_GRADIENT_IDS[clientType];
+                {/* Download Areas (stacked positive) - order controlled by clientOrder */}
+                {clientOrder.map((id) => {
+                  const info = getSeriesInfo(id);
                   return (
                     <Area
-                      key={`${clientType}_download`}
+                      key={`${id}_download`}
                       yAxisId="left"
                       type="monotone"
-                      dataKey={`${clientType}_download`}
+                      dataKey={`${id}_download`}
                       stackId={stackChart ? "download" : undefined}
                       stroke={info.color}
-                      fill={`url(#${gradientId})`}
+                      fill={`url(#${dlGradientId(id)})`}
                       name={`${info.name} Download`}
                       isAnimationActive={true}
                       animationDuration={300}
                       animationEasing="ease-in-out"
-                      hide={!visibleSeries[`${clientType}_download`]}
+                      hide={!visibleSeries[`${id}_download`]}
                     />
                   );
                 })}
@@ -1211,25 +989,23 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   connectNulls={true}
                   hide={!visibleSeries.lan_streams}
                 />
-                {clientOrder.map((clientType) => {
-                  if (!isClientEnabled(clientType) || !clientSupportsUpload(clientType)) return null;
-                  const gradientId = UPLOAD_GRADIENT_IDS[clientType];
-                  if (!gradientId) return null;
-                  const info = getClientInfo(clientType);
+                {clientOrder.map((id) => {
+                  if (!seriesSupportsUpload(id)) return null;
+                  const info = getSeriesInfo(id);
                   return (
                     <Area
-                      key={`${clientType}_upload`}
+                      key={`${id}_upload`}
                       yAxisId="left"
                       type="monotone"
-                      dataKey={`${clientType}_upload`}
+                      dataKey={`${id}_upload`}
                       stackId={stackChart ? "upload" : undefined}
                       stroke={info.color}
-                      fill={`url(#${gradientId})`}
+                      fill={`url(#${ulGradientId(id)})`}
                       name={`${info.name} Upload`}
                       isAnimationActive={true}
                       animationDuration={300}
                       animationEasing="ease-in-out"
-                      hide={!visibleSeries[`${clientType}_upload`]}
+                      hide={!visibleSeries[`${id}_upload`]}
                     />
                   );
                 })}
