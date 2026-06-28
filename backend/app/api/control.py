@@ -3,7 +3,7 @@ Control API routes for manual overrides.
 """
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from loguru import logger
 
 from app.api.auth import require_admin
@@ -13,13 +13,36 @@ from app.utils.errors import ErrorCode, raise_error
 router = APIRouter(prefix="/api/control", tags=["control"])
 
 
+class ClientThrottle(BaseModel):
+    client_id: str
+    download_limit: Optional[float] = None
+    upload_limit: Optional[float] = None
+
+
 class ManualThrottleRequest(BaseModel):
-    qbittorrent_download_limit: Optional[float] = None
-    qbittorrent_upload_limit: Optional[float] = None
-    sabnzbd_download_limit: Optional[float] = None
-    sabnzbd_upload_limit: Optional[float] = None
+    clients: List[ClientThrottle]
     duration_minutes: Optional[int] = None
     reason: str = "Manual throttle"
+
+
+def build_throttle_decisions(clients, known_ids, reason: str) -> dict:
+    """Build an id-keyed decisions dict for controller_manager.apply_decisions.
+
+    Raises ValueError if the list is empty or names an unknown client id.
+    """
+    if not clients:
+        raise ValueError("No clients specified")
+    decisions = {}
+    for ct in clients:
+        if ct.client_id not in known_ids:
+            raise ValueError(f"Unknown client: {ct.client_id}")
+        decisions[ct.client_id] = {
+            "action": "throttle",
+            "download_limit": ct.download_limit,
+            "upload_limit": ct.upload_limit,
+            "reason": reason,
+        }
+    return decisions
 
 
 class RestoreSpeedsRequest(BaseModel):
@@ -83,27 +106,12 @@ async def manual_throttle(
         controller_manager = request.app.state.controller_manager
         notification_service = request.app.state.notification_service
 
-        # Build decisions dict
-        decisions = {}
-
-        if body.qbittorrent_download_limit is not None or body.qbittorrent_upload_limit is not None:
-            decisions["qbittorrent"] = {
-                "action": "throttle",
-                "download_limit": body.qbittorrent_download_limit,
-                "upload_limit": body.qbittorrent_upload_limit,
-                "reason": body.reason
-            }
-
-        if body.sabnzbd_download_limit is not None or body.sabnzbd_upload_limit is not None:
-            decisions["sabnzbd"] = {
-                "action": "throttle",
-                "download_limit": body.sabnzbd_download_limit,
-                "upload_limit": body.sabnzbd_upload_limit,
-                "reason": body.reason
-            }
-
-        if not decisions:
-            raise_error(ErrorCode.VALIDATION_ERROR, "No speed limits specified", status_code=400)
+        # Build id-keyed decisions; reject empty or unknown clients.
+        known_ids = set(controller_manager.clients.keys())
+        try:
+            decisions = build_throttle_decisions(body.clients, known_ids, body.reason)
+        except ValueError as e:
+            raise_error(ErrorCode.VALIDATION_ERROR, str(e), status_code=400)
 
         # Apply throttling
         results = await controller_manager.apply_decisions(decisions)
@@ -125,6 +133,8 @@ async def manual_throttle(
             "duration_minutes": body.duration_minutes
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error applying manual throttle: {e}")
         raise_error(ErrorCode.INTERNAL_ERROR, "Failed to apply manual throttle", log=False)

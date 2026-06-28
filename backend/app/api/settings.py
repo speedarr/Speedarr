@@ -17,6 +17,17 @@ from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+def resolve_test_media_server(servers, server_type, server_id):
+    """Pick the media server to test: by id when supplied; otherwise the sole
+    server of that type. Returns None if the id is unknown or the type is
+    ambiguous (more than one) — never silently first-match by type.
+    """
+    if server_id:
+        return next((s for s in servers if s.id == server_id), None)
+    of_type = [s for s in servers if s.type == server_type]
+    return of_type[0] if len(of_type) == 1 else None
+
+
 class SectionMetadata(BaseModel):
     """Metadata about a configuration section."""
 
@@ -295,10 +306,8 @@ async def test_connection(
             # If use_existing or token is masked, resolve from saved server
             # (covers both legacy plex.* [synthesized id "plex"] and new media_servers entries)
             if test_request.use_existing or token == "***REDACTED***":
-                saved = next(
-                    (s for s in app_config.get_all_media_servers()
-                     if s.type == "plex" and (config_data.get("id") in (None, s.id))),
-                    None,
+                saved = resolve_test_media_server(
+                    app_config.get_all_media_servers(), "plex", config_data.get("id")
                 )
                 if saved and saved.token:
                     token = saved.token
@@ -312,11 +321,10 @@ async def test_connection(
 
             # Fall back to saved url if still missing
             if not url:
-                saved_url = next(
-                    (s.url for s in app_config.get_all_media_servers() if s.type == "plex"),
-                    None,
+                _srv = resolve_test_media_server(
+                    app_config.get_all_media_servers(), "plex", config_data.get("id")
                 )
-                url = saved_url
+                url = _srv.url if _srv else None
 
             if not url or not token:
                 return TestConnectionResponse(
