@@ -104,3 +104,53 @@ def _session_res(video_resolution):
 def test_plex_quality_profile_normalized(video_resolution, expected):
     out = _client()._normalize_stream(_session_res(video_resolution), actual_bandwidth_mbps=0.0)
     assert out["quality_profile"] == expected
+
+
+def test_session_id_prefers_sessionkey_over_session_id():
+    """sessionKey is the canonical unique id; it wins over Session.id."""
+    c = _client()
+    session = {
+        "type": "movie", "title": "Blade Runner",
+        "sessionKey": "99",
+        "Session": {"id": "raw123", "bandwidth": 8000},
+        "Media": [{"bitrate": 8000, "videoResolution": "1080"}],
+        "User": {"id": "u1", "title": "alice"},
+        "Player": {"state": "playing", "title": "Shield", "address": "1.2.3.4"},
+    }
+    out = c._normalize_stream(session, actual_bandwidth_mbps=0.0)
+    assert out["session_id"] == "plex:99"
+
+
+def test_chromecast_without_session_id_uses_sessionkey_not_none():
+    """Chromecast sessions omit Session.id; session_id must not collapse to 'plex:None'."""
+    c = _client()
+    session = {
+        "type": "episode", "title": "Clarkson's Farm",
+        "sessionKey": "77",
+        "Session": {"bandwidth": 15300},   # no "id" key (Chromecast)
+        "Media": [{"bitrate": 15300, "videoResolution": "4k"}],
+        "User": {"id": "u2", "title": "sun889"},
+        "Player": {"state": "paused", "title": "Chromecast", "address": "5.6.7.8"},
+    }
+    out = c._normalize_stream(session, actual_bandwidth_mbps=0.0)
+    assert out["session_id"] == "plex:77"
+    assert out["session_id"] != "plex:None"
+
+
+def test_two_chromecast_sessions_get_distinct_session_ids():
+    """Two concurrent Chromecast streams (both missing Session.id) must not collide."""
+    c = _client()
+    def _cc(session_key, title):
+        return {
+            "type": "episode", "title": title,
+            "sessionKey": session_key,
+            "Session": {"bandwidth": 15000},   # no "id"
+            "Media": [{"bitrate": 15000, "videoResolution": "4k"}],
+            "User": {"id": "u2", "title": "sun889"},
+            "Player": {"state": "paused", "title": "Chromecast", "address": "5.6.7.8"},
+        }
+    a = c._normalize_stream(_cc("1", "Clarkson's Farm"), actual_bandwidth_mbps=0.0)
+    b = c._normalize_stream(_cc("2", "Fallout"), actual_bandwidth_mbps=0.0)
+    assert a["session_id"] != b["session_id"]
+    assert a["session_id"] == "plex:1"
+    assert b["session_id"] == "plex:2"

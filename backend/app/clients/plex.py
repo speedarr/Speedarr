@@ -315,7 +315,7 @@ class PlexClient(BaseMediaServer):
             "platform": self._get_nested(session, "Player", "platform", default="Unknown"),
             "ip_address": ip_address,
             "is_lan": is_lan,
-        }, raw_session_id=session_info.get("id"))
+        }, raw_session_id=session.get("sessionKey") or session_info.get("id"))
 
     @staticmethod
     def _get_nested(data: Dict, *keys: str, default: Any = None) -> Any:
