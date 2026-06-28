@@ -88,7 +88,15 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
       const sortedStreams = [...response.active_streams].sort(
         (a, b) => b.stream_bitrate_mbps - a.stream_bitrate_mbps
       );
-      setStreams(sortedStreams);
+      // Defense-in-depth: a non-unique session_id (used as the React key) would
+      // corrupt table reconciliation and leave ghost rows. Keep one row per id.
+      const seenSessionIds = new Set<string>();
+      const dedupedStreams = sortedStreams.filter((s) => {
+        if (seenSessionIds.has(s.session_id)) return false;
+        seenSessionIds.add(s.session_id);
+        return true;
+      });
+      setStreams(dedupedStreams);
       setReservations(response.reservations);
       setTotalReserved(response.total_reserved_mbps);
       setError('');
