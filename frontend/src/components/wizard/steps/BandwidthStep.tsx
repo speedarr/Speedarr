@@ -50,19 +50,19 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
   }, [enabledClients]);
 
   // Initialize default splits when clients change
-  // Uses client.type as key to match backend config structure
+  // Keyed by client.id to match backend config structure
   useEffect(() => {
     if (enabledClients.length >= 2) {
       const equalPercent = Math.floor(100 / enabledClients.length);
       const newPercents: Record<string, number> = {};
 
       enabledClients.forEach((client: DownloadClientConfig, index: number) => {
-        const existing = config.download.client_percents?.[client.type];
+        const existing = config.download.client_percents?.[client.id];
         if (existing !== undefined) {
-          newPercents[client.type] = existing;
+          newPercents[client.id] = existing;
         } else {
           const remaining = 100 - equalPercent * index;
-          newPercents[client.type] = index === enabledClients.length - 1 ? remaining : equalPercent;
+          newPercents[client.id] = index === enabledClients.length - 1 ? remaining : equalPercent;
         }
       });
 
@@ -77,19 +77,19 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
   }, [enabledClients.length]);
 
   // Initialize upload splits
-  // Uses client.type as key to match backend config structure
+  // Keyed by client.id to match backend config structure
   useEffect(() => {
     if (uploadCapableClients.length >= 2) {
       const equalPercent = Math.floor(100 / uploadCapableClients.length);
       const newUploadPercents: Record<string, number> = {};
 
       uploadCapableClients.forEach((client: DownloadClientConfig, index: number) => {
-        const existing = config.upload.upload_client_percents?.[client.type];
+        const existing = config.upload.upload_client_percents?.[client.id];
         if (existing !== undefined) {
-          newUploadPercents[client.type] = existing;
+          newUploadPercents[client.id] = existing;
         } else {
           const remaining = 100 - equalPercent * index;
-          newUploadPercents[client.type] = index === uploadCapableClients.length - 1 ? remaining : equalPercent;
+          newUploadPercents[client.id] = index === uploadCapableClients.length - 1 ? remaining : equalPercent;
         }
       });
 
@@ -123,7 +123,7 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
   };
 
   // Update download split for 2 clients (slider)
-  // Uses client.type as key to match backend config structure
+  // Keyed by client.id to match backend config structure
   const updateDownloadSplit = (firstClientPercent: number) => {
     if (enabledClients.length !== 2) return;
     // Clamp to 5-95 range to ensure both clients get some bandwidth
@@ -134,30 +134,30 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
       download: {
         ...prev.download,
         client_percents: {
-          [first.type]: clamped,
-          [second.type]: 100 - clamped,
+          [first.id]: clamped,
+          [second.id]: 100 - clamped,
         },
       }
     }));
   };
 
   // Update download percent for individual client (3+ clients)
-  // Uses client.type as key to match backend config structure
-  const updateClientPercent = (clientType: string, percent: number) => {
+  // Keyed by client.id to match backend config structure
+  const updateClientPercent = (clientId: string, percent: number) => {
     setConfig(prev => ({
       ...prev,
       download: {
         ...prev.download,
         client_percents: {
           ...prev.download.client_percents,
-          [clientType]: percent,
+          [clientId]: percent,
         },
       }
     }));
   };
 
   // Update upload split for 2 clients
-  // Uses client.type as key to match backend config structure
+  // Keyed by client.id to match backend config structure
   const updateUploadSplit = (firstClientPercent: number) => {
     if (uploadCapableClients.length !== 2) return;
     // Clamp to 5-95 range to ensure both clients get some bandwidth
@@ -168,23 +168,23 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
       upload: {
         ...prev.upload,
         upload_client_percents: {
-          [first.type]: clamped,
-          [second.type]: 100 - clamped,
+          [first.id]: clamped,
+          [second.id]: 100 - clamped,
         },
       }
     }));
   };
 
   // Update upload percent for individual client
-  // Uses client.type as key to match backend config structure
-  const updateUploadClientPercent = (clientType: string, percent: number) => {
+  // Keyed by client.id to match backend config structure
+  const updateUploadClientPercent = (clientId: string, percent: number) => {
     setConfig(prev => ({
       ...prev,
       upload: {
         ...prev.upload,
         upload_client_percents: {
           ...prev.upload.upload_client_percents,
-          [clientType]: percent,
+          [clientId]: percent,
         },
       }
     }));
@@ -265,7 +265,7 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
           <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
             <Label className="text-sm font-medium">Download Bandwidth Split</Label>
             <SplitSlider
-              value={config.download.client_percents?.[enabledClients[0].type] || 50}
+              value={config.download.client_percents?.[enabledClients[0].id] || 50}
               onChange={(value) => updateDownloadSplit(value)}
               leftLabel={enabledClients[0].name}
               rightLabel={enabledClients[1].name}
@@ -274,8 +274,8 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
               disabled={isLoading}
             />
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>{(config.download.total_limit * (config.download.client_percents?.[enabledClients[0].type] || 50) / 100).toFixed(1)} Mbps</span>
-              <span>{(config.download.total_limit * (config.download.client_percents?.[enabledClients[1].type] || 50) / 100).toFixed(1)} Mbps</span>
+              <span>{(config.download.total_limit * (config.download.client_percents?.[enabledClients[0].id] || 50) / 100).toFixed(1)} Mbps</span>
+              <span>{(config.download.total_limit * (config.download.client_percents?.[enabledClients[1].id] || 50) / 100).toFixed(1)} Mbps</span>
             </div>
           </div>
         )}
@@ -299,8 +299,8 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
                     type="number"
                     min="0"
                     max="100"
-                    value={config.download.client_percents?.[client.type] || 0}
-                    onChange={(e) => updateClientPercent(client.type, parseInt(e.target.value) || 0)}
+                    value={config.download.client_percents?.[client.id] || 0}
+                    onChange={(e) => updateClientPercent(client.id, parseInt(e.target.value) || 0)}
                     className="w-20 text-right"
                   />
                   <span className="text-sm text-muted-foreground">%</span>
@@ -341,7 +341,7 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
           <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
             <Label className="text-sm font-medium">Upload Bandwidth Split</Label>
             <SplitSlider
-              value={config.upload.upload_client_percents?.[uploadCapableClients[0].type] || 50}
+              value={config.upload.upload_client_percents?.[uploadCapableClients[0].id] || 50}
               onChange={(value) => updateUploadSplit(value)}
               leftLabel={uploadCapableClients[0].name}
               rightLabel={uploadCapableClients[1].name}
@@ -350,8 +350,8 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
               disabled={isLoading}
             />
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>{(config.upload.total_limit * (config.upload.upload_client_percents?.[uploadCapableClients[0].type] || 50) / 100).toFixed(1)} Mbps</span>
-              <span>{(config.upload.total_limit * (config.upload.upload_client_percents?.[uploadCapableClients[1].type] || 50) / 100).toFixed(1)} Mbps</span>
+              <span>{(config.upload.total_limit * (config.upload.upload_client_percents?.[uploadCapableClients[0].id] || 50) / 100).toFixed(1)} Mbps</span>
+              <span>{(config.upload.total_limit * (config.upload.upload_client_percents?.[uploadCapableClients[1].id] || 50) / 100).toFixed(1)} Mbps</span>
             </div>
           </div>
         )}
@@ -375,8 +375,8 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
                     type="number"
                     min="0"
                     max="100"
-                    value={config.upload.upload_client_percents?.[client.type] || 0}
-                    onChange={(e) => updateUploadClientPercent(client.type, parseInt(e.target.value) || 0)}
+                    value={config.upload.upload_client_percents?.[client.id] || 0}
+                    onChange={(e) => updateUploadClientPercent(client.id, parseInt(e.target.value) || 0)}
                     className="w-20 text-right"
                   />
                   <span className="text-sm text-muted-foreground">%</span>

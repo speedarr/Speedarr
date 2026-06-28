@@ -282,6 +282,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
           console.warn('[BandwidthChart] Status response returned 0 clients. Response status:', status.status);
         }
 
+        // NOTE: clients are intentionally keyed by type here. The chart-data API aggregates
+        // points per client type (e.g. qbittorrent_speed), so two clients of the same type
+        // render as one merged series. This is a known limitation; per-client-id chart series
+        // is a separate follow-up. Settings/engine allocations ARE keyed by client id.
         for (const c of dlClients) {
           clientMap.set(c.type, {
             id: c.type, type: c.type, name: c.name,

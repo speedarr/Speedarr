@@ -272,10 +272,10 @@ export const BandwidthSettings: React.FC = () => {
     });
   }, []);
 
-  const updateDownloadSchedulePercent = useCallback((clientType: string, value: number) => {
+  const updateDownloadSchedulePercent = useCallback((clientId: string, value: number) => {
     setConfig(prev => {
       if (!prev?.download.scheduled) return prev;
-      const newPercents = { ...prev.download.scheduled.client_percents, [clientType]: value };
+      const newPercents = { ...prev.download.scheduled.client_percents, [clientId]: value };
       return {
         ...prev,
         download: {
@@ -287,7 +287,7 @@ export const BandwidthSettings: React.FC = () => {
   }, []);
 
   // Update scheduled download percentage for slider mode (2 clients)
-  const updateDownloadSchedulePercentSlider = useCallback((clientType: string, value: number, otherClientType: string) => {
+  const updateDownloadSchedulePercentSlider = useCallback((clientId: string, value: number, otherClientId: string) => {
     const otherValue = Math.max(0, 100 - value);
     setConfig(prev => {
       if (!prev?.download.scheduled) return prev;
@@ -298,8 +298,8 @@ export const BandwidthSettings: React.FC = () => {
           scheduled: {
             ...prev.download.scheduled,
             client_percents: {
-              [clientType]: value,
-              [otherClientType]: otherValue,
+              [clientId]: value,
+              [otherClientId]: otherValue,
             },
           },
         },
@@ -307,10 +307,10 @@ export const BandwidthSettings: React.FC = () => {
     });
   }, []);
 
-  const updateUploadSchedulePercent = useCallback((clientType: string, value: number) => {
+  const updateUploadSchedulePercent = useCallback((clientId: string, value: number) => {
     setConfig(prev => {
       if (!prev?.upload.scheduled) return prev;
-      const newPercents = { ...prev.upload.scheduled.client_percents, [clientType]: value };
+      const newPercents = { ...prev.upload.scheduled.client_percents, [clientId]: value };
       return {
         ...prev,
         upload: {
@@ -322,7 +322,7 @@ export const BandwidthSettings: React.FC = () => {
   }, []);
 
   // Update scheduled upload percentage for slider mode (2 clients)
-  const updateUploadSchedulePercentSlider = useCallback((clientType: string, value: number, otherClientType: string) => {
+  const updateUploadSchedulePercentSlider = useCallback((clientId: string, value: number, otherClientId: string) => {
     const otherValue = Math.max(0, 100 - value);
     setConfig(prev => {
       if (!prev?.upload.scheduled) return prev;
@@ -333,8 +333,8 @@ export const BandwidthSettings: React.FC = () => {
           scheduled: {
             ...prev.upload.scheduled,
             client_percents: {
-              [clientType]: value,
-              [otherClientType]: otherValue,
+              [clientId]: value,
+              [otherClientId]: otherValue,
             },
           },
         },
@@ -342,15 +342,15 @@ export const BandwidthSettings: React.FC = () => {
     });
   }, []);
 
-  // Get scheduled percent for a client type (raw stored value, or equal-split default)
-  const getDownloadScheduledPercent = (clientType: string): number => {
+  // Get scheduled percent for a client id (raw stored value, or equal-split default)
+  const getDownloadScheduledPercent = (clientId: string): number => {
     const storedPercents = config?.download.scheduled?.client_percents || {};
-    return storedPercents[clientType] ?? equalSplitPercent(enabledClients, clientType);
+    return storedPercents[clientId] ?? equalSplitPercent(enabledClients, clientId);
   };
 
-  const getUploadScheduledPercent = (clientType: string): number => {
+  const getUploadScheduledPercent = (clientId: string): number => {
     const storedPercents = config?.upload.scheduled?.client_percents || {};
-    return storedPercents[clientType] ?? equalSplitPercent(enabledUploadClients, clientType);
+    return storedPercents[clientId] ?? equalSplitPercent(enabledUploadClients, clientId);
   };
 
   const enabledClients = clients.filter(c => c.enabled);
@@ -363,25 +363,25 @@ export const BandwidthSettings: React.FC = () => {
   const hasThreeOrMoreUploadClients = enabledUploadClients.length >= 3;
 
   // Equal-split default that sums to exactly 100 (last client gets the remainder)
-  const equalSplitPercent = (clientList: { type: string }[], clientType: string): number => {
+  const equalSplitPercent = (clientList: { id: string }[], clientId: string): number => {
     const n = clientList.length;
     if (n === 0) return 0;
     const base = Math.floor(100 / n);
-    const index = clientList.findIndex(c => c.type === clientType);
+    const index = clientList.findIndex(c => c.id === clientId);
     return index === n - 1 ? 100 - base * (n - 1) : base;
   };
 
   // Get client allocation percentage (raw stored value, or equal-split default).
   // Values are shown as entered; the decision engine normalizes at allocation time.
-  const getClientPercent = (clientType: string): number => {
+  const getClientPercent = (clientId: string): number => {
     const storedPercents = config?.download.client_percents || {};
-    return storedPercents[clientType] ?? equalSplitPercent(enabledClients, clientType);
+    return storedPercents[clientId] ?? equalSplitPercent(enabledClients, clientId);
   };
 
   // Update client percentage for slider mode (2 clients)
-  const updateClientPercentSlider = (clientType: string, value: number) => {
+  const updateClientPercentSlider = (clientId: string, value: number) => {
     if (!config || enabledClients.length !== 2) return;
-    const otherClient = enabledClients.find(c => c.type !== clientType);
+    const otherClient = enabledClients.find(c => c.id !== clientId);
     if (!otherClient) return;
     const otherValue = Math.max(0, 100 - value);
 
@@ -390,17 +390,17 @@ export const BandwidthSettings: React.FC = () => {
       download: {
         ...config.download,
         client_percents: {
-          [clientType]: value,
-          [otherClient.type]: otherValue,
+          [clientId]: value,
+          [otherClient.id]: otherValue,
         },
       },
     });
   };
 
   // Update client percentage for input mode (3+ clients)
-  const updateClientPercent = (clientType: string, value: number) => {
+  const updateClientPercent = (clientId: string, value: number) => {
     if (!config) return;
-    const newPercents = { ...config.download.client_percents, [clientType]: value };
+    const newPercents = { ...config.download.client_percents, [clientId]: value };
     setConfig({
       ...config,
       download: { ...config.download, client_percents: newPercents },
@@ -408,19 +408,19 @@ export const BandwidthSettings: React.FC = () => {
   };
 
   // Calculate total percentage
-  const clientTotal = enabledClients.reduce((sum, c) => sum + getClientPercent(c.type), 0);
+  const clientTotal = enabledClients.reduce((sum, c) => sum + getClientPercent(c.id), 0);
 
   // Get upload percentage for a client type (raw stored value, or equal-split default).
   // Values are shown as entered; the decision engine normalizes at allocation time.
-  const getUploadPercent = (clientType: string): number => {
+  const getUploadPercent = (clientId: string): number => {
     const storedPercents = config?.upload.upload_client_percents || {};
-    return storedPercents[clientType] ?? equalSplitPercent(enabledUploadClients, clientType);
+    return storedPercents[clientId] ?? equalSplitPercent(enabledUploadClients, clientId);
   };
 
   // Update upload percentage for a client (slider mode - 2 clients)
-  const updateUploadPercentSlider = (clientType: string, value: number) => {
+  const updateUploadPercentSlider = (clientId: string, value: number) => {
     if (!config || enabledUploadClients.length !== 2) return;
-    const otherClient = enabledUploadClients.find(c => c.type !== clientType);
+    const otherClient = enabledUploadClients.find(c => c.id !== clientId);
     if (!otherClient) return;
     const otherValue = Math.max(0, 100 - value);
 
@@ -430,17 +430,17 @@ export const BandwidthSettings: React.FC = () => {
         ...config.upload,
         upload_client_percents: {
           ...config.upload.upload_client_percents,
-          [clientType]: value,
-          [otherClient.type]: otherValue,
+          [clientId]: value,
+          [otherClient.id]: otherValue,
         },
       },
     });
   };
 
   // Update upload percentage for a client (input mode - 3+ clients)
-  const updateUploadClientPercent = (clientType: string, value: number) => {
+  const updateUploadClientPercent = (clientId: string, value: number) => {
     if (!config) return;
-    const newPercents = { ...config.upload.upload_client_percents, [clientType]: value };
+    const newPercents = { ...config.upload.upload_client_percents, [clientId]: value };
     setConfig({
       ...config,
       upload: { ...config.upload, upload_client_percents: newPercents },
@@ -448,7 +448,7 @@ export const BandwidthSettings: React.FC = () => {
   };
 
   // Calculate upload total percentage
-  const uploadTotal = enabledUploadClients.reduce((sum, c) => sum + getUploadPercent(c.type), 0);
+  const uploadTotal = enabledUploadClients.reduce((sum, c) => sum + getUploadPercent(c.id), 0);
 
   if (isLoading) {
     return (
@@ -555,8 +555,8 @@ export const BandwidthSettings: React.FC = () => {
               </div>
 
               <SplitSlider
-                value={getClientPercent(enabledClients[0].type)}
-                onChange={(value) => updateClientPercentSlider(enabledClients[0].type, value)}
+                value={getClientPercent(enabledClients[0].id)}
+                onChange={(value) => updateClientPercentSlider(enabledClients[0].id, value)}
                 leftLabel={enabledClients[0].name}
                 rightLabel={enabledClients[1].name}
                 leftColor={enabledClients[0].color}
@@ -564,8 +564,8 @@ export const BandwidthSettings: React.FC = () => {
                 disabled={isSaving}
               />
               <div className="flex justify-between text-sm text-muted-foreground">
-                <span>{(config.download.total_limit * getClientPercent(enabledClients[0].type) / 100).toFixed(1)} Mbps</span>
-                <span>{(config.download.total_limit * getClientPercent(enabledClients[1].type) / 100).toFixed(1)} Mbps</span>
+                <span>{(config.download.total_limit * getClientPercent(enabledClients[0].id) / 100).toFixed(1)} Mbps</span>
+                <span>{(config.download.total_limit * getClientPercent(enabledClients[1].id) / 100).toFixed(1)} Mbps</span>
               </div>
 
               {/* Safety Net */}
@@ -601,7 +601,7 @@ export const BandwidthSettings: React.FC = () => {
 
               <div className="grid gap-3">
                 {enabledClients.map((client) => {
-                  const percent = getClientPercent(client.type);
+                  const percent = getClientPercent(client.id);
                   const mbps = (config.download.total_limit * percent / 100).toFixed(1);
                   return (
                     <div key={client.id} className="flex items-center gap-3">
@@ -618,7 +618,7 @@ export const BandwidthSettings: React.FC = () => {
                         value={percent}
                         onChange={(e) => {
                           const value = parseInt(e.target.value) || 0;
-                          updateClientPercent(client.type, value);
+                          updateClientPercent(client.id, value);
                         }}
                         disabled={isSaving}
                       />
@@ -725,8 +725,8 @@ export const BandwidthSettings: React.FC = () => {
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Client Allocation During Schedule</Label>
                   <SplitSlider
-                    value={getDownloadScheduledPercent(enabledClients[0].type)}
-                    onChange={(value) => updateDownloadSchedulePercentSlider(enabledClients[0].type, value, enabledClients[1].type)}
+                    value={getDownloadScheduledPercent(enabledClients[0].id)}
+                    onChange={(value) => updateDownloadSchedulePercentSlider(enabledClients[0].id, value, enabledClients[1].id)}
                     leftLabel={enabledClients[0].name}
                     rightLabel={enabledClients[1].name}
                     leftColor={enabledClients[0].color}
@@ -734,8 +734,8 @@ export const BandwidthSettings: React.FC = () => {
                     disabled={isSaving}
                   />
                   <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>{((config.download.scheduled?.total_limit || 0) * getDownloadScheduledPercent(enabledClients[0].type) / 100).toFixed(1)} Mbps</span>
-                    <span>{((config.download.scheduled?.total_limit || 0) * getDownloadScheduledPercent(enabledClients[1].type) / 100).toFixed(1)} Mbps</span>
+                    <span>{((config.download.scheduled?.total_limit || 0) * getDownloadScheduledPercent(enabledClients[0].id) / 100).toFixed(1)} Mbps</span>
+                    <span>{((config.download.scheduled?.total_limit || 0) * getDownloadScheduledPercent(enabledClients[1].id) / 100).toFixed(1)} Mbps</span>
                   </div>
                 </div>
               )}
@@ -745,7 +745,7 @@ export const BandwidthSettings: React.FC = () => {
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Client Allocation During Schedule</Label>
                   {enabledClients.map((client) => {
-                    const percent = getDownloadScheduledPercent(client.type);
+                    const percent = getDownloadScheduledPercent(client.id);
                     const scheduledLimit = config.download.scheduled?.total_limit || 0;
                     const mbps = (scheduledLimit * percent / 100).toFixed(1);
                     return (
@@ -761,7 +761,7 @@ export const BandwidthSettings: React.FC = () => {
                           max="100"
                           className="w-20"
                           value={percent}
-                          onChange={(e) => updateDownloadSchedulePercent(client.type, parseInt(e.target.value) || 0)}
+                          onChange={(e) => updateDownloadSchedulePercent(client.id, parseInt(e.target.value) || 0)}
                           disabled={isSaving}
                         />
                         <span className="text-sm text-muted-foreground">%</span>
@@ -839,8 +839,8 @@ export const BandwidthSettings: React.FC = () => {
               </div>
 
               <SplitSlider
-                value={getUploadPercent(enabledUploadClients[0].type)}
-                onChange={(value) => updateUploadPercentSlider(enabledUploadClients[0].type, value)}
+                value={getUploadPercent(enabledUploadClients[0].id)}
+                onChange={(value) => updateUploadPercentSlider(enabledUploadClients[0].id, value)}
                 leftLabel={enabledUploadClients[0].name}
                 rightLabel={enabledUploadClients[1].name}
                 leftColor={enabledUploadClients[0].color}
@@ -848,8 +848,8 @@ export const BandwidthSettings: React.FC = () => {
                 disabled={isSaving}
               />
               <div className="flex justify-between text-sm text-muted-foreground">
-                <span>{(config.upload.total_limit * getUploadPercent(enabledUploadClients[0].type) / 100).toFixed(1)} Mbps</span>
-                <span>{(config.upload.total_limit * getUploadPercent(enabledUploadClients[1].type) / 100).toFixed(1)} Mbps</span>
+                <span>{(config.upload.total_limit * getUploadPercent(enabledUploadClients[0].id) / 100).toFixed(1)} Mbps</span>
+                <span>{(config.upload.total_limit * getUploadPercent(enabledUploadClients[1].id) / 100).toFixed(1)} Mbps</span>
               </div>
             </div>
           )}
@@ -866,7 +866,7 @@ export const BandwidthSettings: React.FC = () => {
 
               <div className="grid gap-3">
                 {enabledUploadClients.map((client) => {
-                  const percent = getUploadPercent(client.type);
+                  const percent = getUploadPercent(client.id);
                   const mbps = (config.upload.total_limit * percent / 100).toFixed(1);
                   return (
                     <div key={client.id} className="flex items-center gap-3">
@@ -883,7 +883,7 @@ export const BandwidthSettings: React.FC = () => {
                         value={percent}
                         onChange={(e) => {
                           const value = parseInt(e.target.value) || 0;
-                          updateUploadClientPercent(client.type, value);
+                          updateUploadClientPercent(client.id, value);
                         }}
                         disabled={isSaving}
                       />
@@ -972,8 +972,8 @@ export const BandwidthSettings: React.FC = () => {
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Client Allocation During Schedule</Label>
                   <SplitSlider
-                    value={getUploadScheduledPercent(enabledUploadClients[0].type)}
-                    onChange={(value) => updateUploadSchedulePercentSlider(enabledUploadClients[0].type, value, enabledUploadClients[1].type)}
+                    value={getUploadScheduledPercent(enabledUploadClients[0].id)}
+                    onChange={(value) => updateUploadSchedulePercentSlider(enabledUploadClients[0].id, value, enabledUploadClients[1].id)}
                     leftLabel={enabledUploadClients[0].name}
                     rightLabel={enabledUploadClients[1].name}
                     leftColor={enabledUploadClients[0].color}
@@ -981,8 +981,8 @@ export const BandwidthSettings: React.FC = () => {
                     disabled={isSaving}
                   />
                   <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>{((config.upload.scheduled?.total_limit || 0) * getUploadScheduledPercent(enabledUploadClients[0].type) / 100).toFixed(1)} Mbps</span>
-                    <span>{((config.upload.scheduled?.total_limit || 0) * getUploadScheduledPercent(enabledUploadClients[1].type) / 100).toFixed(1)} Mbps</span>
+                    <span>{((config.upload.scheduled?.total_limit || 0) * getUploadScheduledPercent(enabledUploadClients[0].id) / 100).toFixed(1)} Mbps</span>
+                    <span>{((config.upload.scheduled?.total_limit || 0) * getUploadScheduledPercent(enabledUploadClients[1].id) / 100).toFixed(1)} Mbps</span>
                   </div>
                 </div>
               )}
@@ -992,7 +992,7 @@ export const BandwidthSettings: React.FC = () => {
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Client Allocation During Schedule</Label>
                   {enabledUploadClients.map((client) => {
-                    const percent = getUploadScheduledPercent(client.type);
+                    const percent = getUploadScheduledPercent(client.id);
                     const scheduledLimit = config.upload.scheduled?.total_limit || 0;
                     const mbps = (scheduledLimit * percent / 100).toFixed(1);
                     return (
@@ -1008,7 +1008,7 @@ export const BandwidthSettings: React.FC = () => {
                           max="100"
                           className="w-20"
                           value={percent}
-                          onChange={(e) => updateUploadSchedulePercent(client.type, parseInt(e.target.value) || 0)}
+                          onChange={(e) => updateUploadSchedulePercent(client.id, parseInt(e.target.value) || 0)}
                           disabled={isSaving}
                         />
                         <span className="text-sm text-muted-foreground">%</span>
