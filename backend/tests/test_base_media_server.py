@@ -39,3 +39,16 @@ def test_finalize_stream_injects_attribution_and_prefixes_session_id():
 def test_cannot_instantiate_abstract():
     with pytest.raises(TypeError):
         BaseMediaServer(MediaServerConfig(id="x", name="x", type="plex"))
+
+
+def test_stores_lan_networks_and_empty_auto_cache():
+    s = _make(lan_networks=["192.168.5.0/24"])
+    assert s.lan_networks == ["192.168.5.0/24"]
+    assert s._auto_subnets == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_lan_subnets_is_noop_by_default():
+    s = _make()
+    await s.refresh_lan_subnets()           # must not raise
+    assert s._auto_subnets == []

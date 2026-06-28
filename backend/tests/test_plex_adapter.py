@@ -42,3 +42,41 @@ async def test_get_active_streams_propagates_unreachable(monkeypatch):
     monkeypatch.setattr(c, "_get_sessions", boom)
     with pytest.raises(ConnectionError):
         await c.get_active_streams()
+
+
+def _session(address, location="", local=None):
+    sess = {
+        "type": "movie", "title": "X",
+        "Session": {"id": "r1", "bandwidth": 8000},
+        "Media": [{"bitrate": 8000, "videoResolution": "1080"}],
+        "User": {"id": "u1", "title": "bob"},
+        "Player": {"state": "playing", "title": "p", "address": address},
+    }
+    if location:
+        sess["Session"]["location"] = location
+    if local is not None:
+        sess["Session"]["local"] = local
+    return sess
+
+
+def _client_with(lan_networks):
+    return PlexClient(MediaServerConfig(id="plex", name="Plex", type="plex",
+                                        url="http://plex:32400", token="tok",
+                                        lan_networks=lan_networks))
+
+
+def test_plex_default_marks_private_ip_lan():
+    out = _client()._normalize_stream(_session("192.168.10.158"), actual_bandwidth_mbps=0.0)
+    assert out["is_lan"] is True
+
+
+def test_plex_override_marks_out_of_range_private_ip_wan():
+    c = _client_with(["192.168.5.0/24"])
+    out = c._normalize_stream(_session("192.168.10.158"), actual_bandwidth_mbps=0.0)
+    assert out["is_lan"] is False
+
+
+def test_plex_server_local_flag_wins_over_override():
+    c = _client_with(["192.168.5.0/24"])
+    out = c._normalize_stream(_session("192.168.10.158", local="1"), actual_bandwidth_mbps=0.0)
+    assert out["is_lan"] is True

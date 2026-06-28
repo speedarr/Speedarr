@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.clients.base_media_server import BaseMediaServer
 from app.config import MediaServerConfig
+from app.utils.network import classify_lan, is_private_ip
 
 
 class PlexClient(BaseMediaServer):
@@ -273,17 +274,21 @@ class PlexClient(BaseMediaServer):
         # Prefer location if it's a valid IP, otherwise use player address
         ip_address = location if self._is_valid_ip(location) else player_address
 
-        # Determine LAN status - use Plex's local field, "lan" location, OR check if IP is private
+        # Determine LAN status - Plex's per-session signals win; the IP term uses the
+        # manual override when configured, otherwise the private-IP heuristic.
         plex_says_local = session_info.get("local") == "1" or session_info.get("local") is True
         location_says_lan = location.lower() == "lan"  # Plex sometimes uses literal "lan"/"wan"
-        ip_is_private = self._is_private_ip(ip_address)
-        is_lan = plex_says_local or location_says_lan or ip_is_private
+        if self.lan_networks:
+            ip_match = classify_lan(ip_address, self.lan_networks)  # keeps loopback/link-local LAN
+        else:
+            ip_match = is_private_ip(ip_address)
+        is_lan = plex_says_local or location_says_lan or ip_match
 
         # Debug logging for LAN detection
         user_name = self._get_nested(session, "User", "title", default="Unknown")
         logger.debug(f"LAN detection for {user_name}: ip='{ip_address}', "
                      f"plex_local={plex_says_local}, location_lan={location_says_lan}, "
-                     f"ip_private={ip_is_private}, is_lan={is_lan}")
+                     f"ip_match={ip_match}, is_lan={is_lan}")
 
         return self._finalize_stream({
             "session_key": session.get("sessionKey"),
@@ -332,14 +337,3 @@ class PlexClient(BaseMediaServer):
         except ValueError:
             return False
 
-    @staticmethod
-    def _is_private_ip(ip_str: str) -> bool:
-        """Check if an IP address is private/local."""
-        if not ip_str:
-            return False
-        try:
-            ip = ipaddress.ip_address(ip_str)
-            return ip.is_private or ip.is_loopback
-        except ValueError:
-            # Invalid IP address format
-            return False

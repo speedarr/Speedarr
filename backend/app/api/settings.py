@@ -821,12 +821,19 @@ async def test_connection(
                 return TestConnectionResponse(success=False, message="Missing required fields: url and api_key")
             client = create_media_server(MediaServerConfig(
                 id=config_data.get("id", service), type=service, name=service.title(),
-                url=url, api_key=api_key,
+                url=url, api_key=api_key, lan_networks=config_data.get("lan_networks", []),
             ))
             try:
                 success = await client.test_connection()
             finally:
                 await client.close()
+            if success:
+                # Re-read LocalNetworkSubnets for the live adapter (Emby/Jellyfin). A not-yet-saved server has no live adapter; its refresh happens on save via _reload_services.
+                live = getattr(request.app.state, "media_servers", {}).get(
+                    config_data.get("id")
+                )
+                if live is not None:
+                    await live.refresh_lan_subnets()
             return TestConnectionResponse(
                 success=success,
                 message=f"Successfully connected to {service.title()}" if success

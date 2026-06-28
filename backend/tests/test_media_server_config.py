@@ -51,3 +51,31 @@ def test_get_enabled_filters_disabled():
 def test_failsafe_grace_default():
     cfg = make_config()
     assert cfg.failsafe.server_hold_grace_seconds == 300
+
+
+def test_lan_networks_defaults_to_empty_list():
+    cfg = MediaServerConfig(id="x", type="emby", name="E", url="http://e:8096")
+    assert cfg.lan_networks == []
+
+
+def test_lan_networks_keeps_valid_cidrs_and_bare_ips():
+    cfg = MediaServerConfig(id="x", type="emby", name="E",
+                            lan_networks=["192.168.5.0/24", "10.0.0.5"])
+    assert cfg.lan_networks == ["192.168.5.0/24", "10.0.0.5"]
+
+
+def test_lan_networks_drops_invalid_entries():
+    cfg = MediaServerConfig(id="x", type="emby", name="E",
+                            lan_networks=["192.168.5.0/24", "garbage", "", "999.1.1.1"])
+    assert cfg.lan_networks == ["192.168.5.0/24"]
+
+
+def test_lan_networks_accepts_comma_or_newline_string():
+    cfg = MediaServerConfig(id="x", type="emby", name="E",
+                            lan_networks="192.168.5.0/24, 10.0.0.0/8\n172.16.0.0/12")
+    assert cfg.lan_networks == ["192.168.5.0/24", "10.0.0.0/8", "172.16.0.0/12"]
+
+
+def test_lan_networks_none_becomes_empty():
+    cfg = MediaServerConfig(id="x", type="emby", name="E", lan_networks=None)
+    assert cfg.lan_networks == []

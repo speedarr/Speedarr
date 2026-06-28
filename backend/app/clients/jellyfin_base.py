@@ -6,7 +6,6 @@ NowPlayingItem / PlayState / TranscodingInfo / RemoteEndPoint / UserName.
 Bitrates are in BPS (not kbps). There is no /statistics/bandwidth equivalent,
 so stream_bandwidth_mbps is always 0.
 """
-import ipaddress
 from typing import Any, Dict, List
 
 import aiohttp
@@ -14,12 +13,16 @@ from loguru import logger
 
 from app.clients.base_media_server import BaseMediaServer
 from app.config import MediaServerConfig
+from app.utils.network import classify_lan, is_private_ip
 
 _MEDIA_TYPE_MAP = {"movie": "movie", "episode": "episode", "audio": "track", "musicvideo": "track"}
 
 
 class JellyfinBaseServer(BaseMediaServer):
     """Common Emby/Jellyfin /Sessions adapter. Subclasses override _auth_headers + type."""
+
+    # Server config endpoint exposing LocalNetworkSubnets. Set by subclasses.
+    _network_config_path: str = ""
 
     def __init__(self, cfg: MediaServerConfig):
         super().__init__(cfg)
@@ -46,11 +49,48 @@ class JellyfinBaseServer(BaseMediaServer):
         return ep                          # bare ipv4 or bare ipv6 (multiple colons)
 
     @staticmethod
-    def _is_private_ip(ip: str) -> bool:
+    def _parse_network_config(data: Dict[str, Any]) -> List[str]:
+        """Extract LAN subnets from a /System/Configuration[/network] payload.
+
+        Only LocalNetworkSubnets is used: it is the server's authoritative LAN
+        definition and the sole field needed for classification. LocalNetworkAddresses
+        is intentionally ignored — it is version-inconsistent (bare IPs vs full URLs)
+        and empty on the servers we target.
+        """
+        if not isinstance(data, dict):
+            return []
+        out: List[str] = []
+        for entry in data.get("LocalNetworkSubnets") or []:
+            if isinstance(entry, str) and entry.strip():
+                out.append(entry.strip())
+        return out
+
+    async def refresh_lan_subnets(self) -> None:
+        """Read LocalNetworkSubnets from the server config API and cache it.
+
+        Never raises. On any failure the previous cache (or empty list) is kept,
+        and classification falls back to the private-IP heuristic.
+        """
+        if not self._network_config_path:
+            return
+        url = f"{self.url}{self._network_config_path}"
         try:
-            return ipaddress.ip_address(ip).is_private
-        except ValueError:
-            return False
+            async with self.session.get(url, headers=self._auth_headers()) as resp:
+                if resp.status != 200:
+                    logger.warning(
+                        f"{self.type} '{self.name}': cannot read network config "
+                        f"(HTTP {resp.status}); keeping "
+                        f"{'cached subnets' if self._auto_subnets else 'private-IP fallback'}"
+                    )
+                    return
+                data = await resp.json(content_type=None)
+        except Exception as e:
+            logger.warning(f"{self.type} '{self.name}': network config read failed: "
+                           f"{type(e).__name__}: {e}")
+            return
+        self._auto_subnets = self._parse_network_config(data)
+        logger.info(f"{self.type} '{self.name}': LAN subnets = "
+                    f"{self._auto_subnets or '(none; using private-IP fallback)'}")
 
     async def test_connection(self) -> bool:
         """Never raises. Hits /System/Info with the API key."""
@@ -106,7 +146,15 @@ class JellyfinBaseServer(BaseMediaServer):
 
         remote = raw.get("RemoteEndPoint") or ""
         ip = self._host_from_endpoint(remote)
-        is_lan = bool(raw.get("IsLocal")) or self._is_private_ip(ip)
+        # Precedence: manual override -> auto-read subnets -> private-IP fallback.
+        # A server-provided IsLocal flag (rare for Emby/Jellyfin) is honored on top.
+        if self.lan_networks:
+            ip_is_lan = classify_lan(ip, self.lan_networks)
+        elif self._auto_subnets:
+            ip_is_lan = classify_lan(ip, self._auto_subnets)
+        else:
+            ip_is_lan = is_private_ip(ip)
+        is_lan = bool(raw.get("IsLocal")) or ip_is_lan
 
         state = "paused" if play_state.get("IsPaused") else "playing"
 

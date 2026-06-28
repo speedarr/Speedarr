@@ -64,6 +64,7 @@ const MediaServerCard: React.FC<{
   defaultOpen?: boolean;
 }> = ({ server, onUpdate, onDelete, isSaving, connectionStatus, defaultOpen = false }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [lanNetworksText, setLanNetworksText] = useState((server.lan_networks || []).join(', '));
   const typeInfo = SERVER_TYPES[server.type as keyof typeof SERVER_TYPES];
   const update = (field: keyof MediaServer, value: any) => onUpdate({ ...server, [field]: value });
 
@@ -154,6 +155,26 @@ const MediaServerCard: React.FC<{
               </div>
               <Switch checked={server.include_lan_streams || false} onCheckedChange={(c) => update('include_lan_streams', c)} disabled={isSaving || !server.enabled} />
             </div>
+            <div className="space-y-2 rounded-lg border p-4">
+              <Label>LAN Networks (override)</Label>
+              <Input
+                value={lanNetworksText}
+                onChange={(e) => {
+                  setLanNetworksText(e.target.value);
+                  update(
+                    'lan_networks',
+                    e.target.value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+                  );
+                }}
+                placeholder="e.g. 10.0.0.0/8, 192.168.5.0/24"
+                disabled={isSaving || !server.enabled}
+                maxLength={512}
+              />
+              <p className="text-sm text-muted-foreground">
+                Comma-separated CIDRs that count as LAN. Leave blank to auto-detect from the
+                server (Emby/Jellyfin) or use private-IP defaults.
+              </p>
+            </div>
             <div className="flex items-center justify-between pt-4">
               <Button variant="destructive" size="sm" onClick={() => onDelete(server.id)} disabled={isSaving}>
                 <Trash2 className="h-4 w-4 mr-2" /> Remove Server
@@ -228,7 +249,7 @@ export const MediaServerSettings: React.FC = () => {
     setServers([...servers, {
       id, type: type as MediaServer['type'],
       name: count > 0 ? `${info.name} ${count + 1}` : info.name,
-      enabled: true, url: info.defaultUrl, token: '', api_key: '', include_lan_streams: false,
+      enabled: true, url: info.defaultUrl, token: '', api_key: '', include_lan_streams: false, lan_networks: [],
     }]);
     setNewlyAddedId(id);
   };

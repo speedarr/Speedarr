@@ -2,9 +2,10 @@
 Configuration management for Speedarr.
 """
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 import json
+import ipaddress
 from pathlib import Path
 from cryptography.fernet import Fernet
 import os
@@ -37,6 +38,34 @@ class MediaServerConfig(BaseModel):
         default=False,
         description="Include LAN streams from this server in bandwidth calculations",
     )
+    lan_networks: List[str] = Field(
+        default_factory=list,
+        description="Manual LAN subnet overrides (CIDR or bare IP). When set, "
+                    "replaces auto-detected subnets and the private-IP heuristic "
+                    "for IP-based LAN/WAN classification.",
+    )
+
+    @field_validator("lan_networks", mode="before")
+    @classmethod
+    def _normalize_lan_networks(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = v.replace("\n", ",").split(",")
+        cleaned = []
+        for entry in v:
+            if not isinstance(entry, str):
+                continue
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                logger.warning(f"Ignoring invalid LAN network entry: {entry!r}")
+                continue
+            cleaned.append(entry)
+        return cleaned
 
 
 class QBittorrentConfig(BaseModel):

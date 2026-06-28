@@ -8,6 +8,7 @@ class JellyfinServer(JellyfinBaseServer):
     """Jellyfin adapter (MediaBrowser token auth)."""
 
     type = "jellyfin"
+    _network_config_path = "/System/Configuration/network"
 
     def _auth_headers(self) -> Dict[str, str]:
         return {"Authorization": f'MediaBrowser Token="{self.api_key}"'}

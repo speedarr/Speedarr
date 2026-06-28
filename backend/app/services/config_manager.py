@@ -622,6 +622,10 @@ class ConfigManager:
                         sid: {"failures": 0, "warned": False, "last_streams": [], "last_success": None}
                         for sid in pm.media_servers
                     }
+                    # Re-read LocalNetworkSubnets for the freshly built adapters
+                    # (Emby/Jellyfin); Plex is a no-op. Never raises.
+                    for server in pm.media_servers.values():
+                        await server.refresh_lan_subnets()
                     if hasattr(self.app.state, "media_servers"):
                         self.app.state.media_servers = pm.media_servers
                     logger.info(f"Reloaded {len(pm.media_servers)} media server adapter(s)")

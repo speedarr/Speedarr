@@ -43,6 +43,7 @@ export interface MediaServer {
   token?: string;
   api_key?: string;
   include_lan_streams: boolean;
+  lan_networks?: string[];
 }
 
 export interface StreamReservation {

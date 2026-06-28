@@ -22,12 +22,22 @@ class BaseMediaServer(ABC):
         self.name = cfg.name
         self.url = cfg.url.rstrip("/")
         self.include_lan_streams = cfg.include_lan_streams
+        self.lan_networks: List[str] = list(cfg.lan_networks)
+        self._auto_subnets: List[str] = []
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def close(self) -> None:
         """Close the HTTP session."""
         if self._session and not self._session.closed:
             await self._session.close()
+
+    async def refresh_lan_subnets(self) -> None:
+        """Refresh auto-detected LAN subnets from the server.
+
+        No-op by default (Plex relies on per-session signals). Emby/Jellyfin
+        override this to read LocalNetworkSubnets. Must never raise.
+        """
+        return None
 
     @abstractmethod
     async def test_connection(self) -> bool:

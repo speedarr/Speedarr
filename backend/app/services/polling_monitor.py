@@ -170,6 +170,11 @@ class PollingMonitor:
     async def start(self):
         """Start the polling monitor with separate download and Plex cycles."""
         self._running = True
+        # Pre-fetch each media server's LAN subnets once (Emby/Jellyfin read
+        # LocalNetworkSubnets; Plex is a no-op). Never raises.
+        await asyncio.gather(
+            *(s.refresh_lan_subnets() for s in self.media_servers.values())
+        )
         # Start download monitoring
         self._download_task = asyncio.create_task(self._download_poll_loop())
         # Start Plex monitoring
