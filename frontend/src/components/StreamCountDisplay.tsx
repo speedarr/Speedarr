@@ -16,7 +16,7 @@ interface StreamCountDisplayProps {
 export const StreamCountDisplay: React.FC<StreamCountDisplayProps> = ({ status }) => {
   const unreachableServers = status.media_server_statuses
     ? Object.values(status.media_server_statuses).filter((s) => !s.connected)
-    : (!status.plex_status || status.plex_status.connected ? [] : [{ name: 'Media server' }]);
+    : [];
 
   if (unreachableServers.length > 0) {
     return (

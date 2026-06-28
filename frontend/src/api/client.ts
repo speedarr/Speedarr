@@ -9,7 +9,6 @@ import type {
   StreamsHistoryResponse,
   StreamHistory,
   StreamSummary,
-  CurrentBandwidthResponse,
   BandwidthHistoryResponse,
   BandwidthSummary,
   BandwidthChartDataResponse,
@@ -242,11 +241,6 @@ class ApiClient {
   }
 
   // Bandwidth endpoints
-  async getCurrentBandwidth(): Promise<CurrentBandwidthResponse> {
-    const response = await this.client.get<CurrentBandwidthResponse>('/bandwidth/current');
-    return response.data;
-  }
-
   async getBandwidthHistory(params?: {
     hours?: number;
     limit?: number;

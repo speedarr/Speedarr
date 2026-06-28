@@ -130,7 +130,7 @@ export const Home: React.FC = () => {
                 </span>
               </div>
               {status.bandwidth.download.clients?.map((client) => (
-                <div key={client.type} className="flex justify-between items-center">
+                <div key={client.id} className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground" style={{ color: client.error ? undefined : client.color }}>
                     {client.error ? (
                       <span className="text-red-500 dark:text-red-400 flex items-center gap-1">
@@ -258,7 +258,7 @@ export const Home: React.FC = () => {
                 </span>
               </div>
               {status.bandwidth.upload.clients?.map((client) => (
-                <div key={client.type} className="flex justify-between items-center">
+                <div key={client.id} className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground" style={{ color: client.error ? undefined : client.color }}>
                     {client.error ? (
                       <span className="text-red-500 dark:text-red-400 flex items-center gap-1">

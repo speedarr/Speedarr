@@ -99,30 +99,10 @@ export interface StreamSummary {
 }
 
 // Bandwidth types
-export interface BandwidthInfo {
-  total_limit: number;
-  qbittorrent_speed: number | null;
-  qbittorrent_limit: number | null;
-  sabnzbd_speed: number | null;
-  sabnzbd_limit: number | null;
-  snmp_speed: number | null;
-  available: number;
-  current_usage: number;
-  used: number;
-  utilization_percent: number;
-}
-
 export interface StreamInfo {
   active_count: number;
   total_bandwidth_mbps: number;
   reserved_bandwidth_mbps: number;
-}
-
-export interface CurrentBandwidthResponse {
-  timestamp: string;
-  download: BandwidthInfo;
-  upload: BandwidthInfo;
-  streams: StreamInfo;
 }
 
 export interface BandwidthMetric {
@@ -212,14 +192,8 @@ export interface SystemStatus {
   monitoring_enabled: boolean;
   setup_required?: boolean;
   snmp_enabled?: boolean;
-  plex_status?: { connected: boolean; consecutive_failures: number };
   media_server_statuses?: Record<string, { connected: boolean; consecutive_failures: number; type: string; name: string }>;
   snmp_status?: { enabled: boolean; connected: boolean };
-  clients: {
-    qbittorrent: boolean;
-    sabnzbd: boolean;
-    plex: boolean;
-  };
   bandwidth: {
     download: {
       total_limit: number;
@@ -228,10 +202,6 @@ export interface SystemStatus {
       clients?: ClientBandwidthStatus[];
       stream_reserve?: number | null;
       holding_reserve?: number | null;
-      qbittorrent_speed?: number | null;
-      qbittorrent_limit?: number | null;
-      sabnzbd_speed?: number | null;
-      sabnzbd_limit?: number | null;
       snmp_speed?: number | null;
     };
     upload: {
@@ -239,8 +209,6 @@ export interface SystemStatus {
       current_usage: number;
       available: number;
       clients?: ClientBandwidthStatus[];
-      qbittorrent_speed?: number | null;
-      qbittorrent_limit?: number | null;
       snmp_speed?: number | null;
       stream_bandwidth?: number | null;
       wan_stream_bandwidth?: number | null;
@@ -259,24 +227,29 @@ export interface BootstrapResponse {
 // Control types
 export interface RestoreSpeedsResponse {
   message: string;
-  qbittorrent_restored: boolean;
-  sabnzbd_restored: boolean;
+  results: Record<string, boolean>;
+  clients: Record<string, unknown>;
+  restored_by: string;
+}
+
+export interface ClientThrottle {
+  client_id: string;
+  download_limit?: number;
+  upload_limit?: number;
 }
 
 export interface ManualThrottleRequest {
-  download_limit?: number;
-  upload_limit?: number;
+  clients: ClientThrottle[];
+  duration_minutes?: number;
   reason?: string;
 }
 
 export interface ManualThrottleResponse {
   message: string;
-  applied_limits: {
-    qbittorrent_download?: number;
-    qbittorrent_upload?: number;
-    sabnzbd_download?: number;
-    sabnzbd_upload?: number;
-  };
+  results: Record<string, boolean>;
+  decisions: Record<string, unknown>;
+  applied_by: string;
+  duration_minutes?: number | null;
 }
 
 export interface MonitoringControlResponse {

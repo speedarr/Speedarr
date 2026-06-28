@@ -478,8 +478,8 @@ export const DownloadClientsSettings: React.FC = () => {
             onDelete={handleDeleteClient}
             isSaving={isSaving}
             connectionStatus={
-              client.enabled && client.type in connectionResults
-                ? connectionResults[client.type]
+              client.enabled && client.id in connectionResults
+                ? connectionResults[client.id]
                 : null
             }
             defaultOpen={client.id === newlyAddedClientId}
