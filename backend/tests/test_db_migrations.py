@@ -15,3 +15,7 @@ def test_active_stream_has_server_columns():
 
 def test_bandwidth_metric_has_per_server():
     assert "per_server" in BandwidthMetric.__table__.columns.keys()
+
+
+def test_bandwidth_metric_has_per_client():
+    assert "per_client" in BandwidthMetric.__table__.columns.keys()

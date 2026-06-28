@@ -126,6 +126,8 @@ async def run_migrations():
             ("lan_streams_count", "INTEGER"), ("lan_stream_bandwidth", "REAL"),
             # Media server abstraction
             ("per_server", "TEXT"),
+            # Per-client-id bandwidth breakdown
+            ("per_client", "TEXT"),
         ],
         "stream_history": [
             ("server_id", "VARCHAR(100)"), ("server_name", "VARCHAR(100)"), ("server_type", "VARCHAR(20)"),

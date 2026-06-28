@@ -17,6 +17,9 @@ class BandwidthMetric(Base):
     # Per-server in-use stream bandwidth, JSON: {server_id: mbps}
     per_server = Column(Text, nullable=True)
 
+    # Per-client-id bandwidth, JSON: {client_id: {"d": dl_speed, "u": ul_speed, "dl": dl_limit, "ul": ul_limit}}
+    per_client = Column(Text, nullable=True)
+
     # Download bandwidth
     total_download_limit = Column(Float, nullable=True)
     qbittorrent_download_speed = Column(Float, nullable=True)

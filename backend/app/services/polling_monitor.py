@@ -33,6 +33,41 @@ def aggregate_per_server_bandwidth(streams: List[Dict[str, Any]]) -> Dict[str, f
     return totals
 
 
+def build_per_client_metrics(download_stats: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Build the per_client metric map keyed by client id.
+
+    Returns {client_id: {"d": dl_speed, "u": ul_speed, "dl": dl_limit, "ul": ul_limit}}.
+    Values are taken verbatim from each client's stats (may be None).
+    """
+    result: Dict[str, Dict[str, Any]] = {}
+    for cid, stats in download_stats.items():
+        result[cid] = {
+            "d": stats.get("download_speed"),
+            "u": stats.get("upload_speed"),
+            "dl": stats.get("download_limit"),
+            "ul": stats.get("upload_limit"),
+        }
+    return result
+
+
+def sum_stat_by_type(
+    download_stats: Dict[str, Dict[str, Any]], client_type: str, stat_key: str
+) -> Optional[float]:
+    """Sum a stat across all clients of one type for the legacy per-type columns.
+
+    Returns None when no client of that type reports a non-None value, so the
+    legacy column stays NULL exactly as it did before any client of the type existed.
+    """
+    values = [
+        s.get(stat_key)
+        for s in download_stats.values()
+        if s.get("client_type") == client_type and s.get(stat_key) is not None
+    ]
+    if not values:
+        return None
+    return sum(values)
+
+
 class PollingMonitor:
     """
     Polling-based monitoring service for Plex streams and download clients.
@@ -959,44 +994,35 @@ class PollingMonitor:
                         wan_streams = [s for s in self._cached_streams if not s.get("is_lan", False)]
                         lan_streams = [s for s in self._cached_streams if s.get("is_lan", False)]
 
-                        # Helper to find first client of a given type (stats are keyed by client ID)
-                        def get_stats_by_type(client_type: str) -> dict:
-                            for cid, stats in download_stats.items():
-                                if stats.get("client_type") == client_type:
-                                    return stats
-                            return {}
-
-                        qb_stats = get_stats_by_type("qbittorrent")
-                        sab_stats = get_stats_by_type("sabnzbd")
-                        nzbget_stats = get_stats_by_type("nzbget")
-                        transmission_stats = get_stats_by_type("transmission")
-                        deluge_stats = get_stats_by_type("deluge")
+                        # Per-client-id breakdown (keeps every client, including
+                        # multiple of the same type) for the chart.
+                        per_client = build_per_client_metrics(download_stats)
 
                         # Create bandwidth metric record
                         metric = BandwidthMetric(
                             timestamp=datetime.now(timezone.utc),
                             # Download metrics
                             total_download_limit=self.config.bandwidth.download.total_limit,
-                            qbittorrent_download_speed=qb_stats.get("download_speed"),
-                            qbittorrent_download_limit=qb_stats.get("download_limit"),
-                            sabnzbd_download_speed=sab_stats.get("download_speed"),
-                            sabnzbd_download_limit=sab_stats.get("download_limit"),
-                            nzbget_download_speed=nzbget_stats.get("download_speed"),
-                            nzbget_download_limit=nzbget_stats.get("download_limit"),
-                            transmission_download_speed=transmission_stats.get("download_speed"),
-                            transmission_download_limit=transmission_stats.get("download_limit"),
-                            deluge_download_speed=deluge_stats.get("download_speed"),
-                            deluge_download_limit=deluge_stats.get("download_limit"),
+                            qbittorrent_download_speed=sum_stat_by_type(download_stats, "qbittorrent", "download_speed"),
+                            qbittorrent_download_limit=sum_stat_by_type(download_stats, "qbittorrent", "download_limit"),
+                            sabnzbd_download_speed=sum_stat_by_type(download_stats, "sabnzbd", "download_speed"),
+                            sabnzbd_download_limit=sum_stat_by_type(download_stats, "sabnzbd", "download_limit"),
+                            nzbget_download_speed=sum_stat_by_type(download_stats, "nzbget", "download_speed"),
+                            nzbget_download_limit=sum_stat_by_type(download_stats, "nzbget", "download_limit"),
+                            transmission_download_speed=sum_stat_by_type(download_stats, "transmission", "download_speed"),
+                            transmission_download_limit=sum_stat_by_type(download_stats, "transmission", "download_limit"),
+                            deluge_download_speed=sum_stat_by_type(download_stats, "deluge", "download_speed"),
+                            deluge_download_limit=sum_stat_by_type(download_stats, "deluge", "download_limit"),
                             # Upload metrics
                             total_upload_limit=self.config.bandwidth.upload.total_limit,
-                            qbittorrent_upload_speed=qb_stats.get("upload_speed"),
-                            qbittorrent_upload_limit=qb_stats.get("upload_limit"),
-                            sabnzbd_upload_speed=sab_stats.get("upload_speed"),
-                            sabnzbd_upload_limit=sab_stats.get("upload_limit"),
-                            transmission_upload_speed=transmission_stats.get("upload_speed"),
-                            transmission_upload_limit=transmission_stats.get("upload_limit"),
-                            deluge_upload_speed=deluge_stats.get("upload_speed"),
-                            deluge_upload_limit=deluge_stats.get("upload_limit"),
+                            qbittorrent_upload_speed=sum_stat_by_type(download_stats, "qbittorrent", "upload_speed"),
+                            qbittorrent_upload_limit=sum_stat_by_type(download_stats, "qbittorrent", "upload_limit"),
+                            sabnzbd_upload_speed=sum_stat_by_type(download_stats, "sabnzbd", "upload_speed"),
+                            sabnzbd_upload_limit=sum_stat_by_type(download_stats, "sabnzbd", "upload_limit"),
+                            transmission_upload_speed=sum_stat_by_type(download_stats, "transmission", "upload_speed"),
+                            transmission_upload_limit=sum_stat_by_type(download_stats, "transmission", "upload_limit"),
+                            deluge_upload_speed=sum_stat_by_type(download_stats, "deluge", "upload_speed"),
+                            deluge_upload_limit=sum_stat_by_type(download_stats, "deluge", "upload_limit"),
                             # SNMP metrics (if available)
                             snmp_download_speed=snmp_data.get("download") if snmp_data else None,
                             snmp_upload_speed=snmp_data.get("upload") if snmp_data else None,
@@ -1013,6 +1039,8 @@ class PollingMonitor:
                             is_throttled=bool(decisions),
                             # Per-server breakdown
                             per_server=json.dumps(aggregate_per_server_bandwidth(self._cached_streams)),
+                            # Per-client-id breakdown
+                            per_client=json.dumps(per_client),
                         )
                         db.add(metric)
                         await db.commit()
