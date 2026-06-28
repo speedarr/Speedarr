@@ -27,7 +27,6 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
             "active_streams": 0,
             "is_throttled": False,
             "monitoring_enabled": False,
-            "clients": {},
             "bandwidth": {
                 "download": {"total_limit": 0, "current_usage": 0, "clients": []},
                 "upload": {"total_limit": 0, "current_usage": 0, "clients": []},
@@ -127,33 +126,6 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
                 "error": (stats.get("error") or "Connection failed") if "error" in stats else None,
             })
 
-    # Legacy fields for backward compatibility (find first client of each type)
-    def find_stats_by_type(client_type: str) -> dict:
-        for cid, stats in download_stats.items():
-            if stats.get("client_type") == client_type:
-                return stats
-        return {}
-
-    qb_stats = find_stats_by_type("qbittorrent")
-    sab_stats = find_stats_by_type("sabnzbd")
-    qb_download = qb_stats.get("download_speed", 0) or 0
-    qb_upload = qb_stats.get("upload_speed", 0) or 0
-    qb_download_limit = qb_stats.get("download_limit", 0) or 0
-    qb_upload_limit = qb_stats.get("upload_limit", 0) or 0
-    sab_download = sab_stats.get("download_speed", 0) or 0
-    sab_download_limit = sab_stats.get("download_limit", 0) or 0
-
-    # Build clients status dict dynamically
-    clients_status = {
-        c.id: download_stats.get(c.id, {}).get("active", False)
-        for c in enabled_clients
-    }
-    # plex_status / clients["plex"] are legacy back-compat; superseded by media_server_statuses.
-    # Prefer per-server state when available (accurate for multi-server setups).
-    _plex_state = getattr(polling_monitor, "_server_state", {}).get("plex")
-    plex_connected = (_plex_state.get("failures", 0) == 0) if _plex_state else (polling_monitor._plex_consecutive_failures == 0)
-    clients_status["plex"] = plex_connected
-
     # Calculate effective total limits (use scheduled if in schedule window)
     download_in_schedule = is_within_schedule(config.bandwidth.download.scheduled)
     upload_in_schedule = is_within_schedule(config.bandwidth.upload.scheduled)
@@ -189,17 +161,11 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
         "is_throttled": len(active_streams) > 0,
         "monitoring_enabled": not polling_monitor._paused if hasattr(polling_monitor, '_paused') else True,
         "snmp_enabled": snmp_enabled,
-        # Legacy back-compat; superseded by media_server_statuses for multi-server accuracy.
-        "plex_status": {
-            "connected": plex_connected,
-            "consecutive_failures": _plex_state.get("failures", 0) if _plex_state else polling_monitor._plex_consecutive_failures,
-        },
         "media_server_statuses": media_server_statuses,
         "snmp_status": {
             "enabled": snmp_enabled,
             "connected": polling_monitor._last_snmp_data is not None if snmp_enabled else True,
         },
-        "clients": clients_status,
         "bandwidth": {
             "download": {
                 "total_limit": effective_download_limit,
@@ -208,11 +174,6 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
                 # Download reserve for TCP ACKs from Plex streams
                 "stream_reserve": download_stream_reserve,
                 "holding_reserve": download_holding_reserve,
-                # Legacy fields for backward compatibility
-                "qbittorrent_speed": qb_download,
-                "qbittorrent_limit": qb_download_limit,
-                "sabnzbd_speed": sab_download,
-                "sabnzbd_limit": sab_download_limit,
                 "snmp_speed": snmp_download,
                 "available": max(0, effective_download_limit - total_download_usage - download_stream_reserve - download_holding_reserve),
                 "scheduled_active": download_in_schedule,
@@ -221,9 +182,6 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
                 "total_limit": effective_upload_limit,
                 "current_usage": total_upload_usage,
                 "clients": upload_clients,  # New dynamic client data
-                # Legacy fields for backward compatibility
-                "qbittorrent_speed": qb_upload,
-                "qbittorrent_limit": qb_upload_limit,
                 "snmp_speed": snmp_upload,
                 "available": max(0, effective_upload_limit - reserved_bandwidth - holding_bandwidth),
                 "stream_bandwidth": total_stream_bandwidth,

@@ -13,7 +13,6 @@ from loguru import logger
 from app.api.auth import require_admin
 from app.models import User, BandwidthMetric, BandwidthMetricHourly, BandwidthMetricDaily
 from app.database import get_db
-from app.utils.bandwidth import filter_streams_for_bandwidth
 from app.utils.errors import ErrorCode, raise_error
 
 router = APIRouter(prefix="/api/bandwidth", tags=["bandwidth"])
@@ -82,64 +81,6 @@ class TemporaryLimitResponse(BaseModel):
     remaining_minutes: Optional[float] = None
     source: Optional[str] = None
     set_by: Optional[str] = None
-
-
-@router.get("/current")
-async def get_current_bandwidth(request: Request):
-    """
-    Get current real-time bandwidth allocation and usage.
-
-    Returns current throttle state and active stream bandwidth.
-    """
-    try:
-        decision_engine = request.app.state.decision_engine
-        polling_monitor = request.app.state.polling_monitor
-        controller_manager = request.app.state.controller_manager
-
-        # Get active streams (use bitrate - media file's encoded rate)
-        active_streams = polling_monitor._cached_streams or []
-        total_stream_bandwidth = sum(s.get("stream_bitrate_mbps", 0) for s in active_streams)
-
-        # Get reserved bandwidth
-        reserved_bandwidth = await polling_monitor.get_total_reserved_bandwidth()
-
-        # Get configuration limits
-        config = decision_engine.config
-
-        # Filter streams for reserved bandwidth based on LAN/WAN config
-        bandwidth_streams = filter_streams_for_bandwidth(active_streams)
-        reserved_stream_bandwidth = sum(s.get("stream_bitrate_mbps", 0) for s in bandwidth_streams)
-
-        # Get current client stats
-        client_stats = await controller_manager.get_client_stats()
-
-        return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "download": {
-                "total_limit_mbps": config.bandwidth.download.total_limit,
-                "qbittorrent_limit_mbps": client_stats.get("qbittorrent", {}).get("download_limit"),
-                "sabnzbd_limit_mbps": client_stats.get("sabnzbd", {}).get("download_limit"),
-                "allocated_mbps": sum(
-                    client_stats.get(client, {}).get("download_limit", 0)
-                    for client in ["qbittorrent", "sabnzbd"]
-                )
-            },
-            "upload": {
-                "total_limit_mbps": config.bandwidth.upload.total_limit,
-                "qbittorrent_limit_mbps": client_stats.get("qbittorrent", {}).get("upload_limit"),
-                "reserved_for_streams_mbps": reserved_stream_bandwidth,
-                "reserved_for_reservations_mbps": reserved_bandwidth
-            },
-            "streams": {
-                "active_count": len(active_streams),
-                "total_bandwidth_mbps": total_stream_bandwidth,
-                "reserved_bandwidth_mbps": reserved_stream_bandwidth
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting current bandwidth: {e}")
-        raise_error(ErrorCode.INTERNAL_ERROR, "Failed to get current bandwidth", log=False)
 
 
 @router.get("/history")

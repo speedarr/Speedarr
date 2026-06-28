@@ -33,7 +33,6 @@ GATED = [
     ("/api/status/current", "GET"),
     ("/api/streams/active", "GET"),
     ("/api/streams/history", "GET"),
-    ("/api/bandwidth/current", "GET"),
     ("/api/bandwidth/reservations", "GET"),
     ("/api/decisions/logs", "GET"),
     ("/api/settings/sections", "GET"),
