@@ -331,7 +331,6 @@ async def test_connection(
                     success=False, message="Missing required fields: url and token"
                 )
 
-            from app.config import MediaServerConfig
             client = PlexClient(MediaServerConfig(
                 id=config_data.get("id", "plex"), type="plex", name="Plex", url=url, token=token,
             ))
