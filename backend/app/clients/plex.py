@@ -10,6 +10,7 @@ from loguru import logger
 from app.clients.base_media_server import BaseMediaServer
 from app.config import MediaServerConfig
 from app.utils.network import classify_lan, is_private_ip
+from app.utils.quality import canonical_resolution
 
 
 class PlexClient(BaseMediaServer):
@@ -303,7 +304,7 @@ class PlexClient(BaseMediaServer):
             "year": session.get("year"),
             "stream_bitrate_mbps": stream_bitrate_mbps,
             "stream_bandwidth_mbps": actual_bandwidth_mbps,
-            "quality_profile": media.get("videoResolution"),
+            "quality_profile": canonical_resolution(media.get("videoResolution")),
             "transcode_decision": transcode.get("videoDecision", "direct play") if transcode else "direct play",
             "video_codec": media.get("videoCodec"),
             "container": media.get("container"),

@@ -14,6 +14,7 @@ from loguru import logger
 from app.clients.base_media_server import BaseMediaServer
 from app.config import MediaServerConfig
 from app.utils.network import classify_lan, is_private_ip
+from app.utils.quality import resolution_from_display_title
 
 _MEDIA_TYPE_MAP = {"movie": "movie", "episode": "episode", "audio": "track", "musicvideo": "track"}
 
@@ -132,13 +133,10 @@ class JellyfinBaseServer(BaseMediaServer):
 
         # Bitrate: prefer the video MediaStream BitRate, then NowPlayingItem.Bitrate,
         # then TranscodingInfo.Bitrate. All values are in BPS — divide by 1_000_000 to Mbps.
-        bitrate_bps = 0
-        for ms in now_playing.get("MediaStreams", []) or []:
-            if ms.get("Type") == "Video" and ms.get("BitRate"):
-                bitrate_bps = ms["BitRate"]
-                break
-        if not bitrate_bps:
-            bitrate_bps = now_playing.get("Bitrate", 0) or transcoding.get("Bitrate", 0) or 0
+        video_ms = next((ms for ms in now_playing.get("MediaStreams", []) or []
+                         if ms.get("Type") == "Video"), {})
+        bitrate_bps = video_ms.get("BitRate") or now_playing.get("Bitrate", 0) \
+            or transcoding.get("Bitrate", 0) or 0
         stream_bitrate_mbps = float(bitrate_bps) / 1_000_000 if bitrate_bps else 0.0
 
         raw_type = (now_playing.get("Type") or "").lower()
@@ -171,7 +169,7 @@ class JellyfinBaseServer(BaseMediaServer):
             "year": now_playing.get("ProductionYear"),
             "stream_bitrate_mbps": stream_bitrate_mbps,
             "stream_bandwidth_mbps": 0.0,  # no throughput endpoint
-            "quality_profile": (now_playing.get("MediaStreams", [{}]) or [{}])[0].get("DisplayTitle"),
+            "quality_profile": resolution_from_display_title(video_ms.get("DisplayTitle")),
             "transcode_decision": "transcode" if transcoding else "direct play",
             "video_codec": transcoding.get("VideoCodec"),
             "container": now_playing.get("Container"),

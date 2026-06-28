@@ -178,3 +178,45 @@ async def test_refresh_noop_when_no_endpoint(monkeypatch):
     monkeypatch.setattr(type(s), "_network_config_path", "")
     await s.refresh_lan_subnets()   # must not even touch the session
     assert s._auto_subnets == []
+
+
+def test_quality_from_video_stream_display_title():
+    raw = {
+        "Id": "s", "PlayState": {}, "RemoteEndPoint": "8.8.8.8",
+        "NowPlayingItem": {"Type": "Movie", "MediaStreams": [
+            {"Type": "Audio", "DisplayTitle": "English - AAC - Stereo - Default"},
+            {"Type": "Video", "DisplayTitle": "1080p H264 SDR", "BitRate": 8_000_000},
+        ]},
+    }
+    # Picks the Video stream (not index 0, which is Audio here) and canonicalizes.
+    assert _srv()._normalize_session(raw)["quality_profile"] == "1080p"
+
+
+def test_quality_strips_leaked_title_from_display_title():
+    raw = {
+        "Id": "s", "PlayState": {}, "RemoteEndPoint": "8.8.8.8",
+        "NowPlayingItem": {"Type": "Movie", "MediaStreams": [
+            {"Type": "Video", "DisplayTitle": "All Good Things - 1080p - H264 - SDR"},
+        ]},
+    }
+    assert _srv()._normalize_session(raw)["quality_profile"] == "1080p"
+
+
+def test_quality_none_when_no_video_stream():
+    raw = {
+        "Id": "s", "PlayState": {}, "RemoteEndPoint": "8.8.8.8",
+        "NowPlayingItem": {"Type": "Audio", "MediaStreams": [
+            {"Type": "Audio", "DisplayTitle": "English - AAC - Stereo"},
+        ]},
+    }
+    assert _srv()._normalize_session(raw)["quality_profile"] is None
+
+
+def test_quality_uhd_display_title_maps_to_4k():
+    raw = {
+        "Id": "s", "PlayState": {}, "RemoteEndPoint": "8.8.8.8",
+        "NowPlayingItem": {"Type": "Movie", "MediaStreams": [
+            {"Type": "Video", "DisplayTitle": "4K HEVC Dolby Vision"},
+        ]},
+    }
+    assert _srv()._normalize_session(raw)["quality_profile"] == "4K"

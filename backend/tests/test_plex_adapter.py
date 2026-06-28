@@ -80,3 +80,27 @@ def test_plex_server_local_flag_wins_over_override():
     c = _client_with(["192.168.5.0/24"])
     out = c._normalize_stream(_session("192.168.10.158", local="1"), actual_bandwidth_mbps=0.0)
     assert out["is_lan"] is True
+
+
+def _session_res(video_resolution):
+    return {
+        "type": "movie", "title": "X",
+        "Session": {"id": "r1", "bandwidth": 8000},
+        "Media": [{"bitrate": 8000, "videoResolution": video_resolution}],
+        "User": {"id": "u1", "title": "bob"},
+        "Player": {"state": "playing", "title": "p", "address": "1.2.3.4"},
+    }
+
+
+@pytest.mark.parametrize("video_resolution,expected", [
+    ("1080", "1080p"),
+    ("4k", "4K"),
+    ("720", "720p"),
+    ("480", "480p"),
+    ("sd", "SD"),
+    ("", None),
+    (None, None),
+])
+def test_plex_quality_profile_normalized(video_resolution, expected):
+    out = _client()._normalize_stream(_session_res(video_resolution), actual_bandwidth_mbps=0.0)
+    assert out["quality_profile"] == expected
