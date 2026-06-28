@@ -200,6 +200,10 @@ async def lifespan(app: FastAPI):
     # Load configuration from database
     async with AsyncSessionLocal() as db:
         config = await config_manager.load_config_from_db(db)
+        if config:
+            # One-time: persist per-client percent keys as client ids (idempotent).
+            # load_config_from_db already normalized `config` in memory; this writes it through.
+            await config_manager.migrate_client_percent_keys(config, db)
 
     if config:
         logger.info("Configuration loaded from database")

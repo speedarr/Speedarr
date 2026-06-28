@@ -95,7 +95,7 @@ class TimeBasedScheduleConfig(BaseModel):
     total_limit: float = Field(0, description="Alternate bandwidth limit during scheduled time (Mbps)")
     client_percents: Dict[str, int] = Field(
         default_factory=dict,
-        description="Alternate client percentages during scheduled time"
+        description="Alternate client percentages during scheduled time (maps client id -> percent)"
     )
 
 
@@ -109,7 +109,7 @@ class DownloadBandwidthConfig(BaseModel):
                     "Prevents the limit from being removed entirely."
     )
 
-    # Client percentages when multiple clients are downloading (maps client_type -> percent)
+    # Client percentages when multiple clients are downloading (maps client id -> percent)
     # When no clients are downloading: equal split
     # When one client is downloading: 95% to active, 5% safety net
     # When multiple clients are downloading: use these percentages
@@ -140,7 +140,7 @@ class UploadBandwidthConfig(BaseModel):
                     "Clients are never throttled below this; 0 = trickle to near-zero. "
                     "Prevents the limit from being removed entirely."
     )
-    # Client percentages for upload bandwidth splitting (maps client_type -> percent)
+    # Client percentages for upload bandwidth splitting (maps client id -> percent)
     upload_client_percents: Dict[str, int] = Field(
         default_factory=dict,
         description="Upload client percentages for bandwidth splitting"
@@ -277,11 +277,11 @@ class FailsafeConfig(BaseModel):
     shutdown_upload_speed: Optional[float] = Field(None, ge=0, description="Total upload speed applied to torrent clients on shutdown (Mbps), null = restore normal speeds. 0 floors to a non-zero trickle, never unlimited.")
     shutdown_download_client_percents: Dict[str, float] = Field(
         default_factory=dict,
-        description="Per-client-type percentage split of shutdown download speed (empty = equal split)"
+        description="Per-client-id percentage split of shutdown download speed (empty = equal split)"
     )
     shutdown_upload_client_percents: Dict[str, float] = Field(
         default_factory=dict,
-        description="Per-client-type percentage split of shutdown upload speed (empty = equal split)"
+        description="Per-client-id percentage split of shutdown upload speed (empty = equal split)"
     )
     server_hold_grace_seconds: int = Field(
         300, ge=0,

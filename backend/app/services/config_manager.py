@@ -24,6 +24,78 @@ from app.models.configuration import Configuration, ConfigurationHistory
 logger = logging.getLogger(__name__)
 
 
+# Flattened DB prefixes whose trailing segment is a per-client percent key.
+PERCENT_KEY_PREFIXES = [
+    "bandwidth.download.client_percents.",
+    "bandwidth.upload.upload_client_percents.",
+    "bandwidth.download.scheduled.client_percents.",
+    "bandwidth.upload.scheduled.client_percents.",
+    "failsafe.shutdown_download_client_percents.",
+    "failsafe.shutdown_upload_client_percents.",
+]
+
+
+def resolve_percent_key(key, clients):
+    """Map a stored percent key (client type OR id) to the current client id, or None to drop.
+
+    Rule order:
+      1. key equals a current client id            -> keep
+      2. key matches exactly one client's type     -> that client's id
+      3. key matches multiple clients' types       -> None (drop ambiguous collision)
+      4. key matches no current client             -> None (drop dead key)
+    """
+    client_ids = {c.id for c in clients}
+    if key in client_ids:
+        return key
+    matches = [c.id for c in clients if c.type == key]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def normalize_percent_dict(percents, clients):
+    """Return (new_dict, changed). id-exact keys win; a type key renames only if its id slot is free."""
+    result = {}
+    renames = {}
+    for key, value in (percents or {}).items():
+        new_key = resolve_percent_key(key, clients)
+        if new_key == key:
+            result[key] = value          # rule 1: id-exact kept
+        elif new_key is not None:
+            renames[key] = (new_key, value)  # rule 2: candidate rename
+        # new_key is None -> dropped (rules 3 & 4)
+    for _old, (new_key, value) in renames.items():
+        if new_key not in result:        # don't clobber an id-exact value
+            result[new_key] = value
+    return result, result != (percents or {})
+
+
+def normalize_client_percent_keys(config):
+    """Re-key the six per-client percent dicts on a SpeedarrConfig from type to id, in place.
+
+    Pure in-memory transform (no DB I/O). Safe to call on every config load.
+    Returns True if any dict changed.
+    """
+    clients = config.get_all_download_clients()
+    changed = False
+
+    def _apply(owner, attr):
+        nonlocal changed
+        new, did = normalize_percent_dict(getattr(owner, attr), clients)
+        if did:
+            setattr(owner, attr, new)
+            changed = True
+
+    bw = config.bandwidth
+    _apply(bw.download, "client_percents")
+    _apply(bw.upload, "upload_client_percents")
+    _apply(bw.download.scheduled, "client_percents")
+    _apply(bw.upload.scheduled, "client_percents")
+    _apply(config.failsafe, "shutdown_download_client_percents")
+    _apply(config.failsafe, "shutdown_upload_client_percents")
+    return changed
+
+
 def validate_config(config: SpeedarrConfig) -> list[str]:
     """
     Validate configuration and return list of warnings.
@@ -184,6 +256,11 @@ class ConfigManager:
         try:
             config = SpeedarrConfig(**nested_config)
 
+            # Read-time safety net: ensure per-client percents are keyed by client id,
+            # not type. Pure in-memory (no DB writes); the persisted rename happens once
+            # at startup via migrate_client_percent_keys.
+            normalize_client_percent_keys(config)
+
             # Validate and log warnings
             warnings = validate_config(config)
             for warning in warnings:
@@ -275,12 +352,14 @@ class ConfigManager:
         """
         logger.info(f"Updating config section: {section_name} by user {user_id}")
 
-        # Clean up legacy keys for bandwidth section
+        # Clean up legacy keys + per-client percent rows for bandwidth section so removed/
+        # renamed client ids don't resurrect on reload (update_section never deletes absent keys)
         if section_name == "bandwidth":
             await self.cleanup_legacy_bandwidth_keys(db, user_id)
+            await self.cleanup_bandwidth_percent_keys(db, user_id)
 
-        # Clean up per-client-type percent keys for failsafe section so removed
-        # client types don't resurrect on reload (flatten_dict drops empty dicts)
+        # Clean up per-client percent keys for failsafe section so removed
+        # client ids don't resurrect on reload (flatten_dict drops empty dicts)
         if section_name == "failsafe":
             await self.cleanup_failsafe_percent_keys(db, user_id)
 
@@ -435,6 +514,88 @@ class ConfigManager:
                     changed_by=user_id,
                 )
                 db.add(history_entry)
+
+    async def cleanup_bandwidth_percent_keys(self, db: AsyncSession, user_id: Optional[int] = None):
+        """
+        Remove all bandwidth (live + scheduled) per-client percent keys from database.
+
+        Called before saving the bandwidth section: percent dicts are stored one row per
+        client key, and update_section never deletes rows for keys absent from the new data,
+        so renamed/removed client keys must be cleared first to avoid orphan resurrection.
+        """
+        prefixes = [
+            "bandwidth.download.client_percents.",
+            "bandwidth.upload.upload_client_percents.",
+            "bandwidth.download.scheduled.client_percents.",
+            "bandwidth.upload.scheduled.client_percents.",
+        ]
+
+        for prefix in prefixes:
+            result = await db.execute(
+                select(Configuration).where(Configuration.key.startswith(prefix))
+            )
+            for existing in result.scalars().all():
+                await db.execute(delete(Configuration).where(Configuration.key == existing.key))
+                logger.debug(f"Cleared bandwidth percent key: {existing.key}")
+
+                history_entry = ConfigurationHistory(
+                    key=existing.key,
+                    old_value=existing.value,
+                    new_value="[DELETED]",
+                    value_type=existing.value_type,
+                    changed_by=user_id,
+                )
+                db.add(history_entry)
+
+    async def migrate_client_percent_keys(
+        self, config: SpeedarrConfig, db: AsyncSession, user_id: Optional[int] = None
+    ) -> bool:
+        """One-time migration: rename/drop on-disk per-client percent rows from type-keyed to id-keyed.
+
+        Renames each `<prefix>.<type>` row to `<prefix>.<id>` where unambiguous (one client of
+        that type), drops ambiguous/dead keys, and leaves already-id-keyed rows untouched.
+        Idempotent: a second run produces zero writes. Run once at startup with a writable session.
+        """
+        clients = config.get_all_download_clients()
+        changed = False
+
+        for prefix in PERCENT_KEY_PREFIXES:
+            rows = (await db.execute(
+                select(Configuration).where(Configuration.key.startswith(prefix))
+            )).scalars().all()
+            existing_subkeys = {row.key[len(prefix):] for row in rows}
+
+            for row in rows:
+                old_sub = row.key[len(prefix):]
+                new_sub = resolve_percent_key(old_sub, clients)
+                if new_sub == old_sub:
+                    continue  # already id-keyed
+
+                # Delete the stale row (rename source or dropped key)
+                await db.execute(delete(Configuration).where(Configuration.key == row.key))
+                db.add(ConfigurationHistory(
+                    key=row.key, old_value=row.value, new_value="[DELETED]",
+                    value_type=row.value_type, changed_by=user_id,
+                ))
+                changed = True
+
+                # Rename: write the id-keyed row unless that slot already exists
+                if new_sub is not None and new_sub not in existing_subkeys:
+                    new_key = f"{prefix}{new_sub}"
+                    db.add(Configuration(
+                        key=new_key, value=row.value, value_type=row.value_type,
+                        updated_by=user_id,
+                    ))
+                    db.add(ConfigurationHistory(
+                        key=new_key, old_value=None, new_value=row.value,
+                        value_type=row.value_type, changed_by=user_id,
+                    ))
+                    existing_subkeys.add(new_sub)
+
+        if changed:
+            await db.commit()
+            logger.info("Migrated bandwidth/failsafe percent keys from client type to client id")
+        return changed
 
     async def _reload_services(self, section_name: str, config: SpeedarrConfig):
         """

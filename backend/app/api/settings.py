@@ -1352,10 +1352,6 @@ async def update_download_clients(
             except Exception as e:
                 raise ValueError(f"Invalid client configuration for {client_data.get('name', 'unknown')}: {e}")
 
-        # Check if enabled client types changed - if so, reset percentage splits
-        old_enabled_types = set() if is_setup_mode else {c.type for c in config.get_enabled_download_clients()}
-        new_enabled_types = {c.type for c in processed_clients if c.enabled}
-
         # Update configuration
         # In setup mode, load the current config from database (it was initialized earlier)
         if is_setup_mode:
@@ -1370,11 +1366,9 @@ async def update_download_clients(
         new_config_data.pop("qbittorrent", None)
         new_config_data.pop("sabnzbd", None)
 
-        # Reset bandwidth percentages if enabled client types changed
-        if old_enabled_types != new_enabled_types:
-            logger.info(f"Enabled client types changed from {old_enabled_types} to {new_enabled_types}, resetting bandwidth splits")
-            new_config_data["bandwidth"]["download"]["client_percents"] = {}
-            new_config_data["bandwidth"]["upload"]["upload_client_percents"] = {}
+        # Prune per-client percent splits to the current set of client ids, so a removed
+        # client's id-keyed entry can't linger and a new same-type client starts at equal split.
+        _prune_percent_dicts(new_config_data, {c.id for c in processed_clients})
 
         # Update via config manager
         updated_config = await config_manager.update_full_config(
@@ -1408,6 +1402,23 @@ async def update_download_clients(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update download clients: {str(e)}",
         )
+
+
+def _prune_percent_dicts(config_data: dict, valid_ids: set) -> None:
+    """Filter every per-client percent dict in config_data to keys in valid_ids (in place)."""
+    def _keep(d):
+        return {k: v for k, v in (d or {}).items() if k in valid_ids}
+
+    bw = config_data.get("bandwidth", {})
+    dl = bw.get("download", {})
+    ul = bw.get("upload", {})
+    dl["client_percents"] = _keep(dl.get("client_percents"))
+    ul["upload_client_percents"] = _keep(ul.get("upload_client_percents"))
+    dl.setdefault("scheduled", {})["client_percents"] = _keep(dl.get("scheduled", {}).get("client_percents"))
+    ul.setdefault("scheduled", {})["client_percents"] = _keep(ul.get("scheduled", {}).get("client_percents"))
+    fs = config_data.get("failsafe", {})
+    fs["shutdown_download_client_percents"] = _keep(fs.get("shutdown_download_client_percents"))
+    fs["shutdown_upload_client_percents"] = _keep(fs.get("shutdown_upload_client_percents"))
 
 
 def _find_existing_client(config: SpeedarrConfig, client_id: Optional[str], client_type: str) -> Optional[DownloadClientConfig]:
