@@ -28,7 +28,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertCircle, Layers, BarChart3, ArrowUpDown, ZoomOut, Server } from 'lucide-react';
 import { useChartZoom, type ZoomRange } from '@/hooks/useChartZoom';
-import { buildChartSeries, resolveSeriesColors, type ChartSeriesDescriptor } from '@/lib/chartSeries';
+import { buildChartSeries, resolveSeriesColors, computeLegacyFoldMap, foldLegacyPoints, dropFoldedHistoricalSeries, type ChartSeriesDescriptor } from '@/lib/chartSeries';
 
 // Dynamic SVG gradient ids for a series (id is safe for SVG: letters/digits/underscore).
 const dlGradientId = (id: string) => `grad_dl_${id}`;
@@ -283,12 +283,17 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     loadClientInfo();
   }, []);
 
-  // Merge current clients with any historical-only series ids from chart-data,
-  // then resolve collision-free colors. `series` is the single source of truth
-  // for every per-client chart element.
+  // Fold pre-fix, type-keyed history into the matching current client so a
+  // single-instance client renders as one continuous series across the storage
+  // cutover (no duplicate legacy entry). foldMap: type -> first current client id.
+  const foldMap = useMemo(() => computeLegacyFoldMap(descriptors), [descriptors]);
+
+  // Merge current clients with the historical-only series ids that DON'T fold
+  // (removed clients / fully-removed types), then resolve collision-free colors.
+  // `series` is the single source of truth for every per-client chart element.
   const series = useMemo(
-    () => buildChartSeries(descriptors, historicalSeries),
-    [descriptors, historicalSeries],
+    () => buildChartSeries(descriptors, dropFoldedHistoricalSeries(historicalSeries, foldMap)),
+    [descriptors, historicalSeries, foldMap],
   );
   const seriesColors = useMemo(() => resolveSeriesColors(series), [series]);
   const seriesById = useMemo(() => {
@@ -370,7 +375,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   }, [visibleSeries]);
 
   // Apply zoom filter before aggregation
-  const zoomedRawData = useMemo(() => filterDataByZoom(rawData), [rawData, filterDataByZoom]);
+  // Fold legacy type-keyed point fields into current-client id fields before any
+  // aggregation/zoom, so old history flows into the matching per-id series.
+  const foldedRawData = useMemo(() => foldLegacyPoints(rawData, foldMap), [rawData, foldMap]);
+  const zoomedRawData = useMemo(() => filterDataByZoom(foldedRawData), [foldedRawData, filterDataByZoom]);
 
   // Memoize aggregation - only recomputes when zoomedRawData or dataInterval changes
   const aggregatedData = useMemo(() => {
