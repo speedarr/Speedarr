@@ -42,9 +42,22 @@ def test_split_zero_percent_share_floored():
         "de": SimpleNamespace(type="deluge", supports_upload=True),
     })
     # deluge configured at 0% -> would otherwise receive 0 of the 50 Mbps total
-    result = cm._split_shutdown_speed(50.0, ["qb", "de"], {"qbittorrent": 100, "deluge": 0})
+    result = cm._split_shutdown_speed(50.0, ["qb", "de"], {"qb": 100, "de": 0})
     assert result["de"] >= HARD_MIN_MBPS
     assert result["qb"] > result["de"]  # positive-share client still gets the bulk
+
+
+def test_split_two_same_type_clients_by_id():
+    cm = _manager_with({
+        "qbittorrent_1": SimpleNamespace(type="qbittorrent", supports_upload=True),
+        "qbittorrent_2": SimpleNamespace(type="qbittorrent", supports_upload=True),
+    })
+    result = cm._split_shutdown_speed(
+        100.0, ["qbittorrent_1", "qbittorrent_2"], {"qbittorrent_1": 75, "qbittorrent_2": 25}
+    )
+    assert result["qbittorrent_1"] > result["qbittorrent_2"]
+    assert result["qbittorrent_1"] == pytest.approx(75.0, abs=0.5)
+    assert result["qbittorrent_2"] == pytest.approx(25.0, abs=0.5)
 
 
 def test_split_positive_total_unchanged_above_floor():

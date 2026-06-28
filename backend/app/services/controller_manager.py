@@ -241,9 +241,9 @@ class ControllerManager:
         percents: Dict[str, float],
     ) -> Dict[str, float]:
         """
-        Split a total shutdown speed across clients by configured type percentages.
+        Split a total shutdown speed across clients by configured per-client percentages.
 
-        Falls back to equal split unless every target's type has a configured
+        Falls back to equal split unless every target client id has a configured
         percentage (same rule as the decision engine's client_percents handling).
 
         Every per-client limit is floored to HARD_MIN_MBPS so a shutdown speed of
@@ -253,11 +253,9 @@ class ControllerManager:
         if not target_ids:
             return {}
 
-        all_configured = all(
-            self.client_configs[client_id].type in percents for client_id in target_ids
-        )
+        all_configured = all(client_id in percents for client_id in target_ids)
         if all_configured:
-            raw = {c: percents[self.client_configs[c].type] for c in target_ids}
+            raw = {c: percents[c] for c in target_ids}
             total_raw = sum(raw.values())
             if total_raw > 0:
                 return {c: max(total_mbps * (v / total_raw), HARD_MIN_MBPS) for c, v in raw.items()}

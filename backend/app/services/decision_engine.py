@@ -304,21 +304,6 @@ class DecisionEngine:
         # Default equal split (guard against empty list)
         equal_percent = 100.0 / len(all_clients) if all_clients else 0
 
-        def get_client_type(client_id: str) -> str:
-            """Extract client type from client ID (e.g., 'sabnzbd_123' -> 'sabnzbd')."""
-            # Client IDs are in format 'type_uniqueId', extract just the type
-            return client_id.split('_')[0] if '_' in client_id else client_id
-
-        def get_normalized_percents(percents_dict: Dict[str, float]) -> Dict[str, float]:
-            """Get normalized percentages for enabled clients only."""
-            # Only use percentages for clients that are currently enabled
-            # Look up by client type (e.g., 'sabnzbd') since that's how the UI saves them
-            raw = {c: percents_dict.get(get_client_type(c), equal_percent) for c in all_clients}
-            total = sum(raw.values())
-            if total == 0:
-                return {c: 1.0 / len(all_clients) for c in all_clients}
-            return {c: (v / total) for c, v in raw.items()}
-
         if len(active_downloading) == 0:
             # No clients downloading: Use equal split for standby mode
             # (client_percents only applies when multiple clients are actively downloading)
@@ -363,11 +348,11 @@ class DecisionEngine:
             if active_downloading:
                 # Check if ALL active clients have explicitly configured percentages
                 # If not, use equal split to avoid mixing configured and default values
-                # Look up by client type since that's how the UI saves them
-                all_configured = all(get_client_type(c) in client_percents for c in active_downloading)
+                # Percentages are keyed by unique client id (supports multiple same-type clients)
+                all_configured = all(c in client_percents for c in active_downloading)
 
                 if all_configured:
-                    raw_active = {c: client_percents[get_client_type(c)] for c in active_downloading}
+                    raw_active = {c: client_percents[c] for c in active_downloading}
                     total_raw = sum(raw_active.values())
                     if total_raw == 0:
                         normalized_active = {c: 1.0 / len(active_downloading) for c in active_downloading}
@@ -439,10 +424,6 @@ class DecisionEngine:
         # Default equal split percentage (guard against empty list)
         default_percent = 100.0 / len(upload_clients) if upload_clients else 0
 
-        def get_client_type(client_id: str) -> str:
-            """Extract client type from client ID (e.g., 'qbittorrent_123' -> 'qbittorrent')."""
-            return client_id.split('_')[0] if '_' in client_id else client_id
-
         # Calculate standby bandwidth per upload client (equal split for idle mode)
         standby_per_client = available_upload / len(upload_clients)
 
@@ -476,13 +457,6 @@ class DecisionEngine:
             'inactive_safety_net_percent',
             5
         ) / 100
-
-        # Get raw percentage for a client (falls back to equal split)
-        def get_raw_upload_percent(client_id: str) -> float:
-            client_type = get_client_type(client_id)
-            if client_type in upload_percents:
-                return upload_percents[client_type]
-            return default_percent
 
         if len(active_uploading) == 0:
             # No clients uploading: Equal split for standby mode
@@ -524,10 +498,11 @@ class DecisionEngine:
                 upload_limits[client] = available_upload * safety_net_percent
 
             # Normalize active percentages for ONLY the active clients
-            all_configured = all(get_client_type(c) in upload_percents for c in active_uploading)
+            # Percentages are keyed by unique client id (supports multiple same-type clients)
+            all_configured = all(c in upload_percents for c in active_uploading)
 
             if all_configured:
-                raw_active = {c: upload_percents[get_client_type(c)] for c in active_uploading}
+                raw_active = {c: upload_percents[c] for c in active_uploading}
                 total_raw = sum(raw_active.values())
                 if total_raw == 0:
                     normalized_active = {c: 1.0 / len(active_uploading) for c in active_uploading}
