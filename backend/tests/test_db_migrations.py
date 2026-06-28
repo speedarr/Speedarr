@@ -19,3 +19,8 @@ def test_bandwidth_metric_has_per_server():
 
 def test_bandwidth_metric_has_per_client():
     assert "per_client" in BandwidthMetric.__table__.columns.keys()
+
+
+def test_throttle_decision_has_per_client():
+    from app.models.decision import ThrottleDecision
+    assert "per_client" in ThrottleDecision.__table__.columns.keys()

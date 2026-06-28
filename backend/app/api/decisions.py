@@ -44,28 +44,21 @@ async def get_decision_logs(
 
         # Filter to only changes if requested
         if changes_only:
-            decisions = [d for d in decisions if _has_limit_changes(d)]
+            decisions = [d for d in decisions if has_limit_changes(decision_client_map(d))]
             # Apply offset and limit after filtering
             decisions = decisions[offset:offset + limit]
 
         decision_list = []
         for d in decisions:
-            # Build a human-readable message
-            message = _build_decision_message(d)
-
+            client_map = decision_client_map(d)
             decision_list.append({
                 "id": d.id,
                 "timestamp": d.timestamp.isoformat() if d.timestamp else None,
                 "decision_type": d.decision_type,
                 "reason": d.reason,
-                "message": message,
+                "message": build_decision_message(d.decision_type, client_map, d.active_streams, d.reason),
                 "active_streams": d.active_streams,
-                "qbittorrent_old_download_limit": d.qbittorrent_old_download_limit,
-                "qbittorrent_new_download_limit": d.qbittorrent_new_download_limit,
-                "qbittorrent_old_upload_limit": d.qbittorrent_old_upload_limit,
-                "qbittorrent_new_upload_limit": d.qbittorrent_new_upload_limit,
-                "sabnzbd_old_download_limit": d.sabnzbd_old_download_limit,
-                "sabnzbd_new_download_limit": d.sabnzbd_new_download_limit,
+                "per_client": client_map,
                 "triggered_by": d.triggered_by,
             })
 
@@ -82,60 +75,70 @@ async def get_decision_logs(
         return {"logs": [], "total": 0, "error": str(e)}
 
 
-def _has_limit_changes(d: ThrottleDecision) -> bool:
-    """Check if a decision has any actual limit changes."""
-    return (
-        (d.qbittorrent_old_download_limit is not None and
-         d.qbittorrent_new_download_limit is not None and
-         d.qbittorrent_old_download_limit != d.qbittorrent_new_download_limit) or
-        (d.qbittorrent_old_upload_limit is not None and
-         d.qbittorrent_new_upload_limit is not None and
-         d.qbittorrent_old_upload_limit != d.qbittorrent_new_upload_limit) or
-        (d.sabnzbd_old_download_limit is not None and
-         d.sabnzbd_new_download_limit is not None and
-         d.sabnzbd_old_download_limit != d.sabnzbd_new_download_limit)
-    )
+_LIMIT_DIRECTIONS = (
+    ("old_download_limit", "new_download_limit", "download"),
+    ("old_upload_limit", "new_upload_limit", "upload"),
+)
 
 
-def _build_decision_message(d: ThrottleDecision) -> str:
-    """Build a human-readable message for a decision."""
+def decision_client_map(d) -> dict:
+    """Per-client map for a decision row.
+
+    Prefers the per_client JSON; for pre-migration rows it synthesizes the map
+    from the legacy qbittorrent_*/sabnzbd_* columns so old history still renders.
+    """
+    if getattr(d, "per_client", None):
+        return d.per_client
+    legacy = {}
+    qb = {}
+    if d.qbittorrent_old_download_limit is not None or d.qbittorrent_new_download_limit is not None:
+        qb["old_download_limit"] = d.qbittorrent_old_download_limit
+        qb["new_download_limit"] = d.qbittorrent_new_download_limit
+    if d.qbittorrent_old_upload_limit is not None or d.qbittorrent_new_upload_limit is not None:
+        qb["old_upload_limit"] = d.qbittorrent_old_upload_limit
+        qb["new_upload_limit"] = d.qbittorrent_new_upload_limit
+    if qb:
+        legacy["qbittorrent"] = {"name": "qBittorrent", "type": "qbittorrent", **qb}
+    sab = {}
+    if d.sabnzbd_old_download_limit is not None or d.sabnzbd_new_download_limit is not None:
+        sab["old_download_limit"] = d.sabnzbd_old_download_limit
+        sab["new_download_limit"] = d.sabnzbd_new_download_limit
+    if sab:
+        legacy["sabnzbd"] = {"name": "SABnzbd", "type": "sabnzbd", **sab}
+    return legacy
+
+
+def has_limit_changes(client_map: dict) -> bool:
+    """True if any client entry has a real old!=new limit change."""
+    for entry in client_map.values():
+        for old_k, new_k, _ in _LIMIT_DIRECTIONS:
+            o, n = entry.get(old_k), entry.get(new_k)
+            if o is not None and n is not None and o != n:
+                return True
+    return False
+
+
+def build_decision_message(decision_type, client_map: dict, active_streams, reason) -> str:
+    """Human-readable per-client decision message."""
     parts = []
-
-    if d.decision_type == "throttle":
+    if decision_type == "throttle":
         parts.append("Throttling applied")
-    elif d.decision_type == "restore":
+    elif decision_type == "restore":
         parts.append("Speeds restored")
-    elif d.decision_type == "adjust":
+    elif decision_type == "adjust":
         parts.append("Limits adjusted")
     else:
-        parts.append(f"Decision: {d.decision_type}")
+        parts.append(f"Decision: {decision_type}")
 
-    # Add qBittorrent changes
-    if d.qbittorrent_old_download_limit is not None and d.qbittorrent_new_download_limit is not None:
-        if d.qbittorrent_old_download_limit != d.qbittorrent_new_download_limit:
-            parts.append(
-                f"qBittorrent download: {d.qbittorrent_old_download_limit:.0f} -> {d.qbittorrent_new_download_limit:.0f} Mbps"
-            )
+    for entry in client_map.values():
+        name = entry.get("name", "Client")
+        for old_k, new_k, label in _LIMIT_DIRECTIONS:
+            o, n = entry.get(old_k), entry.get(new_k)
+            if o is not None and n is not None and o != n:
+                parts.append(f"{name} {label}: {o:.0f} -> {n:.0f} Mbps")
 
-    if d.qbittorrent_old_upload_limit is not None and d.qbittorrent_new_upload_limit is not None:
-        if d.qbittorrent_old_upload_limit != d.qbittorrent_new_upload_limit:
-            parts.append(
-                f"qBittorrent upload: {d.qbittorrent_old_upload_limit:.0f} -> {d.qbittorrent_new_upload_limit:.0f} Mbps"
-            )
-
-    # Add SABnzbd changes
-    if d.sabnzbd_old_download_limit is not None and d.sabnzbd_new_download_limit is not None:
-        if d.sabnzbd_old_download_limit != d.sabnzbd_new_download_limit:
-            parts.append(
-                f"SABnzbd download: {d.sabnzbd_old_download_limit:.0f} -> {d.sabnzbd_new_download_limit:.0f} Mbps"
-            )
-
-    # Add stream info
-    if d.active_streams is not None and d.active_streams > 0:
-        parts.append(f"{d.active_streams} active stream(s)")
-
-    # Add reason if present
-    if d.reason:
-        parts.append(f"Reason: {d.reason}")
-
+    if active_streams:
+        parts.append(f"{active_streams} active stream(s)")
+    if reason:
+        parts.append(f"Reason: {reason}")
     return " | ".join(parts)

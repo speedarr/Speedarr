@@ -129,6 +129,9 @@ async def run_migrations():
             # Per-client-id bandwidth breakdown
             ("per_client", "TEXT"),
         ],
+        "throttle_decisions": [
+            ("per_client", "TEXT"),
+        ],
         "stream_history": [
             ("server_id", "VARCHAR(100)"), ("server_name", "VARCHAR(100)"), ("server_type", "VARCHAR(20)"),
         ],

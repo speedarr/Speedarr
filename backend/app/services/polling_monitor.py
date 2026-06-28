@@ -50,6 +50,32 @@ def build_per_client_metrics(download_stats: Dict[str, Dict[str, Any]]) -> Dict[
     return result
 
 
+def build_decision_per_client(old_stats: dict, new_stats: dict, direction: str) -> dict:
+    """Per-client-id limit changes for a throttle decision.
+
+    direction is 'download' or 'upload'. Returns {client_id: {name, type,
+    old_<direction>_limit, new_<direction>_limit}} for every client whose
+    <direction>_limit changed (old and new both present and different).
+    """
+    limit_key = f"{direction}_limit"
+    old_field, new_field = f"old_{direction}_limit", f"new_{direction}_limit"
+    result = {}
+    for cid in set(old_stats) | set(new_stats):
+        o = old_stats.get(cid) or {}
+        n = new_stats.get(cid) or {}
+        old_v = o.get(limit_key)
+        new_v = n.get(limit_key)
+        if old_v is not None and new_v is not None and old_v != new_v:
+            meta = n if n else o
+            result[cid] = {
+                "name": meta.get("client_name", cid),
+                "type": meta.get("client_type"),
+                old_field: old_v,
+                new_field: new_v,
+            }
+    return result
+
+
 def sum_stat_by_type(
     download_stats: Dict[str, Dict[str, Any]], client_type: str, stat_key: str
 ) -> Optional[float]:
@@ -124,9 +150,6 @@ class PollingMonitor:
         self._first_poll: bool = True  # Flag to skip notifications on first poll (startup)
 
         # Plex failsafe tracking
-        self._plex_consecutive_failures: int = 0
-        self._plex_last_success: Optional[datetime] = None
-        self._plex_unreachable_warned: bool = False
         # Maximum consecutive failures before considering Plex truly down
         self._plex_max_failures: int = 6  # ~30 seconds at 5-second polling
 
@@ -551,15 +574,11 @@ class PollingMonitor:
             merged = [s for _, streams in results for s in streams]
 
             # TOTAL OUTAGE: no server reachable this cycle -> maintain current
-            # limits (do NOT recompute or restore). Mirrors the legacy single-Plex
-            # behavior of keeping _cached_streams and skipping the rest of the cycle.
+            # limits (do NOT recompute or restore). Per-server failure counts
+            # live in self._server_state.
             if self.media_servers and not any_reachable:
-                self._plex_consecutive_failures = max(
-                    (st["failures"] for st in self._server_state.values()), default=0
-                )
                 return
 
-            self._plex_consecutive_failures = 0
             new_streams = merged
             self._cached_streams = new_streams
 
@@ -869,106 +888,54 @@ class PollingMonitor:
                 # Get new stats after applying decisions
                 new_stats = await self.controller_manager.get_client_stats()
 
-                # Save throttle decisions to database (separate entries for download and upload)
+                # Save throttle decisions to database (per-client-id; separate
+                # entries for download and upload).
                 if self._get_db_session:
                     try:
-                        async with self._get_db_session() as db:
-                            # Helper to find first client of a given type (stats are keyed by client ID)
-                            def find_stats_by_type(stats_dict: dict, client_type: str) -> dict:
-                                for cid, stats in stats_dict.items():
-                                    if stats.get("client_type") == client_type:
-                                        return stats
-                                return {}
-
-                            # Get stats for qbittorrent and sabnzbd (first of each type for DB compatibility)
-                            old_qb = find_stats_by_type(old_stats, "qbittorrent")
-                            new_qb = find_stats_by_type(new_stats, "qbittorrent")
-                            old_sab = find_stats_by_type(old_stats, "sabnzbd")
-                            new_sab = find_stats_by_type(new_stats, "sabnzbd")
-
-                            # Check for download limit changes
-                            qbit_dl_old = old_qb.get("download_limit")
-                            qbit_dl_new = new_qb.get("download_limit")
-                            sab_dl_old = old_sab.get("download_limit")
-                            sab_dl_new = new_sab.get("download_limit")
-
-                            download_changed = (
-                                (qbit_dl_old is not None and qbit_dl_new is not None and qbit_dl_old != qbit_dl_new) or
-                                (sab_dl_old is not None and sab_dl_new is not None and sab_dl_old != sab_dl_new)
-                            )
-
-                            # Check for upload limit changes
-                            qbit_ul_old = old_qb.get("upload_limit")
-                            qbit_ul_new = new_qb.get("upload_limit")
-
-                            upload_changed = (qbit_ul_old is not None and qbit_ul_new is not None and qbit_ul_old != qbit_ul_new)
-
-                            # Create download decision entry if download limits changed
-                            if download_changed:
-                                # Build descriptive reason for download changes
-                                download_reason_parts = []
-                                qbit_changed = qbit_dl_old is not None and qbit_dl_new is not None and qbit_dl_old != qbit_dl_new
-                                sab_changed = sab_dl_old is not None and sab_dl_new is not None and sab_dl_old != sab_dl_new
-
-                                if qbit_changed and sab_changed:
-                                    download_reason_parts.append("Both clients adjusted")
-                                elif qbit_changed:
-                                    if sab_dl_new is None or sab_dl_new == 0:
-                                        download_reason_parts.append("Only qBittorrent active")
-                                    else:
-                                        download_reason_parts.append("qBittorrent adjusted")
-                                elif sab_changed:
-                                    if qbit_dl_new is None or qbit_dl_new == 0:
-                                        download_reason_parts.append("Only SABnzbd active")
-                                    else:
-                                        download_reason_parts.append("SABnzbd adjusted")
-
-                                download_reason = download_reason_parts[0] if download_reason_parts else "Download rebalanced"
-
-                                download_decision = ThrottleDecision(
-                                    timestamp=datetime.now(timezone.utc),
-                                    decision_type="throttle" if self._cached_streams else "restore",
-                                    reason=download_reason,
-                                    active_streams=len(self._cached_streams),
-                                    stream_session_ids=[s.get("session_id") for s in self._cached_streams],
-                                    total_required_bandwidth=sum(s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams),
-                                    qbittorrent_old_download_limit=qbit_dl_old,
-                                    qbittorrent_new_download_limit=qbit_dl_new,
-                                    sabnzbd_old_download_limit=sab_dl_old,
-                                    sabnzbd_new_download_limit=sab_dl_new,
-                                    snmp_download_usage=snmp_data.get("download") if snmp_data else None,
-                                    triggered_by="polling"
-                                )
-                                db.add(download_decision)
-                                logger.debug(f"Saved download decision: {download_reason}")
-
-                            # Create upload decision entry if upload limits changed
-                            if upload_changed:
-                                # Build descriptive reason for upload changes
-                                stream_count = len(self._cached_streams)
-                                if stream_count == 0:
-                                    upload_reason = "No active Plex streams"
-                                elif stream_count == 1:
-                                    upload_reason = "1 active Plex stream"
-                                else:
-                                    upload_reason = f"{stream_count} active Plex streams"
-
-                                upload_decision = ThrottleDecision(
-                                    timestamp=datetime.now(timezone.utc),
-                                    decision_type="throttle" if self._cached_streams else "restore",
-                                    reason=upload_reason,
-                                    active_streams=stream_count,
-                                    stream_session_ids=[s.get("session_id") for s in self._cached_streams],
-                                    total_required_bandwidth=sum(s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams),
-                                    qbittorrent_old_upload_limit=qbit_ul_old,
-                                    qbittorrent_new_upload_limit=qbit_ul_new,
-                                    snmp_upload_usage=snmp_data.get("upload") if snmp_data else None,
-                                    triggered_by="polling"
-                                )
-                                db.add(upload_decision)
-                                logger.debug(f"Saved upload decision: {upload_reason}")
-
-                            if download_changed or upload_changed:
+                        dl_per_client = build_decision_per_client(old_stats, new_stats, "download")
+                        ul_per_client = build_decision_per_client(old_stats, new_stats, "upload")
+                        if dl_per_client or ul_per_client:
+                            async with self._get_db_session() as db:
+                                if dl_per_client:
+                                    names = sorted({e["name"] for e in dl_per_client.values()})
+                                    dl_reason = (
+                                        f"{names[0]} adjusted" if len(names) == 1
+                                        else f"{len(names)} clients adjusted"
+                                    )
+                                    db.add(ThrottleDecision(
+                                        timestamp=datetime.now(timezone.utc),
+                                        decision_type="throttle" if self._cached_streams else "restore",
+                                        reason=dl_reason,
+                                        active_streams=len(self._cached_streams),
+                                        stream_session_ids=[s.get("session_id") for s in self._cached_streams],
+                                        total_required_bandwidth=sum(
+                                            s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams
+                                        ),
+                                        per_client=dl_per_client,
+                                        snmp_download_usage=snmp_data.get("download") if snmp_data else None,
+                                        triggered_by="polling",
+                                    ))
+                                    logger.debug(f"Saved download decision: {dl_reason}")
+                                if ul_per_client:
+                                    stream_count = len(self._cached_streams)
+                                    ul_reason = (
+                                        "No active streams" if stream_count == 0
+                                        else f"{stream_count} active stream(s)"
+                                    )
+                                    db.add(ThrottleDecision(
+                                        timestamp=datetime.now(timezone.utc),
+                                        decision_type="throttle" if self._cached_streams else "restore",
+                                        reason=ul_reason,
+                                        active_streams=stream_count,
+                                        stream_session_ids=[s.get("session_id") for s in self._cached_streams],
+                                        total_required_bandwidth=sum(
+                                            s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams
+                                        ),
+                                        per_client=ul_per_client,
+                                        snmp_upload_usage=snmp_data.get("upload") if snmp_data else None,
+                                        triggered_by="polling",
+                                    ))
+                                    logger.debug(f"Saved upload decision: {ul_reason}")
                                 await db.commit()
                     except Exception as e:
                         logger.error(f"Error saving throttle decision to database: {e}")
