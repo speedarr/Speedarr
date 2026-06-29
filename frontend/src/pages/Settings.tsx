@@ -13,6 +13,7 @@ import { FailsafeSettings } from '@/components/settings/FailsafeSettings';
 import { SNMPSettings } from '@/components/settings/SNMPSettings';
 import { AccountSettings } from '@/components/settings/AccountSettings';
 import { APIKeysSettings } from '@/components/settings/APIKeysSettings';
+import { UnraidSettings } from '@/components/settings/UnraidSettings';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -115,6 +116,7 @@ export const Settings: React.FC = () => {
 
         <TabsContent value="integrations" className="space-y-4">
           <APIKeysSettings />
+          <UnraidSettings />
         </TabsContent>
 
         <TabsContent value="services" className="space-y-4">

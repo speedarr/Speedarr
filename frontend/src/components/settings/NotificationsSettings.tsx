@@ -379,6 +379,8 @@ export const NotificationsSettings: React.FC = () => {
     { value: 'stream_count_exceeded', label: 'Stream Count Exceeded', description: 'Notify when active streams exceed the threshold' },
     { value: 'stream_bitrate_exceeded', label: 'Stream Bitrate Exceeded', description: 'Notify when total stream bitrate exceeds the threshold' },
     { value: 'service_unreachable', label: 'Service Unreachable', description: 'Notify when a connected service becomes unreachable' },
+    { value: 'unraid_throttle_started', label: 'Unraid Throttle Started', description: 'Notify when Unraid throttling engages (parity/mover/degraded)' },
+    { value: 'unraid_throttle_ended', label: 'Unraid Throttle Ended', description: 'Notify when Unraid throttling is lifted' },
   ];
 
   const updateStreamCountThreshold = (value: string) => {
