@@ -22,6 +22,12 @@ if TYPE_CHECKING:
     from app.services.notification_service import NotificationService
 
 
+def most_restrictive(a, b):
+    """Return the smaller of two optional limits; None only if both are None."""
+    vals = [v for v in (a, b) if v is not None]
+    return min(vals) if vals else None
+
+
 def aggregate_per_server_bandwidth(streams: List[Dict[str, Any]]) -> Dict[str, float]:
     """Sum in-use stream bitrate (Mbps) per server_id for the per_server metric."""
     totals: Dict[str, float] = {}
@@ -133,9 +139,19 @@ class PollingMonitor:
         else:
             logger.info("SNMP monitoring disabled")
 
+        # Initialize Unraid monitor if enabled
+        self.unraid_monitor = None
+        if self.config.unraid.enabled:
+            from app.services.unraid_monitor import UnraidMonitor
+            self.unraid_monitor = UnraidMonitor(self.config.unraid)
+            logger.info("Unraid monitor initialized")
+        else:
+            logger.info("Unraid monitoring disabled")
+
         self._running = False
         self._download_task: Optional[asyncio.Task] = None
         self._plex_task: Optional[asyncio.Task] = None
+        self._unraid_task: Optional[asyncio.Task] = None
         self._cached_streams: List[Dict[str, Any]] = []
         self._restoration_scheduled_at: Optional[datetime] = None
         # Track bandwidth per session for accurate reservation
@@ -148,6 +164,8 @@ class PollingMonitor:
         self._cached_client_stats: Dict[str, Dict[str, Any]] = {}  # Last client stats for status API
         self._temporary_limits: Optional[Dict[str, Any]] = None  # Temporary bandwidth limit overrides
         self._first_poll: bool = True  # Flag to skip notifications on first poll (startup)
+        self._unraid_override: Optional[Dict[str, Any]] = None  # {download_mbps, upload_mbps, reasons, holding}
+        self._unraid_unreachable_warned: bool = False
 
         # Plex failsafe tracking
         # Maximum consecutive failures before considering Plex truly down
@@ -166,6 +184,7 @@ class PollingMonitor:
         self._reservations_lock = asyncio.Lock()
         self._session_bandwidth_lock = asyncio.Lock()
         self._temporary_limits_lock = asyncio.Lock()
+        self._unraid_override_lock = asyncio.Lock()
 
     async def start(self):
         """Start the polling monitor with separate download and Plex cycles."""
@@ -179,6 +198,8 @@ class PollingMonitor:
         self._download_task = asyncio.create_task(self._download_poll_loop())
         # Start Plex monitoring
         self._plex_task = asyncio.create_task(self._plex_poll_loop())
+        # Start Unraid monitoring
+        self._unraid_task = asyncio.create_task(self._unraid_poll_loop())
         logger.info("Polling monitor started (download + Plex cycles)")
 
     async def stop(self):
@@ -194,6 +215,12 @@ class PollingMonitor:
             self._plex_task.cancel()
             try:
                 await self._plex_task
+            except asyncio.CancelledError:
+                pass
+        if self._unraid_task:
+            self._unraid_task.cancel()
+            try:
+                await self._unraid_task
             except asyncio.CancelledError:
                 pass
         # Cancel all reservation tasks (use lock for thread-safe access)
@@ -478,6 +505,92 @@ class PollingMonitor:
                 self._temporary_limits.get('download_mbps'),
                 self._temporary_limits.get('upload_mbps')
             )
+
+    async def get_unraid_override_limits(self) -> "tuple[Optional[float], Optional[float]]":
+        """Active Unraid override limits, or (None, None) when no override is set."""
+        async with self._unraid_override_lock:
+            if not self._unraid_override:
+                return None, None
+            return (
+                self._unraid_override.get("download_mbps"),
+                self._unraid_override.get("upload_mbps"),
+            )
+
+    async def _apply_unraid_status(self, status) -> None:
+        """Update the Unraid override slot from a poll result.
+
+        status is None -> API unreachable: HOLD the last-known override (mark
+        holding) and notify once. Otherwise set/clear the override from the
+        enabled conditions.
+        """
+        from app.services.unraid_monitor import compute_unraid_reasons
+
+        if status is None:
+            async with self._unraid_override_lock:
+                if self._unraid_override:
+                    self._unraid_override["holding"] = True
+            if not self._unraid_unreachable_warned:
+                self._unraid_unreachable_warned = True
+                logger.warning("Unraid API unreachable; holding last-known throttle state")
+                if self.notification_service:
+                    await self.notification_service.notify(
+                        "service_unreachable",
+                        "Unraid API is unreachable. Holding the last-known throttle state.",
+                        {"service": "Unraid", "status": "unreachable"},
+                    )
+            return
+
+        # Recovered
+        if self._unraid_unreachable_warned:
+            logger.info("Unraid API connection restored")
+        self._unraid_unreachable_warned = False
+
+        reasons = compute_unraid_reasons(status, self.config.unraid)
+        async with self._unraid_override_lock:
+            was_active = self._unraid_override is not None
+            if reasons:
+                self._unraid_override = {
+                    "download_mbps": self.config.unraid.download_limit_mbps,
+                    "upload_mbps": self.config.unraid.upload_limit_mbps,
+                    "reasons": reasons,
+                    "holding": False,
+                }
+                became_active = not was_active
+                became_inactive = False
+            else:
+                self._unraid_override = None
+                became_active = False
+                became_inactive = was_active
+
+        if self.notification_service:
+            if became_active:
+                await self.notification_service.notify(
+                    "unraid_throttle_started",
+                    f"Unraid throttle engaged ({', '.join(reasons)}).",
+                    {"reasons": reasons},
+                )
+            elif became_inactive:
+                await self.notification_service.notify(
+                    "unraid_throttle_ended",
+                    "Unraid throttle lifted.",
+                    {},
+                )
+
+    async def _unraid_poll_loop(self):
+        """Poll the Unraid API on its own cadence and update the override slot."""
+        logger.info("Unraid poll loop started")
+        while self._running:
+            interval = self.config.unraid.poll_interval_seconds
+            try:
+                if self.config.unraid.enabled and self.unraid_monitor:
+                    status = await self.unraid_monitor.get_status()
+                    await self._apply_unraid_status(status)
+                else:
+                    async with self._unraid_override_lock:
+                        self._unraid_override = None
+            except Exception as e:
+                logger.error(f"Error in Unraid poll loop: {e}")
+            await asyncio.sleep(interval)
 
     async def _clear_specific_reservation(self, reservation_id: str, delay_seconds: int):
         """Wait for reservation period, then clear ONLY this specific reservation."""
@@ -872,8 +985,12 @@ class PollingMonitor:
             # Get download reserve from held upload reservations
             reserved_download_bandwidth = await self.get_reserved_download_bandwidth()
 
-            # Get active temporary limits (if any)
+            # Get active temporary limits (if any), combined with the Unraid
+            # override by most-restrictive so neither clobbers the other.
             temp_download_limit, temp_upload_limit = await self.get_active_temporary_limits()
+            unraid_dl, unraid_ul = await self.get_unraid_override_limits()
+            temp_download_limit = most_restrictive(temp_download_limit, unraid_dl)
+            temp_upload_limit = most_restrictive(temp_upload_limit, unraid_ul)
 
             # Calculate throttling decisions using cached stream data + reserved bandwidth
             decisions = self.decision_engine.calculate_throttle(
