@@ -172,7 +172,7 @@ const MediaServerCard: React.FC<{
               />
               <p className="text-sm text-muted-foreground">
                 Comma-separated CIDRs that count as LAN. Leave blank to auto-detect from the
-                server (Emby/Jellyfin) or use private-IP defaults.
+                media server or use private-IP defaults.
               </p>
             </div>
             <div className="flex items-center justify-between pt-4">
