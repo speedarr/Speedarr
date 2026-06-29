@@ -12,7 +12,7 @@ from app.database import get_db
 from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
-from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig, UnraidConfig
+from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -171,14 +171,6 @@ async def get_sections(_auth=Depends(require_auth_if_private)):
             requires_restart=False,
             requires_test=False,
         ),
-        SectionMetadata(
-            id="unraid",
-            name="Unraid",
-            description="Throttle during parity check, mover, or degraded array",
-            icon="hard-drive",
-            requires_restart=False,
-            requires_test=True,
-        ),
     ]
 
     return {"sections": sections}
@@ -193,8 +185,7 @@ async def get_section(section_name: str, request: Request, _auth=Depends(require
     if config is None:
         from app.config import (
             SystemConfig, PlexConfig, SNMPConfig, BandwidthConfig,
-            RestorationConfig, NotificationsConfig, HistoryConfig, FailsafeConfig,
-            UnraidConfig,
+            RestorationConfig, NotificationsConfig, HistoryConfig, FailsafeConfig
         )
         defaults = {
             "system": SystemConfig(),
@@ -205,7 +196,6 @@ async def get_section(section_name: str, request: Request, _auth=Depends(require
             "notifications": NotificationsConfig(),
             "history": HistoryConfig(),
             "failsafe": FailsafeConfig(),
-            "unraid": UnraidConfig(),
         }
         if section_name in defaults:
             section_config = defaults[section_name].model_dump()
@@ -849,23 +839,6 @@ async def test_connection(
                 message=f"Successfully connected to {service.title()}" if success
                 else f"Failed to connect to {service.title()}. Check URL and API key.",
             )
-
-        elif service == "unraid":
-            from app.services.unraid_monitor import UnraidMonitor
-
-            url = config_data.get("url")
-            api_key = config_data.get("api_key")
-            if test_request.use_existing or api_key == "***REDACTED***":
-                api_key = app_config.unraid.api_key if app_config else None
-            if not url or not api_key:
-                return TestConnectionResponse(success=False, message="Missing required fields: url and api_key")
-
-            monitor = UnraidMonitor(UnraidConfig(
-                enabled=True, url=url, api_key=api_key,
-                verify_ssl=bool(config_data.get("verify_ssl", False)),
-            ))
-            success, message = await monitor.test_connection()
-            return TestConnectionResponse(success=success, message=message)
 
         else:
             raise HTTPException(

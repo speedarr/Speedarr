@@ -355,50 +355,39 @@ async def get_temporary_limits(request: Request):
     try:
         polling_monitor = request.app.state.polling_monitor
 
-        from app.services.polling_monitor import most_restrictive
-
-        # Manual temporary limit (may be expiring)
-        manual_dl, manual_ul, manual_source, manual_set_by = None, None, None, None
-        expires_iso, remaining = None, None
+        # Use lock for thread-safe access to temporary limits
         async with polling_monitor._temporary_limits_lock:
-            tl = getattr(polling_monitor, "_temporary_limits", None)
-            if tl:
-                expires_at = tl.get("expires_at")
+            temp_limits = getattr(polling_monitor, '_temporary_limits', None)
+
+            if temp_limits:
+                expires_at = temp_limits.get('expires_at')
+
+                if expires_at is None:
+                    # Indefinite limit — active until cleared
+                    return TemporaryLimitResponse(
+                        active=True,
+                        download_mbps=temp_limits.get('download_mbps'),
+                        upload_mbps=temp_limits.get('upload_mbps'),
+                        expires_at=None,
+                        remaining_minutes=None,
+                        source=temp_limits.get('source'),
+                        set_by=temp_limits.get('set_by'),
+                    )
+
                 now = datetime.now(timezone.utc)
-                if expires_at is None or expires_at > now:
-                    manual_dl = tl.get("download_mbps")
-                    manual_ul = tl.get("upload_mbps")
-                    manual_source = tl.get("source")
-                    manual_set_by = tl.get("set_by")
-                    if expires_at is not None:
-                        expires_iso = expires_at.isoformat() + "Z"
-                        remaining = round((expires_at - now).total_seconds() / 60, 1)
+                if expires_at > now:
+                    remaining = (expires_at - now).total_seconds() / 60
+                    return TemporaryLimitResponse(
+                        active=True,
+                        download_mbps=temp_limits.get('download_mbps'),
+                        upload_mbps=temp_limits.get('upload_mbps'),
+                        expires_at=expires_at.isoformat() + 'Z',
+                        remaining_minutes=round(remaining, 1),
+                        source=temp_limits.get('source'),
+                        set_by=temp_limits.get('set_by'),
+                    )
 
-        # Unraid override (indefinite while a condition is active)
-        unraid_dl, unraid_ul, unraid_source = None, None, None
-        async with polling_monitor._unraid_override_lock:
-            ov = getattr(polling_monitor, "_unraid_override", None)
-            if ov:
-                unraid_dl = ov.get("download_mbps")
-                unraid_ul = ov.get("upload_mbps")
-                tag = "unraid:" + ",".join(ov.get("reasons", []))
-                if ov.get("holding"):
-                    tag += " (holding)"
-                unraid_source = tag
-
-        if manual_source is None and unraid_source is None:
-            return TemporaryLimitResponse(active=False)
-
-        sources = [s for s in (manual_source, unraid_source) if s]
-        return TemporaryLimitResponse(
-            active=True,
-            download_mbps=most_restrictive(manual_dl, unraid_dl),
-            upload_mbps=most_restrictive(manual_ul, unraid_ul),
-            expires_at=expires_iso,
-            remaining_minutes=remaining,
-            source=" + ".join(sources),
-            set_by=manual_set_by,
-        )
+        return TemporaryLimitResponse(active=False)
 
     except Exception as e:
         logger.error(f"Error getting temporary limits: {e}")

@@ -674,21 +674,6 @@ class ConfigManager:
                         self.app.state.polling_monitor.snmp_monitor = None
                         logger.info("SNMPMonitor disabled")
 
-            elif section_name == "unraid":
-                # Reload UnraidMonitor (mirrors the SNMP branch)
-                if hasattr(self.app.state, "polling_monitor"):
-                    pm = self.app.state.polling_monitor
-                    pm.config = config
-                    if config.unraid.enabled:
-                        from app.services.unraid_monitor import UnraidMonitor
-                        pm.unraid_monitor = UnraidMonitor(config.unraid)
-                        logger.info("UnraidMonitor reloaded with updated config")
-                    else:
-                        pm.unraid_monitor = None
-                        async with pm._unraid_override_lock:
-                            pm._unraid_override = None
-                        logger.info("UnraidMonitor disabled")
-
         except Exception as e:
             logger.error(f"Error reloading services for section '{section_name}': {e}")
             # Don't raise - config is already saved, service reload is best-effort

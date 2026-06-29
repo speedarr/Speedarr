@@ -214,8 +214,7 @@ class DiscordNotificationConfig(BaseModel):
     webhook_url: Optional[str] = None
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
-        "stream_bitrate_exceeded", "service_unreachable",
-        "unraid_throttle_started", "unraid_throttle_ended",
+        "stream_bitrate_exceeded", "service_unreachable"
     ])
     rate_limit: int = Field(60, description="Seconds between same event type")
 
@@ -228,8 +227,7 @@ class PushoverNotificationConfig(BaseModel):
     priority: int = Field(0, ge=-2, le=2, description="Message priority (-2 to 2)")
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
-        "stream_bitrate_exceeded", "service_unreachable",
-        "unraid_throttle_started", "unraid_throttle_ended",
+        "stream_bitrate_exceeded", "service_unreachable"
     ])
 
 
@@ -240,8 +238,7 @@ class TelegramNotificationConfig(BaseModel):
     chat_id: Optional[str] = None
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
-        "stream_bitrate_exceeded", "service_unreachable",
-        "unraid_throttle_started", "unraid_throttle_ended",
+        "stream_bitrate_exceeded", "service_unreachable"
     ])
 
 
@@ -253,8 +250,7 @@ class GotifyNotificationConfig(BaseModel):
     priority: int = Field(5, ge=0, le=10, description="Message priority (0-10)")
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
-        "stream_bitrate_exceeded", "service_unreachable",
-        "unraid_throttle_started", "unraid_throttle_ended",
+        "stream_bitrate_exceeded", "service_unreachable"
     ])
 
 
@@ -266,8 +262,7 @@ class NtfyNotificationConfig(BaseModel):
     priority: int = Field(3, ge=1, le=5, description="Message priority (1-5)")
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
-        "stream_bitrate_exceeded", "service_unreachable",
-        "unraid_throttle_started", "unraid_throttle_ended",
+        "stream_bitrate_exceeded", "service_unreachable"
     ])
 
 
@@ -331,26 +326,6 @@ class SystemConfig(BaseModel):
     require_login: bool = Field(
         False,
         description="When true, the dashboard and read APIs require authentication. Default false (public).",
-    )
-
-
-class UnraidConfig(BaseModel):
-    """Native Unraid GraphQL integration: throttle during parity check / mover / degraded array."""
-    enabled: bool = False
-    url: Optional[str] = None
-    api_key: Optional[str] = None  # sensitive: auto-encrypted + masked
-    verify_ssl: bool = False
-    poll_interval_seconds: int = Field(30, ge=10, le=300, description="How often to poll the Unraid API (seconds)")
-    throttle_on_parity_check: bool = True
-    throttle_on_mover: bool = True
-    throttle_on_array_degraded: bool = False
-    download_limit_mbps: float = Field(
-        0, ge=0,
-        description="Total download limit while a condition is active (Mbps). 0 floors to a trickle, never unlimited.",
-    )
-    upload_limit_mbps: float = Field(
-        0, ge=0,
-        description="Total upload limit while a condition is active (Mbps). 0 floors to a trickle, never unlimited.",
     )
 
 
@@ -489,7 +464,6 @@ class SpeedarrConfig(BaseModel):
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     history: HistoryConfig = Field(default_factory=HistoryConfig)
     failsafe: FailsafeConfig = Field(default_factory=FailsafeConfig)
-    unraid: UnraidConfig = Field(default_factory=UnraidConfig)
 
     def get_all_download_clients(self) -> List[DownloadClientConfig]:
         """

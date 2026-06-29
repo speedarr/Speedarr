@@ -168,16 +168,20 @@ export const APIKeysSettings: React.FC = () => {
 
   // Collapsible state for integration guide sections
   const [haOpen, setHaOpen] = useState(false);
+  const [unraidOpen, setUnraidOpen] = useState(false);
 
   const speedarrUrl = window.location.origin;
 
   // Smart API key matching by integration name patterns
   const activeKeys = keys.filter(k => k.is_active);
   const haPatterns = /\b(ha|homeassistant|home.assistant|hass)\b/i;
+  const unraidPatterns = /\b(unraid|un.raid)\b/i;
 
   const haKey = activeKeys.find(k => haPatterns.test(k.name));
+  const unraidKey = activeKeys.find(k => unraidPatterns.test(k.name));
 
   const haApiKeyValue = haKey?.token ?? 'YOUR_API_KEY';
+  const unraidApiKeyValue = unraidKey?.token ?? 'YOUR_API_KEY';
 
   const restCommandYaml = `rest_command:
   speedarr_set_limits:
@@ -219,6 +223,50 @@ trigger:
     to: "off"
 action:
   - service: rest_command.speedarr_clear_limits`;
+
+  const parityCheckScript = `#!/bin/bash
+# Parity Check Monitor — polls /proc/mdstat every 60s
+# Schedule: "At Startup of Array" in UnRaid User Scripts
+SPEEDARR_URL="${speedarrUrl}"
+API_KEY="${unraidApiKeyValue}"
+DL_LIMIT_MBPS=5   # Download limit during parity check
+UL_LIMIT_MBPS=5   # Upload limit during parity check
+THROTTLED=false
+
+while true; do
+  if grep -qE 'check|reshape|recover|resync' /proc/mdstat 2>/dev/null; then
+    if [ "$THROTTLED" = false ]; then
+      curl -s -X POST "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+        -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \\
+        -d "{\\"download_mbps\\": $DL_LIMIT_MBPS, \\"upload_mbps\\": $UL_LIMIT_MBPS, \\"source\\": \\"UnRaid Parity Check\\"}"
+      THROTTLED=true
+    fi
+  else
+    if [ "$THROTTLED" = true ]; then
+      curl -s -X DELETE "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+        -H "X-API-Key: $API_KEY"
+      THROTTLED=false
+    fi
+  fi
+  sleep 60
+done`;
+
+  const moverStartScript = `#!/bin/bash
+# Schedule: "Before Mover" in UnRaid User Scripts
+SPEEDARR_URL="${speedarrUrl}"
+API_KEY="${unraidApiKeyValue}"
+DL_LIMIT_MBPS=5   # Download limit during mover
+UL_LIMIT_MBPS=5   # Upload limit during mover
+curl -s -X POST "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+  -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \\
+  -d "{\\"download_mbps\\": $DL_LIMIT_MBPS, \\"upload_mbps\\": $UL_LIMIT_MBPS, \\"source\\": \\"UnRaid Mover\\"}"`;
+
+  const moverStopScript = `#!/bin/bash
+# Schedule: "After Mover" in UnRaid User Scripts
+SPEEDARR_URL="${speedarrUrl}"
+API_KEY="${unraidApiKeyValue}"
+curl -s -X DELETE "$SPEEDARR_URL/api/bandwidth/temporary-limits" \\
+  -H "X-API-Key: $API_KEY"`;
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
@@ -479,6 +527,37 @@ action:
             </CollapsibleContent>
           </Collapsible>
 
+          {/* UnRaid section */}
+          <Collapsible open={unraidOpen} onOpenChange={setUnraidOpen}>
+            <CollapsibleTrigger asChild>
+              <button className="flex items-center justify-between w-full text-left py-1 group">
+                <h3 className="text-sm font-semibold">UnRaid</h3>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${unraidOpen ? 'rotate-180' : ''}`} />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-4 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  Use these scripts to throttle downloads during UnRaid parity checks, mover runs, or any operation. Limits are set without a duration (indefinite) and cleared when the operation finishes.
+                </p>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Parity Check Monitor — schedule as "At Startup of Array" in UnRaid User Scripts</p>
+                  <CopyableCode code={parityCheckScript} highlightPlaceholder={!unraidKey} />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Mover Start — schedule as "Before Mover" in UnRaid User Scripts</p>
+                  <CopyableCode code={moverStartScript} highlightPlaceholder={!unraidKey} />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Mover Stop — schedule as "After Mover" in UnRaid User Scripts</p>
+                  <CopyableCode code={moverStopScript} highlightPlaceholder={!unraidKey} />
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </CardContent>
       </Card>
     </div>
