@@ -48,6 +48,22 @@ async def test_walk_handles_multiple_varbinds_per_response():
     assert results == [(f"{IF_NAME}.2", "eth0"), (f"{IF_NAME}.3", "eth1")]
 
 
+async def test_walk_stops_at_string_prefix_sibling_column():
+    """ifHighSpeed (...1.15) begins with the same digit as ifName (...1.1);
+    a raw string prefix check would keep walking into it and let its values
+    overwrite interface names in discovery (both key by last OID component).
+    """
+    responses = [
+        (None, 0, 0, ((f"{IF_NAME}.2", "eth0"),)),
+        (None, 0, 0, (("1.3.6.1.2.1.31.1.1.1.15.2", 1000),)),
+    ]
+    with patch.object(snmp_monitor, "next_cmd", AsyncMock(side_effect=responses)), \
+         patch.object(snmp_monitor, "UdpTransportTarget", _fake_transport()):
+        results = await _monitor()._walk_oid(IF_NAME)
+
+    assert results == [(f"{IF_NAME}.2", "eth0")]
+
+
 async def test_walk_terminates_on_duplicate_oid():
     same = (None, 0, 0, ((f"{IF_NAME}.2", "eth0"),))
     with patch.object(snmp_monitor, "next_cmd", AsyncMock(side_effect=[same, same, same])), \

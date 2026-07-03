@@ -375,8 +375,10 @@ class SNMPMonitor:
 
                     logger.debug(f"Walk iteration {iteration}: OID={current_oid}, value={value}")
 
-                    # Check if we've left the requested OID tree
-                    if not current_oid.startswith(oid):
+                    # Check if we've left the requested OID tree. Compare with a
+                    # trailing dot: a raw prefix match would treat sibling
+                    # columns like ...1.15 as inside the ...1.1 subtree.
+                    if not current_oid.startswith(oid + "."):
                         logger.debug(f"Walk complete, left OID tree at {current_oid}. Got {len(results)} results")
                         return results
 
