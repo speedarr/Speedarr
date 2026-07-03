@@ -21,8 +21,8 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 
 # SNMP
-pysnmp-lextudio==6.3.0
-pyasn1==0.5.1
+pysnmp==7.1.27
+pyasn1==0.6.3
 
 # Scheduling
 apscheduler==3.10.4

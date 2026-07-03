@@ -13,8 +13,8 @@ from pysnmp.hlapi.asyncio import (
     ContextData,
     ObjectType,
     ObjectIdentity,
-    getCmd,
-    nextCmd,
+    get_cmd,
+    next_cmd,
 )
 from pyasn1.type.univ import Integer, OctetString
 from pysnmp.proto.rfc1902 import Gauge32, Counter32, Counter64, Integer32, Unsigned32
@@ -205,7 +205,7 @@ class SNMPMonitor:
         """Close and dispose of the SNMP engine to free memory."""
         if self._snmp_engine is not None:
             try:
-                self._snmp_engine.transportDispatcher.closeDispatcher()
+                self._snmp_engine.close_dispatcher()
             except Exception as e:
                 logger.debug(f"Error closing SNMP dispatcher: {e}")
             self._snmp_engine = None
@@ -218,7 +218,7 @@ class SNMPMonitor:
         """Query a single SNMP OID value."""
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=2.0, retries=1
             )
 
@@ -231,7 +231,7 @@ class SNMPMonitor:
             # Append interface index to OID
             full_oid = f"{oid}.{numeric_index}"
 
-            errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
                 self._get_engine(),
                 auth_data,
                 target,
@@ -276,7 +276,7 @@ class SNMPMonitor:
 
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=2.0, retries=1
             )
 
@@ -293,7 +293,7 @@ class SNMPMonitor:
             ]
 
             # Single SNMP GET request for all OIDs
-            errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
                 self._get_engine(),
                 auth_data,
                 target,
@@ -333,12 +333,12 @@ class SNMPMonitor:
         """Walk an SNMP OID tree and return all sub-OIDs and values."""
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=5.0, retries=2
             )
 
             results = []
-            # Use getNextCmd for walking (more reliable than bulkCmd)
+            # Use next_cmd for walking (more reliable than bulk_cmd)
             start_oid = ObjectType(ObjectIdentity(oid))
 
             # Track last OID to prevent infinite loops
@@ -346,7 +346,7 @@ class SNMPMonitor:
             max_iterations = 1000
 
             for iteration in range(max_iterations):
-                errorIndication, errorStatus, errorIndex, varBinds = await nextCmd(
+                errorIndication, errorStatus, errorIndex, varBinds = await next_cmd(
                     self._get_engine(),
                     auth_data,
                     target,
@@ -365,31 +365,29 @@ class SNMPMonitor:
                     logger.debug("Walk complete, no more varBinds")
                     break
 
-                # varBinds is [[ObjectType(...)]] - a list containing a list of ObjectType
-                # Each varBindTable is [ObjectType(...)] - a list with ObjectType items
-                for varBindTable in varBinds:
-                    for varBind in varBindTable:
-                        # Now varBind is the actual ObjectType
-                        name = varBind[0]
-                        value = varBind[1]
+                # varBinds is a flat tuple of ObjectType (pysnmp 7.x); each item
+                # is the (name, value) pair for one OID
+                for varBind in varBinds:
+                    name = varBind[0]
+                    value = varBind[1]
 
-                        current_oid = str(name)
+                    current_oid = str(name)
 
-                        logger.debug(f"Walk iteration {iteration}: OID={current_oid}, value={value}")
+                    logger.debug(f"Walk iteration {iteration}: OID={current_oid}, value={value}")
 
-                        # Check if we've left the requested OID tree
-                        if not current_oid.startswith(oid):
-                            logger.debug(f"Walk complete, left OID tree at {current_oid}. Got {len(results)} results")
-                            return results
+                    # Check if we've left the requested OID tree
+                    if not current_oid.startswith(oid):
+                        logger.debug(f"Walk complete, left OID tree at {current_oid}. Got {len(results)} results")
+                        return results
 
-                        # Check for duplicate (infinite loop protection)
-                        if current_oid == last_oid:
-                            logger.debug(f"Walk complete, duplicate OID detected: {current_oid}")
-                            return results
+                    # Check for duplicate (infinite loop protection)
+                    if current_oid == last_oid:
+                        logger.debug(f"Walk complete, duplicate OID detected: {current_oid}")
+                        return results
 
-                        results.append((current_oid, value))
-                        last_oid = current_oid
-                        start_oid = ObjectType(ObjectIdentity(current_oid))
+                    results.append((current_oid, value))
+                    last_oid = current_oid
+                    start_oid = ObjectType(ObjectIdentity(current_oid))
 
             logger.debug(f"Walk completed with {len(results)} results")
             return results
@@ -501,12 +499,12 @@ class SNMPMonitor:
         """
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=2.0, retries=1
             )
 
             # Try to query sysDescr (1.3.6.1.2.1.1.1.0) - universal OID
-            errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
                 self._get_engine(),
                 auth_data,
                 target,
