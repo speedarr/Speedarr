@@ -23,8 +23,8 @@ WORKDIR /frontend
 # Copy package files
 COPY frontend/package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies from the committed lockfile for reproducible builds
+RUN npm ci
 
 # Copy frontend source
 COPY frontend/ ./
