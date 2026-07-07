@@ -417,7 +417,9 @@ export const DownloadClientsSettings: React.FC = () => {
                 Configure your download clients for bandwidth management
               </CardDescription>
             </div>
-            <Select onValueChange={handleAddClient}>
+            {/* Controlled with empty value so the trigger always shows the placeholder
+                and re-selecting the same type fires onValueChange again */}
+            <Select value="" onValueChange={handleAddClient}>
               <SelectTrigger className="w-[200px]">
                 <Plus className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Add Client" />
@@ -476,8 +478,8 @@ export const DownloadClientsSettings: React.FC = () => {
             onDelete={handleDeleteClient}
             isSaving={isSaving}
             connectionStatus={
-              client.enabled && client.type in connectionResults
-                ? connectionResults[client.type]
+              client.enabled && client.id in connectionResults
+                ? connectionResults[client.id]
                 : null
             }
             defaultOpen={client.id === newlyAddedClientId}

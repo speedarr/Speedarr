@@ -46,3 +46,6 @@ check_*.sh
 
 # Development notes
 docs/todo.md
+
+# Superpowers brainstorming specs + implementation plans (local-only scratch)
+docs/superpowers/

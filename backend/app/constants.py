@@ -112,3 +112,9 @@ NOTIFICATION_RATE_LIMIT_SECONDS = 60
 # Default interval for bandwidth history queries (in minutes)
 # 5 minutes provides good granularity without excessive data points
 DEFAULT_BANDWIDTH_HISTORY_INTERVAL_MINUTES = 5
+
+# Smallest throttle (~1 KB/s). Guarantees a throttle is never 0, which every
+# download client interprets as "unlimited". Shared by the live-throttle path
+# (decision_engine) and the failsafe shutdown path (controller_manager).
+# See issues #43 and #48.
+HARD_MIN_MBPS = 0.01

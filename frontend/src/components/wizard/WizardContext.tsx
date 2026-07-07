@@ -183,9 +183,9 @@ export const WizardProvider: React.FC<WizardProviderProps> = ({ children }) => {
       // Initialize default config first (required for fresh setups)
       await apiClient.initializeConfig();
 
-      // Save Plex settings
-      if (state.plex) {
-        await apiClient.updateSettingsSection('plex', state.plex);
+      // Save media server settings
+      if (state.mediaServers && state.mediaServers.length > 0) {
+        await apiClient.updateMediaServers(state.mediaServers);
       }
 
       // Save download clients

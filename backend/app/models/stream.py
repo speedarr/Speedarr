@@ -15,6 +15,11 @@ class StreamHistory(Base):
     session_id = Column(String(100), nullable=False, index=True)
     session_key = Column(String(100), nullable=True)
 
+    # Server attribution (NULL = legacy Plex)
+    server_id = Column(String(100), nullable=True, index=True)
+    server_name = Column(String(100), nullable=True)
+    server_type = Column(String(20), nullable=True)
+
     # User info
     user_name = Column(String(100), nullable=True, index=True)
     user_id = Column(String(50), nullable=True)
@@ -59,6 +64,11 @@ class ActiveStream(Base):
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(100), unique=True, nullable=False, index=True)
     session_key = Column(String(100), nullable=True)
+
+    # Server attribution (NULL = legacy Plex)
+    server_id = Column(String(100), nullable=True, index=True)
+    server_name = Column(String(100), nullable=True)
+    server_type = Column(String(20), nullable=True)
 
     # User info
     user_name = Column(String(100), nullable=True)

@@ -7,14 +7,20 @@ import ipaddress
 from xml.etree import ElementTree
 from loguru import logger
 
+from app.clients.base_media_server import BaseMediaServer
+from app.config import MediaServerConfig
+from app.utils.network import classify_lan, is_private_ip
+from app.utils.quality import canonical_resolution
 
-class PlexClient:
-    """Client for interacting with Plex Media Server API."""
 
-    def __init__(self, url: str, token: str):
-        self.url = url.rstrip("/")
-        self.token = token
-        self._session: Optional[aiohttp.ClientSession] = None
+class PlexClient(BaseMediaServer):
+    """Plex Media Server adapter."""
+
+    type = "plex"
+
+    def __init__(self, cfg: MediaServerConfig):
+        super().__init__(cfg)
+        self.token = cfg.token
 
     @property
     def session(self) -> aiohttp.ClientSession:
@@ -269,34 +275,36 @@ class PlexClient:
         # Prefer location if it's a valid IP, otherwise use player address
         ip_address = location if self._is_valid_ip(location) else player_address
 
-        # Determine LAN status - use Plex's local field, "lan" location, OR check if IP is private
+        # Determine LAN status - Plex's per-session signals win; the IP term uses the
+        # manual override when configured, otherwise the private-IP heuristic.
         plex_says_local = session_info.get("local") == "1" or session_info.get("local") is True
         location_says_lan = location.lower() == "lan"  # Plex sometimes uses literal "lan"/"wan"
-        ip_is_private = self._is_private_ip(ip_address)
-        is_lan = plex_says_local or location_says_lan or ip_is_private
+        if self.lan_networks:
+            ip_match = classify_lan(ip_address, self.lan_networks)  # keeps loopback/link-local LAN
+        else:
+            ip_match = is_private_ip(ip_address)
+        is_lan = plex_says_local or location_says_lan or ip_match
 
         # Debug logging for LAN detection
         user_name = self._get_nested(session, "User", "title", default="Unknown")
         logger.debug(f"LAN detection for {user_name}: ip='{ip_address}', "
                      f"plex_local={plex_says_local}, location_lan={location_says_lan}, "
-                     f"ip_private={ip_is_private}, is_lan={is_lan}")
+                     f"ip_match={ip_match}, is_lan={is_lan}")
 
-        return {
-            "session_id": session_info.get("id"),
+        return self._finalize_stream({
             "session_key": session.get("sessionKey"),
             "user_name": self._get_nested(session, "User", "title", default="Unknown"),
             "user_id": self._get_nested(session, "User", "id", default=""),
-            "media_type": session.get("type"),
+            "media_type": (session.get("type") or "").lower(),
             "media_title": session.get("title"),
             "parent_title": session.get("parentTitle"),
             "grandparent_title": session.get("grandparentTitle"),
             "season_number": session.get("parentIndex"),
             "episode_number": session.get("index"),
             "year": session.get("year"),
-            # Two SEPARATE metrics - no fallback relationship
-            "stream_bitrate_mbps": stream_bitrate_mbps,  # Media file bitrate from session
-            "stream_bandwidth_mbps": actual_bandwidth_mbps,  # Actual network throughput
-            "quality_profile": media.get("videoResolution"),
+            "stream_bitrate_mbps": stream_bitrate_mbps,
+            "stream_bandwidth_mbps": actual_bandwidth_mbps,
+            "quality_profile": canonical_resolution(media.get("videoResolution")),
             "transcode_decision": transcode.get("videoDecision", "direct play") if transcode else "direct play",
             "video_codec": media.get("videoCodec"),
             "container": media.get("container"),
@@ -307,7 +315,7 @@ class PlexClient:
             "platform": self._get_nested(session, "Player", "platform", default="Unknown"),
             "ip_address": ip_address,
             "is_lan": is_lan,
-        }
+        }, raw_session_id=session.get("sessionKey") or session_info.get("id"))
 
     @staticmethod
     def _get_nested(data: Dict, *keys: str, default: Any = None) -> Any:
@@ -330,14 +338,3 @@ class PlexClient:
         except ValueError:
             return False
 
-    @staticmethod
-    def _is_private_ip(ip_str: str) -> bool:
-        """Check if an IP address is private/local."""
-        if not ip_str:
-            return False
-        try:
-            ip = ipaddress.ip_address(ip_str)
-            return ip.is_private or ip.is_loopback
-        except ValueError:
-            # Invalid IP address format
-            return False

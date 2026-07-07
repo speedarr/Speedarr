@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta, time, timezone
 from loguru import logger
 from app.config import SpeedarrConfig, TimeBasedScheduleConfig
+from app.constants import HARD_MIN_MBPS
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 
 
@@ -55,6 +56,10 @@ class DecisionEngine:
         self._inactive_counter: Dict[str, int] = {}
         # Track consecutive intervals each upload client has been below the active threshold
         self._upload_inactive_counter: Dict[str, int] = {}
+
+    def _floor(self, limit: float, configured_min: float) -> float:
+        """Clamp a throttle allocation so it is never 0 (which clients read as 'unlimited')."""
+        return max(limit, configured_min, HARD_MIN_MBPS)
 
     def calculate_throttle(
         self,
@@ -111,9 +116,7 @@ class DecisionEngine:
             logger.debug("No active streams, using full bandwidth with allocation rules")
         else:
             # Filter streams based on LAN/WAN config
-            bandwidth_streams = filter_streams_for_bandwidth(
-                active_streams, self.config.plex.include_lan_streams
-            )
+            bandwidth_streams = filter_streams_for_bandwidth(active_streams)
             lan_count = len(active_streams) - len(bandwidth_streams)
             if lan_count > 0:
                 logger.debug(f"Excluding {lan_count} LAN stream(s) from bandwidth calculations")
@@ -166,20 +169,6 @@ class DecisionEngine:
         # Subtract reserved bandwidth (from recently ended streams - keeps upload limits LOW)
         upload_before_reservation = upload_total_limit - total_stream_bandwidth
         available_upload = max(0, upload_before_reservation - reserved_bandwidth_mbps)
-
-        # Check if plex reserved bandwidth exceeds total upload limit
-        # In this case, allocate only 1% per upload client as a safety measure
-        plex_exceeds_limit = total_stream_bandwidth > upload_total_limit
-        if plex_exceeds_limit:
-            # Calculate 1% per upload client
-            upload_clients = [c for c, stats in download_stats.items() if stats.get("supports_upload", False)]
-            if upload_clients:
-                emergency_upload = upload_total_limit * 0.01 * len(upload_clients)
-                available_upload = emergency_upload
-                logger.warning(
-                    f"Plex reserved ({total_stream_bandwidth:.1f} Mbps) exceeds upload limit ({upload_total_limit:.1f} Mbps). "
-                    f"Upload clients limited to 1% each."
-                )
 
         # Get all available clients (we always apply limits to all clients)
         all_clients = list(download_stats.keys())
@@ -248,12 +237,21 @@ class DecisionEngine:
             if reserved_bandwidth_mbps > 0:
                 reason += f", Holding: {reserved_bandwidth_mbps:.1f} Mbps"
 
-        # Apply decisions to all clients
+        # Apply decisions to all clients, flooring throttles so a limit of 0
+        # (which clients treat as "unlimited") can never be emitted. See issue #43.
+        dl_min = self.config.bandwidth.download.min_limit_mbps
+        ul_min = self.config.bandwidth.upload.min_limit_mbps
         for client_name in all_clients:
+            download_limit = self._floor(download_allocations[client_name], dl_min)
+            # Upload floor only applies to upload-capable clients; others keep 0.
+            if download_stats.get(client_name, {}).get("supports_upload", False):
+                upload_limit = self._floor(upload_allocations.get(client_name, 0), ul_min)
+            else:
+                upload_limit = 0
             decisions[client_name] = {
                 "action": "throttle",
-                "download_limit": round(download_allocations[client_name], 2),
-                "upload_limit": round(upload_allocations.get(client_name, 0), 2),
+                "download_limit": round(download_limit, 2),
+                "upload_limit": round(upload_limit, 2),
                 "reason": reason,
             }
 
@@ -306,21 +304,6 @@ class DecisionEngine:
         # Default equal split (guard against empty list)
         equal_percent = 100.0 / len(all_clients) if all_clients else 0
 
-        def get_client_type(client_id: str) -> str:
-            """Extract client type from client ID (e.g., 'sabnzbd_123' -> 'sabnzbd')."""
-            # Client IDs are in format 'type_uniqueId', extract just the type
-            return client_id.split('_')[0] if '_' in client_id else client_id
-
-        def get_normalized_percents(percents_dict: Dict[str, float]) -> Dict[str, float]:
-            """Get normalized percentages for enabled clients only."""
-            # Only use percentages for clients that are currently enabled
-            # Look up by client type (e.g., 'sabnzbd') since that's how the UI saves them
-            raw = {c: percents_dict.get(get_client_type(c), equal_percent) for c in all_clients}
-            total = sum(raw.values())
-            if total == 0:
-                return {c: 1.0 / len(all_clients) for c in all_clients}
-            return {c: (v / total) for c, v in raw.items()}
-
         if len(active_downloading) == 0:
             # No clients downloading: Use equal split for standby mode
             # (client_percents only applies when multiple clients are actively downloading)
@@ -365,11 +348,11 @@ class DecisionEngine:
             if active_downloading:
                 # Check if ALL active clients have explicitly configured percentages
                 # If not, use equal split to avoid mixing configured and default values
-                # Look up by client type since that's how the UI saves them
-                all_configured = all(get_client_type(c) in client_percents for c in active_downloading)
+                # Percentages are keyed by unique client id (supports multiple same-type clients)
+                all_configured = all(c in client_percents for c in active_downloading)
 
                 if all_configured:
-                    raw_active = {c: client_percents[get_client_type(c)] for c in active_downloading}
+                    raw_active = {c: client_percents[c] for c in active_downloading}
                     total_raw = sum(raw_active.values())
                     if total_raw == 0:
                         normalized_active = {c: 1.0 / len(active_downloading) for c in active_downloading}
@@ -441,10 +424,6 @@ class DecisionEngine:
         # Default equal split percentage (guard against empty list)
         default_percent = 100.0 / len(upload_clients) if upload_clients else 0
 
-        def get_client_type(client_id: str) -> str:
-            """Extract client type from client ID (e.g., 'qbittorrent_123' -> 'qbittorrent')."""
-            return client_id.split('_')[0] if '_' in client_id else client_id
-
         # Calculate standby bandwidth per upload client (equal split for idle mode)
         standby_per_client = available_upload / len(upload_clients)
 
@@ -478,13 +457,6 @@ class DecisionEngine:
             'inactive_safety_net_percent',
             5
         ) / 100
-
-        # Get raw percentage for a client (falls back to equal split)
-        def get_raw_upload_percent(client_id: str) -> float:
-            client_type = get_client_type(client_id)
-            if client_type in upload_percents:
-                return upload_percents[client_type]
-            return default_percent
 
         if len(active_uploading) == 0:
             # No clients uploading: Equal split for standby mode
@@ -526,10 +498,11 @@ class DecisionEngine:
                 upload_limits[client] = available_upload * safety_net_percent
 
             # Normalize active percentages for ONLY the active clients
-            all_configured = all(get_client_type(c) in upload_percents for c in active_uploading)
+            # Percentages are keyed by unique client id (supports multiple same-type clients)
+            all_configured = all(c in upload_percents for c in active_uploading)
 
             if all_configured:
-                raw_active = {c: upload_percents[get_client_type(c)] for c in active_uploading}
+                raw_active = {c: upload_percents[c] for c in active_uploading}
                 total_raw = sum(raw_active.values())
                 if total_raw == 0:
                     normalized_active = {c: 1.0 / len(active_uploading) for c in active_uploading}

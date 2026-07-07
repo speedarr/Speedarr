@@ -115,47 +115,49 @@ async def run_migrations():
     """
     from loguru import logger
 
-    # New columns to add to bandwidth_metrics table (for multi-client support)
-    new_columns = [
-        ("nzbget_download_speed", "REAL"),
-        ("nzbget_download_limit", "REAL"),
-        ("transmission_download_speed", "REAL"),
-        ("transmission_download_limit", "REAL"),
-        ("deluge_download_speed", "REAL"),
-        ("deluge_download_limit", "REAL"),
-        ("transmission_upload_speed", "REAL"),
-        ("transmission_upload_limit", "REAL"),
-        ("deluge_upload_speed", "REAL"),
-        ("deluge_upload_limit", "REAL"),
-        # WAN/LAN stream split
-        ("wan_streams_count", "INTEGER"),
-        ("wan_stream_bandwidth", "REAL"),
-        ("lan_streams_count", "INTEGER"),
-        ("lan_stream_bandwidth", "REAL"),
-    ]
+    migrations = {
+        "bandwidth_metrics": [
+            ("nzbget_download_speed", "REAL"), ("nzbget_download_limit", "REAL"),
+            ("transmission_download_speed", "REAL"), ("transmission_download_limit", "REAL"),
+            ("deluge_download_speed", "REAL"), ("deluge_download_limit", "REAL"),
+            ("transmission_upload_speed", "REAL"), ("transmission_upload_limit", "REAL"),
+            ("deluge_upload_speed", "REAL"), ("deluge_upload_limit", "REAL"),
+            ("wan_streams_count", "INTEGER"), ("wan_stream_bandwidth", "REAL"),
+            ("lan_streams_count", "INTEGER"), ("lan_stream_bandwidth", "REAL"),
+            # Media server abstraction
+            ("per_server", "TEXT"),
+            # Per-client-id bandwidth breakdown
+            ("per_client", "TEXT"),
+        ],
+        "throttle_decisions": [
+            ("per_client", "TEXT"),
+        ],
+        "stream_history": [
+            ("server_id", "VARCHAR(100)"), ("server_name", "VARCHAR(100)"), ("server_type", "VARCHAR(20)"),
+        ],
+        "active_streams": [
+            ("server_id", "VARCHAR(100)"), ("server_name", "VARCHAR(100)"), ("server_type", "VARCHAR(20)"),
+        ],
+    }
 
     try:
         async with engine.begin() as conn:
-            # Get existing columns
-            result = await conn.execute(text("PRAGMA table_info(bandwidth_metrics)"))
-            existing_columns = {row[1] for row in result.fetchall()}
-
-            # Add missing columns (each ALTER TABLE is auto-committed in SQLite)
-            columns_added = 0
-            for column_name, column_type in new_columns:
-                if column_name not in existing_columns:
-                    logger.info(f"Adding column '{column_name}' to bandwidth_metrics table")
-                    await conn.execute(text(f"ALTER TABLE bandwidth_metrics ADD COLUMN {column_name} {column_type}"))
-                    columns_added += 1
-
-            if columns_added > 0:
-                logger.info(f"Migration complete: added {columns_added} new column(s)")
+            total_added = 0
+            for table, columns in migrations.items():
+                result = await conn.execute(text(f"PRAGMA table_info({table})"))
+                existing = {row[1] for row in result.fetchall()}
+                for column_name, column_type in columns:
+                    if column_name not in existing:
+                        logger.info(f"Adding column '{column_name}' to {table}")
+                        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_type}"))
+                        total_added += 1
+            if total_added:
+                logger.info(f"Migration complete: added {total_added} new column(s)")
             else:
                 logger.debug("No migrations needed - all columns exist")
-
     except Exception as e:
         logger.error(f"Migration failed: {e}")
-        raise  # Re-raise to prevent app startup with inconsistent schema
+        raise
 
 
 async def checkpoint_wal():

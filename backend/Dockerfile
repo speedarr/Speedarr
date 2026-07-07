@@ -23,8 +23,8 @@ WORKDIR /frontend
 # Copy package files
 COPY frontend/package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies from the committed lockfile for reproducible builds
+RUN npm ci
 
 # Copy frontend source
 COPY frontend/ ./
@@ -60,6 +60,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend application
 COPY backend/app/ ./app/
+
+# Copy backend tests
+COPY backend/tests/ ./tests/
 
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /frontend/dist/ ./static/

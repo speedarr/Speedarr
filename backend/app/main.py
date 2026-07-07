@@ -5,7 +5,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -62,6 +62,7 @@ from app.utils.logger import setup_logger
 from app.services import DecisionEngine, ControllerManager, PollingMonitor, NotificationService, RetentionService
 from app.services.config_manager import ConfigManager
 from app.api import auth, status, control, streams, bandwidth, settings as settings_api, decisions
+from app.api.auth import require_auth_if_private
 
 class BackgroundTaskMonitor:
     """
@@ -199,6 +200,10 @@ async def lifespan(app: FastAPI):
     # Load configuration from database
     async with AsyncSessionLocal() as db:
         config = await config_manager.load_config_from_db(db)
+        if config:
+            # One-time: persist per-client percent keys as client ids (idempotent).
+            # load_config_from_db already normalized `config` in memory; this writes it through.
+            await config_manager.migrate_client_percent_keys(config, db)
 
     if config:
         logger.info("Configuration loaded from database")
@@ -232,7 +237,7 @@ async def lifespan(app: FastAPI):
         app.state.controller_manager = controller_manager
         app.state.polling_monitor = polling_monitor
         app.state.notification_service = notification_service
-        app.state.plex_client = polling_monitor.plex
+        app.state.media_servers = polling_monitor.media_servers
         app.state.config = config
         app.state.setup_required = False
 
@@ -262,7 +267,7 @@ async def lifespan(app: FastAPI):
         app.state.controller_manager = None
         app.state.polling_monitor = None
         app.state.notification_service = None
-        app.state.plex_client = None
+        app.state.media_servers = {}
         app.state.task_monitor = None
 
     yield
@@ -343,10 +348,10 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(status.router)
 app.include_router(control.router)
-app.include_router(streams.router)
-app.include_router(bandwidth.router)
+app.include_router(streams.router, dependencies=[Depends(require_auth_if_private)])
+app.include_router(bandwidth.router, dependencies=[Depends(require_auth_if_private)])
 app.include_router(settings_api.router)
-app.include_router(decisions.router)
+app.include_router(decisions.router, dependencies=[Depends(require_auth_if_private)])
 
 
 @app.get("/api/status/health")

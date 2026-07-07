@@ -30,6 +30,12 @@ import type { TimeRange, DataInterval } from './BandwidthChart';
 import type { ZoomRange } from '@/hooks/useChartZoom';
 import { formatInTimeZone } from 'date-fns-tz';
 
+const SERVER_TYPE_COLORS: Record<string, string> = {
+  plex: '#e5a00d',
+  emby: '#52b54b',
+  jellyfin: '#00A4DC',
+};
+
 const getStateIcon = (state: string) => {
   switch (state) {
     case 'playing':
@@ -60,9 +66,10 @@ interface ActiveStreamsProps {
   timeRange: TimeRange;
   dataInterval: DataInterval;
   zoomRange?: ZoomRange | null;
+  configuredServerCount: number;
 }
 
-export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange }) => {
+export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange, configuredServerCount }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -81,7 +88,15 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
       const sortedStreams = [...response.active_streams].sort(
         (a, b) => b.stream_bitrate_mbps - a.stream_bitrate_mbps
       );
-      setStreams(sortedStreams);
+      // Defense-in-depth: a non-unique session_id (used as the React key) would
+      // corrupt table reconciliation and leave ghost rows. Keep one row per id.
+      const seenSessionIds = new Set<string>();
+      const dedupedStreams = sortedStreams.filter((s) => {
+        if (seenSessionIds.has(s.session_id)) return false;
+        seenSessionIds.add(s.session_id);
+        return true;
+      });
+      setStreams(dedupedStreams);
       setReservations(response.reservations);
       setTotalReserved(response.total_reserved_mbps);
       setError('');
@@ -115,6 +130,11 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
       setConfirmClearReservation(null);
     }
   };
+
+  // Show the Server column when 2+ media servers are configured, or when the current
+  // streams span more than one distinct server (e.g. data from a since-removed server).
+  const showServer =
+    configuredServerCount >= 2 || new Set(streams.map((s) => s.server_id).filter(Boolean)).size > 1;
 
   if (isLoading) {
     return (
@@ -189,11 +209,12 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                   <TableHead>Status</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Title</TableHead>
+                  {showServer && <TableHead>Server</TableHead>}
                   <TableHead>Quality</TableHead>
                   <TableHead>Transcode</TableHead>
                   <TableHead className="text-right">Bitrate</TableHead>
                   <TableHead>Network</TableHead>
-                  <TableHead>Platform</TableHead>
+                  <TableHead>Player</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -213,6 +234,18 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                         {stream.display_title}
                       </div>
                     </TableCell>
+                    {showServer && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: SERVER_TYPE_COLORS[stream.server_type ?? ''] ?? '#888888' }}
+                            aria-hidden="true"
+                          />
+                          <span className="text-sm">{stream.server_name || '—'}</span>
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell>
                       {stream.quality_profile && (
                         <Badge variant="outline">{stream.quality_profile}</Badge>
@@ -236,8 +269,8 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {stream.platform || stream.player || 'Unknown'}
+                      <span className="text-sm text-muted-foreground" title={stream.platform || undefined}>
+                        {stream.player || 'Unknown'}
                       </span>
                     </TableCell>
                   </TableRow>

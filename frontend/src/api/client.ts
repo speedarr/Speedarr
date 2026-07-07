@@ -4,11 +4,11 @@ import type {
   LoginResponse,
   User,
   SystemStatus,
+  BootstrapResponse,
   ActiveStreamsResponse,
   StreamsHistoryResponse,
   StreamHistory,
   StreamSummary,
-  CurrentBandwidthResponse,
   BandwidthHistoryResponse,
   BandwidthSummary,
   BandwidthChartDataResponse,
@@ -63,7 +63,8 @@ class ApiClient {
       (error: AxiosError) => {
         const isAuthRequest = error.config?.url?.includes('/auth/login') ||
                               error.config?.url?.includes('/auth/me') ||
-                              error.config?.url?.includes('/auth/first-run');
+                              error.config?.url?.includes('/auth/first-run') ||
+                              error.config?.url?.includes('/auth/bootstrap');
         if (error.response?.status === 401 && !isAuthRequest && this.getToken()) {
           this.clearToken();
           window.location.href = '/login';
@@ -146,6 +147,11 @@ class ApiClient {
   // Authentication endpoints
   async checkFirstRun(): Promise<{ first_run: boolean; user_count: number }> {
     const response = await this.client.get('/auth/first-run');
+    return response.data;
+  }
+
+  async getBootstrap(): Promise<BootstrapResponse> {
+    const response = await this.client.get<BootstrapResponse>('/auth/bootstrap');
     return response.data;
   }
 
@@ -235,11 +241,6 @@ class ApiClient {
   }
 
   // Bandwidth endpoints
-  async getCurrentBandwidth(): Promise<CurrentBandwidthResponse> {
-    const response = await this.client.get<CurrentBandwidthResponse>('/bandwidth/current');
-    return response.data;
-  }
-
   async getBandwidthHistory(params?: {
     hours?: number;
     limit?: number;
@@ -395,6 +396,23 @@ class ApiClient {
     connection_results?: Record<string, boolean>;
   }> {
     const response = await this.client.put('/settings/download-clients', { clients });
+    return response.data;
+  }
+
+  // Media Servers endpoints
+  async getMediaServers(): Promise<{
+    servers: Array<import('@/types').MediaServer>;
+    connection_results?: Record<string, boolean>;
+  }> {
+    const response = await this.client.get('/settings/media-servers');
+    return response.data;
+  }
+
+  async updateMediaServers(servers: Array<import('@/types').MediaServer>): Promise<{
+    servers: Array<import('@/types').MediaServer>;
+    connection_results?: Record<string, boolean>;
+  }> {
+    const response = await this.client.put('/settings/media-servers', { servers });
     return response.data;
   }
 

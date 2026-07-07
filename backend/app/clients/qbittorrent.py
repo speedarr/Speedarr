@@ -165,10 +165,10 @@ class QBittorrentClient:
             raise
 
     async def restore_speed_limits(self):
-        """Restore original speed limits."""
+        """Restore original speed limits (0 = unlimited, re-applied explicitly)."""
         if self._original_limits:
             await self.set_speed_limits(
-                download_limit=self._original_limits["download_limit"] if self._original_limits["download_limit"] > 0 else None,
-                upload_limit=self._original_limits["upload_limit"] if self._original_limits["upload_limit"] > 0 else None
+                download_limit=self._original_limits["download_limit"],
+                upload_limit=self._original_limits["upload_limit"],
             )
             logger.debug("Restored qBittorrent to original limits")

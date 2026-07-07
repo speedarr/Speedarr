@@ -4,16 +4,21 @@ on:
   push:
     tags:
       - "v*"
+  # Dispatched on a tag ref by cut-release.yml (token-pushed tags don't fire on:push)
+  workflow_dispatch:
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -60,3 +65,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+
+      - name: Comment on released issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; else RANGE="$TAG"; fi
+          echo "Scanning $RANGE for closed issue references"
+          ISSUES=$(git log "$RANGE" --pretty=%B | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?):? #[0-9]+' | grep -oE '[0-9]+' | sort -un)
+          for N in $ISSUES; do
+            gh issue comment "$N" --repo "$GITHUB_REPOSITORY" \
+              --body "🚀 Fixed in [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) — available as \`speedarr/speedarr:$VERSION\` and \`speedarr/speedarr:latest\`." \
+              && echo "Commented on #$N" \
+              || echo "Skipped #$N (not an issue, or comment failed)"
+          done

@@ -374,8 +374,8 @@ export const NotificationsSettings: React.FC = () => {
   };
 
   const availableEvents = [
-    { value: 'stream_started', label: 'Stream Started', description: 'Notify when a new Plex stream begins' },
-    { value: 'stream_ended', label: 'Stream Ended', description: 'Notify when a Plex stream stops' },
+    { value: 'stream_started', label: 'Stream Started', description: 'Notify when a new stream begins' },
+    { value: 'stream_ended', label: 'Stream Ended', description: 'Notify when a stream stops' },
     { value: 'stream_count_exceeded', label: 'Stream Count Exceeded', description: 'Notify when active streams exceed the threshold' },
     { value: 'stream_bitrate_exceeded', label: 'Stream Bitrate Exceeded', description: 'Notify when total stream bitrate exceeds the threshold' },
     { value: 'service_unreachable', label: 'Service Unreachable', description: 'Notify when a connected service becomes unreachable' },

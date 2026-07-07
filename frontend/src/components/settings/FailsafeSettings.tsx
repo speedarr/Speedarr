@@ -141,65 +141,65 @@ export const FailsafeSettings: React.FC = () => {
   const secondUploadClient = uploadClients[1];
 
   // Equal-split default that sums to exactly 100 (last client gets the remainder)
-  const equalSplitPercent = (clientList: { type: string }[], clientType: string): number => {
+  const equalSplitPercent = (clientList: { id: string }[], clientId: string): number => {
     const n = clientList.length;
     if (n === 0) return 50;
     const base = Math.floor(100 / n);
-    const index = clientList.findIndex(c => c.type === clientType);
+    const index = clientList.findIndex(c => c.id === clientId);
     return index === n - 1 ? 100 - base * (n - 1) : base;
   };
 
   // Get client percentage for 3+ clients mode (persisted in config)
-  const getDownloadClientPercent = (clientType: string): number => {
-    const value = config?.shutdown_download_client_percents[clientType];
-    return value !== undefined ? value : equalSplitPercent(downloadClients, clientType);
+  const getDownloadClientPercent = (clientId: string): number => {
+    const value = config?.shutdown_download_client_percents[clientId];
+    return value !== undefined ? value : equalSplitPercent(downloadClients, clientId);
   };
 
-  const getUploadClientPercent = (clientType: string): number => {
-    const value = config?.shutdown_upload_client_percents[clientType];
-    return value !== undefined ? value : equalSplitPercent(uploadClients, clientType);
+  const getUploadClientPercent = (clientId: string): number => {
+    const value = config?.shutdown_upload_client_percents[clientId];
+    return value !== undefined ? value : equalSplitPercent(uploadClients, clientId);
   };
 
   // Update client percentage for 3+ clients mode
-  const updateDownloadClientPercent = (clientType: string, value: number) => {
+  const updateDownloadClientPercent = (clientId: string, value: number) => {
     if (!config) return;
     updateConfig('shutdown_download_client_percents', {
       ...config.shutdown_download_client_percents,
-      [clientType]: value,
+      [clientId]: value,
     });
   };
 
-  const updateUploadClientPercent = (clientType: string, value: number) => {
+  const updateUploadClientPercent = (clientId: string, value: number) => {
     if (!config) return;
     updateConfig('shutdown_upload_client_percents', {
       ...config.shutdown_upload_client_percents,
-      [clientType]: value,
+      [clientId]: value,
     });
   };
 
   // 2-client split slider values derived from persisted percents
-  const downloadSplit = firstDownloadClient ? getDownloadClientPercent(firstDownloadClient.type) : 50;
-  const uploadSplit = firstUploadClient ? getUploadClientPercent(firstUploadClient.type) : 50;
+  const downloadSplit = firstDownloadClient ? getDownloadClientPercent(firstDownloadClient.id) : 50;
+  const uploadSplit = firstUploadClient ? getUploadClientPercent(firstUploadClient.id) : 50;
 
   const setDownloadSplit = (value: number) => {
     if (!config || !firstDownloadClient || !secondDownloadClient) return;
     updateConfig('shutdown_download_client_percents', {
-      [firstDownloadClient.type]: value,
-      [secondDownloadClient.type]: 100 - value,
+      [firstDownloadClient.id]: value,
+      [secondDownloadClient.id]: 100 - value,
     });
   };
 
   const setUploadSplit = (value: number) => {
     if (!config || !firstUploadClient || !secondUploadClient) return;
     updateConfig('shutdown_upload_client_percents', {
-      [firstUploadClient.type]: value,
-      [secondUploadClient.type]: 100 - value,
+      [firstUploadClient.id]: value,
+      [secondUploadClient.id]: 100 - value,
     });
   };
 
   // Calculate total percentages for validation
-  const downloadTotal = downloadClients.reduce((sum, c) => sum + getDownloadClientPercent(c.type), 0);
-  const uploadTotal = uploadClients.reduce((sum, c) => sum + getUploadClientPercent(c.type), 0);
+  const downloadTotal = downloadClients.reduce((sum, c) => sum + getDownloadClientPercent(c.id), 0);
+  const uploadTotal = uploadClients.reduce((sum, c) => sum + getUploadClientPercent(c.id), 0);
 
   if (isLoading) {
     return (
@@ -249,7 +249,7 @@ export const FailsafeSettings: React.FC = () => {
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="plex-timeout">Plex Timeout (seconds)</Label>
+            <Label htmlFor="plex-timeout">Media Server Timeout (seconds)</Label>
             <Input
               id="plex-timeout"
               type="number"
@@ -261,7 +261,7 @@ export const FailsafeSettings: React.FC = () => {
               className="w-24"
             />
             <p className="text-sm text-muted-foreground">
-              Assume no active streams after this many seconds without Plex response
+              Assume no active streams after this many seconds without a media server response
             </p>
           </div>
         </div>
@@ -306,13 +306,17 @@ export const FailsafeSettings: React.FC = () => {
                       step="0.1"
                       className="w-24"
                       value={config.shutdown_download_speed}
-                      onChange={(e) => updateConfig('shutdown_download_speed', parseFloat(e.target.value))}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        updateConfig('shutdown_download_speed', isNaN(v) ? 0 : Math.max(0, v));
+                      }}
                       disabled={isSaving}
                     />
                     <span className="text-sm text-muted-foreground">Mbps</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Default: 10% of bandwidth limit ({getDefaultDownloadSpeed()} Mbps)
+                    Default: 10% of bandwidth limit ({getDefaultDownloadSpeed()} Mbps).
+                    0 throttles to a minimum trickle (never unlimited).
                   </p>
                 </div>
 
@@ -345,7 +349,7 @@ export const FailsafeSettings: React.FC = () => {
                     </p>
                     <div className="grid gap-2">
                       {downloadClients.map((client) => {
-                        const percent = getDownloadClientPercent(client.type);
+                        const percent = getDownloadClientPercent(client.id);
                         const mbps = ((config.shutdown_download_speed! * percent) / 100).toFixed(1);
                         return (
                           <div key={client.id} className="flex items-center gap-3">
@@ -360,7 +364,7 @@ export const FailsafeSettings: React.FC = () => {
                               max="100"
                               className="w-20"
                               value={percent}
-                              onChange={(e) => updateDownloadClientPercent(client.type, parseInt(e.target.value) || 0)}
+                              onChange={(e) => updateDownloadClientPercent(client.id, parseInt(e.target.value) || 0)}
                               disabled={isSaving}
                             />
                             <span className="text-sm text-muted-foreground">%</span>
@@ -433,13 +437,17 @@ export const FailsafeSettings: React.FC = () => {
                       step="0.1"
                       className="w-24"
                       value={config.shutdown_upload_speed}
-                      onChange={(e) => updateConfig('shutdown_upload_speed', parseFloat(e.target.value))}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        updateConfig('shutdown_upload_speed', isNaN(v) ? 0 : Math.max(0, v));
+                      }}
                       disabled={isSaving}
                     />
                     <span className="text-sm text-muted-foreground">Mbps</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Default: 10% of bandwidth limit ({getDefaultUploadSpeed()} Mbps)
+                    Default: 10% of bandwidth limit ({getDefaultUploadSpeed()} Mbps).
+                    0 throttles to a minimum trickle (never unlimited).
                   </p>
                 </div>
 
@@ -472,7 +480,7 @@ export const FailsafeSettings: React.FC = () => {
                     </p>
                     <div className="grid gap-2">
                       {uploadClients.map((client) => {
-                        const percent = getUploadClientPercent(client.type);
+                        const percent = getUploadClientPercent(client.id);
                         const mbps = ((config.shutdown_upload_speed! * percent) / 100).toFixed(1);
                         return (
                           <div key={client.id} className="flex items-center gap-3">
@@ -487,7 +495,7 @@ export const FailsafeSettings: React.FC = () => {
                               max="100"
                               className="w-20"
                               value={percent}
-                              onChange={(e) => updateUploadClientPercent(client.type, parseInt(e.target.value) || 0)}
+                              onChange={(e) => updateUploadClientPercent(client.id, parseInt(e.target.value) || 0)}
                               disabled={isSaving}
                             />
                             <span className="text-sm text-muted-foreground">%</span>

@@ -3,7 +3,8 @@ SNMP monitoring service for network-wide bandwidth tracking.
 """
 import asyncio
 import time
-from typing import Dict, Optional, List, Tuple
+from collections import deque
+from typing import Dict, Optional, List, Tuple, Deque
 from loguru import logger
 from pysnmp.hlapi.asyncio import (
     SnmpEngine,
@@ -12,8 +13,8 @@ from pysnmp.hlapi.asyncio import (
     ContextData,
     ObjectType,
     ObjectIdentity,
-    getCmd,
-    nextCmd,
+    get_cmd,
+    next_cmd,
 )
 from pyasn1.type.univ import Integer, OctetString
 from pysnmp.proto.rfc1902 import Gauge32, Counter32, Counter64, Integer32, Unsigned32
@@ -41,6 +42,69 @@ IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"  # ifHCOutOctets
 # 32-bit counters (fallback for older devices)
 IF_IN_OCTETS = "1.3.6.1.2.1.2.2.1.10"  # ifInOctets
 IF_OUT_OCTETS = "1.3.6.1.2.1.2.2.1.16"  # ifOutOctets
+
+# Sliding window (seconds) used to average the WAN bandwidth rate. Many gateways
+# quantize their SNMP octet counters to a fixed internal refresh (commonly ~5s).
+# When the poll interval is near that refresh interval, two-point differencing
+# aliases into a 0 / 2x sawtooth (see compute_windowed_rate). Averaging the
+# cumulative-counter delta over a window several times the refresh interval
+# cancels the aliasing while staying responsive enough for throttle decisions.
+# Must be several times the device's counter-refresh interval (commonly ~5s):
+# at 15s the window shrinks to ~2-3 samples and the device's +/-5s refresh-phase
+# error becomes a +/-50% swing, reintroducing the spikes. 30s keeps it to ~2%.
+RATE_WINDOW_SECONDS = 30.0
+# Minimum span between oldest and newest sample for a meaningful rate.
+MIN_RATE_SPAN_SECONDS = 0.5
+
+
+def compute_windowed_rate(
+    samples: List[Tuple[float, int, int]],
+    use_64bit: bool,
+) -> Optional[Tuple[float, float]]:
+    """Compute (download_mbps, upload_mbps) from a time-ordered sample window.
+
+    ``samples`` is a list of ``(timestamp, in_octets, out_octets)`` ordered
+    oldest-first. The rate is taken across the whole window (oldest vs newest)
+    rather than between adjacent reads.
+
+    Why a window: interface octet counters are cumulative, so the total byte
+    delta across the window is exact regardless of how the device steps its
+    counter internally. Only the window's two time endpoints carry the device's
+    refresh-phase error (bounded by the refresh interval, typically <=5s), which
+    is small relative to the window (RATE_WINDOW_SECONDS). Two-point
+    differencing, by contrast, makes
+    that phase error a large fraction of a single short interval, producing the
+    spurious 0 / 1x / 2x spikes seen with cache-quantized counters.
+
+    Returns ``None`` when there are fewer than two samples or the span is too
+    short to be meaningful.
+    """
+    if len(samples) < 2:
+        return None
+
+    oldest_time, oldest_in, oldest_out = samples[0]
+    newest_time, newest_in, newest_out = samples[-1]
+
+    time_diff = newest_time - oldest_time
+    if time_diff < MIN_RATE_SPAN_SECONDS:
+        return None
+
+    max_counter = 2 ** 64 if use_64bit else 2 ** 32
+
+    in_delta = newest_in - oldest_in
+    out_delta = newest_out - oldest_out
+
+    # Handle counter wrap-around (counter reset to 0 past its max).
+    if in_delta < 0:
+        in_delta += max_counter
+    if out_delta < 0:
+        out_delta += max_counter
+
+    # Convert to Mbps: (bytes/sec * 8 bits/byte) / 1,000,000
+    download_mbps = (in_delta / time_diff) * 8 / 1_000_000
+    upload_mbps = (out_delta / time_diff) * 8 / 1_000_000
+
+    return download_mbps, upload_mbps
 
 
 class NetworkInterface:
@@ -124,9 +188,10 @@ class SNMPMonitor:
 
     def __init__(self, config: SNMPConfig):
         self.config = config
-        self._last_in_octets: Optional[int] = None
-        self._last_out_octets: Optional[int] = None
-        self._last_poll_time: Optional[float] = None
+        # Sliding window of recent (timestamp, in_octets, out_octets) reads.
+        # The WAN rate is averaged across this window to defeat counter-cache
+        # aliasing (see compute_windowed_rate / RATE_WINDOW_SECONDS).
+        self._samples: Deque[Tuple[float, int, int]] = deque()
         self._use_64bit = True  # Try 64-bit counters first
         self._snmp_engine: Optional[SnmpEngine] = None
 
@@ -140,7 +205,7 @@ class SNMPMonitor:
         """Close and dispose of the SNMP engine to free memory."""
         if self._snmp_engine is not None:
             try:
-                self._snmp_engine.transportDispatcher.closeDispatcher()
+                self._snmp_engine.close_dispatcher()
             except Exception as e:
                 logger.debug(f"Error closing SNMP dispatcher: {e}")
             self._snmp_engine = None
@@ -153,7 +218,7 @@ class SNMPMonitor:
         """Query a single SNMP OID value."""
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=2.0, retries=1
             )
 
@@ -166,7 +231,7 @@ class SNMPMonitor:
             # Append interface index to OID
             full_oid = f"{oid}.{numeric_index}"
 
-            errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
                 self._get_engine(),
                 auth_data,
                 target,
@@ -211,7 +276,7 @@ class SNMPMonitor:
 
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=2.0, retries=1
             )
 
@@ -228,7 +293,7 @@ class SNMPMonitor:
             ]
 
             # Single SNMP GET request for all OIDs
-            errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
                 self._get_engine(),
                 auth_data,
                 target,
@@ -268,12 +333,12 @@ class SNMPMonitor:
         """Walk an SNMP OID tree and return all sub-OIDs and values."""
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=5.0, retries=2
             )
 
             results = []
-            # Use getNextCmd for walking (more reliable than bulkCmd)
+            # Use next_cmd for walking (more reliable than bulk_cmd)
             start_oid = ObjectType(ObjectIdentity(oid))
 
             # Track last OID to prevent infinite loops
@@ -281,7 +346,7 @@ class SNMPMonitor:
             max_iterations = 1000
 
             for iteration in range(max_iterations):
-                errorIndication, errorStatus, errorIndex, varBinds = await nextCmd(
+                errorIndication, errorStatus, errorIndex, varBinds = await next_cmd(
                     self._get_engine(),
                     auth_data,
                     target,
@@ -300,31 +365,31 @@ class SNMPMonitor:
                     logger.debug("Walk complete, no more varBinds")
                     break
 
-                # varBinds is [[ObjectType(...)]] - a list containing a list of ObjectType
-                # Each varBindTable is [ObjectType(...)] - a list with ObjectType items
-                for varBindTable in varBinds:
-                    for varBind in varBindTable:
-                        # Now varBind is the actual ObjectType
-                        name = varBind[0]
-                        value = varBind[1]
+                # varBinds is a flat tuple of ObjectType (pysnmp 7.x); each item
+                # is the (name, value) pair for one OID
+                for varBind in varBinds:
+                    name = varBind[0]
+                    value = varBind[1]
 
-                        current_oid = str(name)
+                    current_oid = str(name)
 
-                        logger.debug(f"Walk iteration {iteration}: OID={current_oid}, value={value}")
+                    logger.debug(f"Walk iteration {iteration}: OID={current_oid}, value={value}")
 
-                        # Check if we've left the requested OID tree
-                        if not current_oid.startswith(oid):
-                            logger.debug(f"Walk complete, left OID tree at {current_oid}. Got {len(results)} results")
-                            return results
+                    # Check if we've left the requested OID tree. Compare with a
+                    # trailing dot: a raw prefix match would treat sibling
+                    # columns like ...1.15 as inside the ...1.1 subtree.
+                    if not current_oid.startswith(oid + "."):
+                        logger.debug(f"Walk complete, left OID tree at {current_oid}. Got {len(results)} results")
+                        return results
 
-                        # Check for duplicate (infinite loop protection)
-                        if current_oid == last_oid:
-                            logger.debug(f"Walk complete, duplicate OID detected: {current_oid}")
-                            return results
+                    # Check for duplicate (infinite loop protection)
+                    if current_oid == last_oid:
+                        logger.debug(f"Walk complete, duplicate OID detected: {current_oid}")
+                        return results
 
-                        results.append((current_oid, value))
-                        last_oid = current_oid
-                        start_oid = ObjectType(ObjectIdentity(current_oid))
+                    results.append((current_oid, value))
+                    last_oid = current_oid
+                    start_oid = ObjectType(ObjectIdentity(current_oid))
 
             logger.debug(f"Walk completed with {len(results)} results")
             return results
@@ -337,8 +402,10 @@ class SNMPMonitor:
         """
         Get current bandwidth usage from SNMP device.
 
-        Uses bulk SNMP query to get both counters in single request,
-        ensuring cache consistency and avoiding doubled readings.
+        Queries both octet counters in a single bulk request (cache-consistent
+        snapshot) and averages the rate over a sliding window
+        (RATE_WINDOW_SECONDS) to cancel device counter-cache aliasing that
+        otherwise produces spurious 0 / 2x spikes.
 
         Returns:
             Dict with 'download' and 'upload' in Mbps, or None if unavailable
@@ -361,10 +428,8 @@ class SNMPMonitor:
             if in_octets is None and self._use_64bit:
                 logger.info("64-bit counters unavailable, falling back to 32-bit")
                 self._use_64bit = False
-                # Reset baseline to avoid incorrect delta between different counter types
-                self._last_in_octets = None
-                self._last_out_octets = None
-                self._last_poll_time = None
+                # Clear the window: 64-bit and 32-bit counters are not comparable
+                self._samples.clear()
                 in_oid = IF_IN_OCTETS
                 out_oid = IF_OUT_OCTETS
                 results = await self._get_multiple_oids([in_oid, out_oid], self.config.interface)
@@ -373,61 +438,46 @@ class SNMPMonitor:
 
             if in_octets is None or out_octets is None:
                 logger.warning("Failed to query SNMP bandwidth counters")
-                # Clear baseline so recovery establishes a fresh one
-                self._last_in_octets = None
-                self._last_out_octets = None
-                self._last_poll_time = None
+                # Clear the window so recovery establishes a fresh one
+                self._samples.clear()
                 return None
 
             current_time = time.time()
 
-            # First poll - establish baseline
-            if self._last_in_octets is None or self._last_poll_time is None:
-                self._last_in_octets = in_octets
-                self._last_out_octets = out_octets
-                self._last_poll_time = current_time
+            # Append this read and trim the sliding window to RATE_WINDOW_SECONDS,
+            # always keeping at least two samples so a rate can still be computed.
+            self._samples.append((current_time, in_octets, out_octets))
+            cutoff = current_time - RATE_WINDOW_SECONDS
+            while len(self._samples) > 2 and self._samples[0][0] < cutoff:
+                self._samples.popleft()
+
+            # First poll - window not yet spanning two reads
+            if len(self._samples) < 2:
                 logger.debug("SNMP baseline established")
                 return None
 
-            # Calculate time delta
-            time_diff = current_time - self._last_poll_time
-            if time_diff < 0.1:
-                logger.warning("SNMP poll interval too short")
+            # Average the rate across the whole window to cancel counter-cache
+            # aliasing (cumulative counters make the windowed delta exact).
+            rate = compute_windowed_rate(list(self._samples), self._use_64bit)
+            if rate is None:
+                logger.debug("SNMP window span too short for a rate")
                 return None
+            download_mbps, upload_mbps = rate
 
-            # Calculate byte deltas
-            in_delta = in_octets - self._last_in_octets
-            out_delta = out_octets - self._last_out_octets
-
-            # Handle counter wrap-around (32-bit or 64-bit)
-            max_counter = 2**64 if self._use_64bit else 2**32
-            if in_delta < 0:
-                in_delta += max_counter
-            if out_delta < 0:
-                out_delta += max_counter
-
-            # Convert to Mbps: (bytes/sec * 8 bits/byte) / 1,000,000
-            download_mbps = (in_delta / time_diff) * 8 / 1_000_000
-            upload_mbps = (out_delta / time_diff) * 8 / 1_000_000
-
-            # Sanity check: reject negative or unreasonably high values (> 10 Gbps)
-            # This catches counter wrap-around issues, counter type switching, or calculation errors
+            # Sanity check: reject negative or unreasonably high values (> 10 Gbps).
+            # Catches counter resets/type switches the wrap math can't absorb.
             MAX_REASONABLE_MBPS = 10000  # 10 Gbps
             if download_mbps < 0 or upload_mbps < 0 or download_mbps > MAX_REASONABLE_MBPS or upload_mbps > MAX_REASONABLE_MBPS:
+                span = self._samples[-1][0] - self._samples[0][0]
                 logger.warning(
                     f"SNMP: Rejecting unreasonable values - {download_mbps:.2f} Mbps down, {upload_mbps:.2f} Mbps up "
-                    f"(in_delta={in_delta}, out_delta={out_delta}, time_diff={time_diff:.2f}s). "
-                    f"Resetting baseline."
+                    f"(window_span={span:.2f}s, samples={len(self._samples)}). Resetting window."
                 )
-                self._last_in_octets = in_octets
-                self._last_out_octets = out_octets
-                self._last_poll_time = current_time
+                # Drop everything but the latest read so the window rebuilds cleanly
+                latest = self._samples[-1]
+                self._samples.clear()
+                self._samples.append(latest)
                 return None
-
-            # Update last values
-            self._last_in_octets = in_octets
-            self._last_out_octets = out_octets
-            self._last_poll_time = current_time
 
             logger.debug(f"SNMP: {download_mbps:.2f} Mbps down, {upload_mbps:.2f} Mbps up")
 
@@ -438,10 +488,8 @@ class SNMPMonitor:
 
         except Exception as e:
             logger.error(f"SNMP bandwidth monitoring error: {e}")
-            # Clear baseline so recovery establishes a fresh one
-            self._last_in_octets = None
-            self._last_out_octets = None
-            self._last_poll_time = None
+            # Clear the window so recovery establishes a fresh one
+            self._samples.clear()
             return None
 
     async def test_connection(self) -> bool:
@@ -453,12 +501,12 @@ class SNMPMonitor:
         """
         try:
             auth_data = self._get_auth_data()
-            target = UdpTransportTarget(
+            target = await UdpTransportTarget.create(
                 (self.config.host, self.config.port), timeout=2.0, retries=1
             )
 
             # Try to query sysDescr (1.3.6.1.2.1.1.1.0) - universal OID
-            errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
                 self._get_engine(),
                 auth_data,
                 target,

@@ -568,7 +568,7 @@ export const SNMPSettings: React.FC = () => {
 
               <Alert>
                 <AlertDescription>
-                  <strong>Note:</strong> SNMP monitoring is optional. Speedarr can function without it by relying on Plex stream data and configured bandwidth limits.
+                  <strong>Note:</strong> SNMP monitoring is optional. Speedarr can function without it by relying on media server stream data and configured bandwidth limits.
                 </AlertDescription>
               </Alert>
             </>

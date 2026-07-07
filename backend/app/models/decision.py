@@ -35,6 +35,9 @@ class ThrottleDecision(Base):
     sabnzbd_old_upload_limit = Column(Float, nullable=True)
     sabnzbd_new_upload_limit = Column(Float, nullable=True)
 
+    # Per-client-id breakdown: {client_id: {name, type, old_/new_ download/upload limit}}
+    per_client = Column(JSON, nullable=True)
+
     # SNMP context
     snmp_download_usage = Column(Float, nullable=True)
     snmp_upload_usage = Column(Float, nullable=True)

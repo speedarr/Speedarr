@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Navigate } from 'react-router-dom';
-import { apiClient } from '@/api/client';
+import { useBootstrap } from '@/contexts/BootstrapContext';
 import { Loader2 } from 'lucide-react';
 
 interface SetupGuardProps {
@@ -8,26 +8,14 @@ interface SetupGuardProps {
 }
 
 /**
- * Lightweight guard that only checks if setup is required.
- * Does NOT require authentication — the dashboard is view-only for unauthenticated users.
- * Redirects to /setup when setup is needed (ProtectedRoute on /setup handles auth).
+ * Lightweight guard that only checks if setup is required, from the shared
+ * bootstrap context. Does NOT require authentication. Fails OPEN on error so a
+ * transient bootstrap failure can never trap the user on /setup.
  */
 export const SetupGuard: React.FC<SetupGuardProps> = ({ children }) => {
-  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
+  const { data, isLoading, isError } = useBootstrap();
 
-  useEffect(() => {
-    const checkSetup = async () => {
-      try {
-        const status = await apiClient.getSystemStatus();
-        setSetupRequired(status.setup_required ?? false);
-      } catch {
-        setSetupRequired(false);
-      }
-    };
-    checkSetup();
-  }, []);
-
-  if (setupRequired === null) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -35,6 +23,7 @@ export const SetupGuard: React.FC<SetupGuardProps> = ({ children }) => {
     );
   }
 
+  const setupRequired = isError ? false : (data?.setup_required ?? false);
   if (setupRequired) {
     return <Navigate to="/setup" replace />;
   }

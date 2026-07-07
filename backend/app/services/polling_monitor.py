@@ -2,11 +2,13 @@
 Polling monitor service for stream detection and client monitoring.
 """
 import asyncio
-from typing import Dict, Any, List, Optional, Callable
+import json
+from typing import Dict, Any, List, Optional, Callable, Tuple
 from datetime import datetime, timedelta, timezone
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.plex import PlexClient
+from app.clients.base_media_server import BaseMediaServer
 from app.config import SpeedarrConfig
 from app.services.decision_engine import DecisionEngine
 from app.services.controller_manager import ControllerManager
@@ -18,6 +20,78 @@ from app.utils.formatting import format_display_title
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.services.notification_service import NotificationService
+
+
+def aggregate_per_server_bandwidth(streams: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Sum in-use stream bitrate (Mbps) per server_id for the per_server metric."""
+    totals: Dict[str, float] = {}
+    for s in streams:
+        sid = s.get("server_id")
+        if not sid:
+            continue
+        totals[sid] = totals.get(sid, 0.0) + (s.get("stream_bitrate_mbps", 0) or 0)
+    return totals
+
+
+def build_per_client_metrics(download_stats: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Build the per_client metric map keyed by client id.
+
+    Returns {client_id: {"d": dl_speed, "u": ul_speed, "dl": dl_limit, "ul": ul_limit}}.
+    Values are taken verbatim from each client's stats (may be None).
+    """
+    result: Dict[str, Dict[str, Any]] = {}
+    for cid, stats in download_stats.items():
+        result[cid] = {
+            "d": stats.get("download_speed"),
+            "u": stats.get("upload_speed"),
+            "dl": stats.get("download_limit"),
+            "ul": stats.get("upload_limit"),
+        }
+    return result
+
+
+def build_decision_per_client(old_stats: dict, new_stats: dict, direction: str) -> dict:
+    """Per-client-id limit changes for a throttle decision.
+
+    direction is 'download' or 'upload'. Returns {client_id: {name, type,
+    old_<direction>_limit, new_<direction>_limit}} for every client whose
+    <direction>_limit changed (old and new both present and different).
+    """
+    limit_key = f"{direction}_limit"
+    old_field, new_field = f"old_{direction}_limit", f"new_{direction}_limit"
+    result = {}
+    for cid in set(old_stats) | set(new_stats):
+        o = old_stats.get(cid) or {}
+        n = new_stats.get(cid) or {}
+        old_v = o.get(limit_key)
+        new_v = n.get(limit_key)
+        if old_v is not None and new_v is not None and old_v != new_v:
+            meta = n if n else o
+            result[cid] = {
+                "name": meta.get("client_name", cid),
+                "type": meta.get("client_type"),
+                old_field: old_v,
+                new_field: new_v,
+            }
+    return result
+
+
+def sum_stat_by_type(
+    download_stats: Dict[str, Dict[str, Any]], client_type: str, stat_key: str
+) -> Optional[float]:
+    """Sum a stat across all clients of one type for the legacy per-type columns.
+
+    Returns None when no client of that type reports a non-None value, so the
+    legacy column stays NULL exactly as it did before any client of the type existed.
+    """
+    values = [
+        s.get(stat_key)
+        for s in download_stats.values()
+        if s.get("client_type") == client_type and s.get(stat_key) is not None
+    ]
+    if not values:
+        return None
+    return sum(values)
 
 
 class PollingMonitor:
@@ -40,11 +114,15 @@ class PollingMonitor:
         self._get_db_session = get_db_session
         self.notification_service = notification_service
 
-        # Initialize Plex client
-        self.plex = PlexClient(
-            url=self.config.plex.url,
-            token=self.config.plex.token
-        )
+        # Initialize media servers (one adapter per enabled server)
+        from app.clients.media_server_factory import create_media_server
+        self.media_servers: Dict[str, BaseMediaServer] = {
+            s.id: create_media_server(s) for s in self.config.get_enabled_media_servers()
+        }
+        self._server_state: Dict[str, Dict[str, Any]] = {
+            sid: {"failures": 0, "warned": False, "last_streams": [], "last_success": None}
+            for sid in self.media_servers
+        }
 
         # Initialize SNMP monitor if enabled
         self.snmp_monitor = None
@@ -72,9 +150,6 @@ class PollingMonitor:
         self._first_poll: bool = True  # Flag to skip notifications on first poll (startup)
 
         # Plex failsafe tracking
-        self._plex_consecutive_failures: int = 0
-        self._plex_last_success: Optional[datetime] = None
-        self._plex_unreachable_warned: bool = False
         # Maximum consecutive failures before considering Plex truly down
         self._plex_max_failures: int = 6  # ~30 seconds at 5-second polling
 
@@ -95,6 +170,11 @@ class PollingMonitor:
     async def start(self):
         """Start the polling monitor with separate download and Plex cycles."""
         self._running = True
+        # Pre-fetch each media server's LAN subnets once (Emby/Jellyfin read
+        # LocalNetworkSubnets; Plex is a no-op). Never raises.
+        await asyncio.gather(
+            *(s.refresh_lan_subnets() for s in self.media_servers.values())
+        )
         # Start download monitoring
         self._download_task = asyncio.create_task(self._download_poll_loop())
         # Start Plex monitoring
@@ -125,7 +205,8 @@ class PollingMonitor:
                         await reservation['task']
                     except asyncio.CancelledError:
                         pass
-        await self.plex.close()
+        for server in self.media_servers.values():
+            await server.close()
         logger.info("Polling monitor stopped")
 
     async def store_session_bandwidth(self, session_id: str, bandwidth_mbps: float):
@@ -423,13 +504,60 @@ class PollingMonitor:
         except Exception as e:
             logger.error(f"Error in reservation cleanup for {reservation_id}: {e}")
 
+    async def _poll_one(self, server: "BaseMediaServer") -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Poll one media server. Never raises.
+
+        Returns (reachable_this_cycle, effective_streams). On success, records
+        last_streams. On failure, holds last_streams within the grace period,
+        then drops to []. Tags each stream with the server's LAN policy.
+        """
+        state = self._server_state[server.server_id]
+        try:
+            streams = await server.get_active_streams()
+            for s in streams:
+                s["include_lan_streams"] = server.include_lan_streams
+            state["failures"] = 0
+            state["last_streams"] = streams
+            state["last_success"] = datetime.now(timezone.utc)
+            if state["warned"]:
+                logger.info(f"Media server '{server.name}' connection restored")
+                state["warned"] = False
+                if self.notification_service:
+                    await self.notification_service.notify(
+                        "service_unreachable",
+                        f"Media server '{server.name}' is back online.",
+                        {"service": server.name, "server_id": server.server_id, "status": "recovered"},
+                    )
+            return True, streams
+        except Exception as err:
+            state["failures"] += 1
+            grace = self.config.failsafe.server_hold_grace_seconds
+            last_success = state["last_success"]
+            within_grace = (
+                last_success is not None
+                and (datetime.now(timezone.utc) - last_success).total_seconds() < grace
+            )
+            held = state["last_streams"] if within_grace else []
+            if state["failures"] > self._plex_max_failures and not state["warned"]:
+                logger.error(f"Media server '{server.name}' unreachable for {state['failures']} polls: {err}")
+                state["warned"] = True
+                if self.notification_service:
+                    await self.notification_service.notify(
+                        "service_unreachable",
+                        f"Media server '{server.name}' is unreachable. Bandwidth limits maintained.",
+                        {"service": server.name, "server_id": server.server_id,
+                         "status": "unreachable", "consecutive_failures": state["failures"]},
+                    )
+            return False, [dict(s) for s in held]
+
     async def _plex_poll_loop(self):
         """Plex stream monitoring loop."""
         while self._running:
             try:
                 await self._plex_poll_cycle()
             except Exception as e:
-                logger.error(f"Error in Plex polling cycle: {e}")
+                logger.error(f"Error in media server polling cycle: {e}")
 
             await asyncio.sleep(self.config.system.update_frequency)
 
@@ -440,46 +568,24 @@ class PollingMonitor:
             old_streams = self._cached_streams.copy()
             old_session_ids = {s.get("session_id") for s in old_streams if s.get("session_id")}
 
-            # Try to get active streams from Plex
-            try:
-                new_streams = await self.plex.get_active_streams()
-                # Success - reset failure tracking
-                self._plex_consecutive_failures = 0
-                self._plex_last_success = datetime.now(timezone.utc)
-                if self._plex_unreachable_warned:
-                    logger.info("Plex connection restored")
-                    self._plex_unreachable_warned = False
-                    if self.notification_service:
-                        await self.notification_service.notify(
-                            "service_unreachable",
-                            "Plex server is back online.",
-                            {"service": "Plex", "status": "recovered"}
-                        )
-                self._cached_streams = new_streams
-            except Exception as plex_error:
-                # Plex unreachable - increment failure counter
-                self._plex_consecutive_failures += 1
+            # Poll every server in parallel; _poll_one never raises.
+            if self.media_servers:
+                results = await asyncio.gather(
+                    *[self._poll_one(s) for s in self.media_servers.values()]
+                )
+            else:
+                results = []
+            any_reachable = any(reachable for reachable, _ in results)
+            merged = [s for _, streams in results for s in streams]
 
-                if self._plex_consecutive_failures == 1:
-                    logger.warning(f"Plex unreachable: {plex_error}. Keeping last known streams ({len(old_streams)} streams).")
-                elif self._plex_consecutive_failures <= self._plex_max_failures:
-                    logger.debug(f"Plex still unreachable (failure {self._plex_consecutive_failures}/{self._plex_max_failures})")
-                elif not self._plex_unreachable_warned:
-                    logger.error(f"Plex has been unreachable for {self._plex_consecutive_failures} consecutive polls. "
-                                f"Bandwidth limits are being maintained at current levels. "
-                                f"Last successful poll: {self._plex_last_success}")
-                    self._plex_unreachable_warned = True
-                    # Send notification if configured
-                    if self.notification_service:
-                        await self.notification_service.notify(
-                            "service_unreachable",
-                            "Plex server is unreachable. Bandwidth limits maintained at current levels.",
-                            {"service": "Plex", "status": "unreachable", "consecutive_failures": self._plex_consecutive_failures}
-                        )
+            # TOTAL OUTAGE: no server reachable this cycle -> maintain current
+            # limits (do NOT recompute or restore). Per-server failure counts
+            # live in self._server_state.
+            if self.media_servers and not any_reachable:
+                return
 
-                # FAILSAFE: Keep the last known streams - do NOT clear to empty
-                # This prevents restoring all speeds when Plex is temporarily down
-                return  # Skip rest of cycle when Plex is unreachable
+            new_streams = merged
+            self._cached_streams = new_streams
 
             new_session_ids = {s.get("session_id") for s in self._cached_streams if s.get("session_id")}
 
@@ -565,9 +671,7 @@ class PollingMonitor:
             # Check stream count and bitrate thresholds for notifications
             # Filter by LAN/WAN to match the streams the decision engine manages
             if self.notification_service:
-                threshold_streams = filter_streams_for_bandwidth(
-                    self._cached_streams, self.config.plex.include_lan_streams
-                )
+                threshold_streams = filter_streams_for_bandwidth(self._cached_streams)
                 # Use stream_bandwidth_mbps (real-time) with fallback to stream_bitrate_mbps (media file bitrate)
                 total_bandwidth = sum(
                     s.get("stream_bandwidth_mbps", 0) or s.get("stream_bitrate_mbps", 0)
@@ -578,7 +682,7 @@ class PollingMonitor:
                 await self.notification_service.check_stream_bitrate_threshold(total_bandwidth, stream_count)
 
         except Exception as e:
-            logger.error(f"Error in Plex poll cycle: {e}")
+            logger.error(f"Error in media server poll cycle: {e}")
 
     async def _handle_stopped_stream(self, stream: Dict[str, Any]):
         """
@@ -595,8 +699,8 @@ class PollingMonitor:
             media_type = stream.get("media_type")
             is_lan = stream.get("is_lan", False)
 
-            # Skip holding bandwidth for LAN streams if toggle is disabled
-            if not self.config.plex.include_lan_streams and is_lan:
+            # Skip holding bandwidth for LAN streams if this server's policy excludes them
+            if not stream.get("include_lan_streams", False) and is_lan:
                 logger.debug(f"Skipping bandwidth hold for LAN stream: {user_name} - {display_title}")
                 # Still send notification but don't hold bandwidth
                 if self.notification_service:
@@ -789,106 +893,54 @@ class PollingMonitor:
                 # Get new stats after applying decisions
                 new_stats = await self.controller_manager.get_client_stats()
 
-                # Save throttle decisions to database (separate entries for download and upload)
+                # Save throttle decisions to database (per-client-id; separate
+                # entries for download and upload).
                 if self._get_db_session:
                     try:
-                        async with self._get_db_session() as db:
-                            # Helper to find first client of a given type (stats are keyed by client ID)
-                            def find_stats_by_type(stats_dict: dict, client_type: str) -> dict:
-                                for cid, stats in stats_dict.items():
-                                    if stats.get("client_type") == client_type:
-                                        return stats
-                                return {}
-
-                            # Get stats for qbittorrent and sabnzbd (first of each type for DB compatibility)
-                            old_qb = find_stats_by_type(old_stats, "qbittorrent")
-                            new_qb = find_stats_by_type(new_stats, "qbittorrent")
-                            old_sab = find_stats_by_type(old_stats, "sabnzbd")
-                            new_sab = find_stats_by_type(new_stats, "sabnzbd")
-
-                            # Check for download limit changes
-                            qbit_dl_old = old_qb.get("download_limit")
-                            qbit_dl_new = new_qb.get("download_limit")
-                            sab_dl_old = old_sab.get("download_limit")
-                            sab_dl_new = new_sab.get("download_limit")
-
-                            download_changed = (
-                                (qbit_dl_old is not None and qbit_dl_new is not None and qbit_dl_old != qbit_dl_new) or
-                                (sab_dl_old is not None and sab_dl_new is not None and sab_dl_old != sab_dl_new)
-                            )
-
-                            # Check for upload limit changes
-                            qbit_ul_old = old_qb.get("upload_limit")
-                            qbit_ul_new = new_qb.get("upload_limit")
-
-                            upload_changed = (qbit_ul_old is not None and qbit_ul_new is not None and qbit_ul_old != qbit_ul_new)
-
-                            # Create download decision entry if download limits changed
-                            if download_changed:
-                                # Build descriptive reason for download changes
-                                download_reason_parts = []
-                                qbit_changed = qbit_dl_old is not None and qbit_dl_new is not None and qbit_dl_old != qbit_dl_new
-                                sab_changed = sab_dl_old is not None and sab_dl_new is not None and sab_dl_old != sab_dl_new
-
-                                if qbit_changed and sab_changed:
-                                    download_reason_parts.append("Both clients adjusted")
-                                elif qbit_changed:
-                                    if sab_dl_new is None or sab_dl_new == 0:
-                                        download_reason_parts.append("Only qBittorrent active")
-                                    else:
-                                        download_reason_parts.append("qBittorrent adjusted")
-                                elif sab_changed:
-                                    if qbit_dl_new is None or qbit_dl_new == 0:
-                                        download_reason_parts.append("Only SABnzbd active")
-                                    else:
-                                        download_reason_parts.append("SABnzbd adjusted")
-
-                                download_reason = download_reason_parts[0] if download_reason_parts else "Download rebalanced"
-
-                                download_decision = ThrottleDecision(
-                                    timestamp=datetime.now(timezone.utc),
-                                    decision_type="throttle" if self._cached_streams else "restore",
-                                    reason=download_reason,
-                                    active_streams=len(self._cached_streams),
-                                    stream_session_ids=[s.get("session_id") for s in self._cached_streams],
-                                    total_required_bandwidth=sum(s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams),
-                                    qbittorrent_old_download_limit=qbit_dl_old,
-                                    qbittorrent_new_download_limit=qbit_dl_new,
-                                    sabnzbd_old_download_limit=sab_dl_old,
-                                    sabnzbd_new_download_limit=sab_dl_new,
-                                    snmp_download_usage=snmp_data.get("download") if snmp_data else None,
-                                    triggered_by="polling"
-                                )
-                                db.add(download_decision)
-                                logger.debug(f"Saved download decision: {download_reason}")
-
-                            # Create upload decision entry if upload limits changed
-                            if upload_changed:
-                                # Build descriptive reason for upload changes
-                                stream_count = len(self._cached_streams)
-                                if stream_count == 0:
-                                    upload_reason = "No active Plex streams"
-                                elif stream_count == 1:
-                                    upload_reason = "1 active Plex stream"
-                                else:
-                                    upload_reason = f"{stream_count} active Plex streams"
-
-                                upload_decision = ThrottleDecision(
-                                    timestamp=datetime.now(timezone.utc),
-                                    decision_type="throttle" if self._cached_streams else "restore",
-                                    reason=upload_reason,
-                                    active_streams=stream_count,
-                                    stream_session_ids=[s.get("session_id") for s in self._cached_streams],
-                                    total_required_bandwidth=sum(s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams),
-                                    qbittorrent_old_upload_limit=qbit_ul_old,
-                                    qbittorrent_new_upload_limit=qbit_ul_new,
-                                    snmp_upload_usage=snmp_data.get("upload") if snmp_data else None,
-                                    triggered_by="polling"
-                                )
-                                db.add(upload_decision)
-                                logger.debug(f"Saved upload decision: {upload_reason}")
-
-                            if download_changed or upload_changed:
+                        dl_per_client = build_decision_per_client(old_stats, new_stats, "download")
+                        ul_per_client = build_decision_per_client(old_stats, new_stats, "upload")
+                        if dl_per_client or ul_per_client:
+                            async with self._get_db_session() as db:
+                                if dl_per_client:
+                                    names = sorted({e["name"] for e in dl_per_client.values()})
+                                    dl_reason = (
+                                        f"{names[0]} adjusted" if len(names) == 1
+                                        else f"{len(names)} clients adjusted"
+                                    )
+                                    db.add(ThrottleDecision(
+                                        timestamp=datetime.now(timezone.utc),
+                                        decision_type="throttle" if self._cached_streams else "restore",
+                                        reason=dl_reason,
+                                        active_streams=len(self._cached_streams),
+                                        stream_session_ids=[s.get("session_id") for s in self._cached_streams],
+                                        total_required_bandwidth=sum(
+                                            s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams
+                                        ),
+                                        per_client=dl_per_client,
+                                        snmp_download_usage=snmp_data.get("download") if snmp_data else None,
+                                        triggered_by="polling",
+                                    ))
+                                    logger.debug(f"Saved download decision: {dl_reason}")
+                                if ul_per_client:
+                                    stream_count = len(self._cached_streams)
+                                    ul_reason = (
+                                        "No active streams" if stream_count == 0
+                                        else f"{stream_count} active stream(s)"
+                                    )
+                                    db.add(ThrottleDecision(
+                                        timestamp=datetime.now(timezone.utc),
+                                        decision_type="throttle" if self._cached_streams else "restore",
+                                        reason=ul_reason,
+                                        active_streams=stream_count,
+                                        stream_session_ids=[s.get("session_id") for s in self._cached_streams],
+                                        total_required_bandwidth=sum(
+                                            s.get("stream_bandwidth_mbps", 0) for s in self._cached_streams
+                                        ),
+                                        per_client=ul_per_client,
+                                        snmp_upload_usage=snmp_data.get("upload") if snmp_data else None,
+                                        triggered_by="polling",
+                                    ))
+                                    logger.debug(f"Saved upload decision: {ul_reason}")
                                 await db.commit()
                     except Exception as e:
                         logger.error(f"Error saving throttle decision to database: {e}")
@@ -914,44 +966,35 @@ class PollingMonitor:
                         wan_streams = [s for s in self._cached_streams if not s.get("is_lan", False)]
                         lan_streams = [s for s in self._cached_streams if s.get("is_lan", False)]
 
-                        # Helper to find first client of a given type (stats are keyed by client ID)
-                        def get_stats_by_type(client_type: str) -> dict:
-                            for cid, stats in download_stats.items():
-                                if stats.get("client_type") == client_type:
-                                    return stats
-                            return {}
-
-                        qb_stats = get_stats_by_type("qbittorrent")
-                        sab_stats = get_stats_by_type("sabnzbd")
-                        nzbget_stats = get_stats_by_type("nzbget")
-                        transmission_stats = get_stats_by_type("transmission")
-                        deluge_stats = get_stats_by_type("deluge")
+                        # Per-client-id breakdown (keeps every client, including
+                        # multiple of the same type) for the chart.
+                        per_client = build_per_client_metrics(download_stats)
 
                         # Create bandwidth metric record
                         metric = BandwidthMetric(
                             timestamp=datetime.now(timezone.utc),
                             # Download metrics
                             total_download_limit=self.config.bandwidth.download.total_limit,
-                            qbittorrent_download_speed=qb_stats.get("download_speed"),
-                            qbittorrent_download_limit=qb_stats.get("download_limit"),
-                            sabnzbd_download_speed=sab_stats.get("download_speed"),
-                            sabnzbd_download_limit=sab_stats.get("download_limit"),
-                            nzbget_download_speed=nzbget_stats.get("download_speed"),
-                            nzbget_download_limit=nzbget_stats.get("download_limit"),
-                            transmission_download_speed=transmission_stats.get("download_speed"),
-                            transmission_download_limit=transmission_stats.get("download_limit"),
-                            deluge_download_speed=deluge_stats.get("download_speed"),
-                            deluge_download_limit=deluge_stats.get("download_limit"),
+                            qbittorrent_download_speed=sum_stat_by_type(download_stats, "qbittorrent", "download_speed"),
+                            qbittorrent_download_limit=sum_stat_by_type(download_stats, "qbittorrent", "download_limit"),
+                            sabnzbd_download_speed=sum_stat_by_type(download_stats, "sabnzbd", "download_speed"),
+                            sabnzbd_download_limit=sum_stat_by_type(download_stats, "sabnzbd", "download_limit"),
+                            nzbget_download_speed=sum_stat_by_type(download_stats, "nzbget", "download_speed"),
+                            nzbget_download_limit=sum_stat_by_type(download_stats, "nzbget", "download_limit"),
+                            transmission_download_speed=sum_stat_by_type(download_stats, "transmission", "download_speed"),
+                            transmission_download_limit=sum_stat_by_type(download_stats, "transmission", "download_limit"),
+                            deluge_download_speed=sum_stat_by_type(download_stats, "deluge", "download_speed"),
+                            deluge_download_limit=sum_stat_by_type(download_stats, "deluge", "download_limit"),
                             # Upload metrics
                             total_upload_limit=self.config.bandwidth.upload.total_limit,
-                            qbittorrent_upload_speed=qb_stats.get("upload_speed"),
-                            qbittorrent_upload_limit=qb_stats.get("upload_limit"),
-                            sabnzbd_upload_speed=sab_stats.get("upload_speed"),
-                            sabnzbd_upload_limit=sab_stats.get("upload_limit"),
-                            transmission_upload_speed=transmission_stats.get("upload_speed"),
-                            transmission_upload_limit=transmission_stats.get("upload_limit"),
-                            deluge_upload_speed=deluge_stats.get("upload_speed"),
-                            deluge_upload_limit=deluge_stats.get("upload_limit"),
+                            qbittorrent_upload_speed=sum_stat_by_type(download_stats, "qbittorrent", "upload_speed"),
+                            qbittorrent_upload_limit=sum_stat_by_type(download_stats, "qbittorrent", "upload_limit"),
+                            sabnzbd_upload_speed=sum_stat_by_type(download_stats, "sabnzbd", "upload_speed"),
+                            sabnzbd_upload_limit=sum_stat_by_type(download_stats, "sabnzbd", "upload_limit"),
+                            transmission_upload_speed=sum_stat_by_type(download_stats, "transmission", "upload_speed"),
+                            transmission_upload_limit=sum_stat_by_type(download_stats, "transmission", "upload_limit"),
+                            deluge_upload_speed=sum_stat_by_type(download_stats, "deluge", "upload_speed"),
+                            deluge_upload_limit=sum_stat_by_type(download_stats, "deluge", "upload_limit"),
                             # SNMP metrics (if available)
                             snmp_download_speed=snmp_data.get("download") if snmp_data else None,
                             snmp_upload_speed=snmp_data.get("upload") if snmp_data else None,
@@ -965,7 +1008,11 @@ class PollingMonitor:
                             lan_streams_count=len(lan_streams),
                             lan_stream_bandwidth=sum(s.get("stream_bitrate_mbps", 0) for s in lan_streams),
                             # State
-                            is_throttled=bool(decisions)
+                            is_throttled=bool(decisions),
+                            # Per-server breakdown
+                            per_server=json.dumps(aggregate_per_server_bandwidth(self._cached_streams)),
+                            # Per-client-id breakdown
+                            per_client=json.dumps(per_client),
                         )
                         db.add(metric)
                         await db.commit()

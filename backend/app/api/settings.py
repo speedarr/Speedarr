@@ -9,12 +9,23 @@ import yaml
 from loguru import logger
 
 from app.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
-from app.config import SpeedarrConfig, DownloadClientConfig
+from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+def resolve_test_media_server(servers, server_type, server_id):
+    """Pick the media server to test: by id when supplied; otherwise the sole
+    server of that type. Returns None if the id is unknown or the type is
+    ambiguous (more than one) — never silently first-match by type.
+    """
+    if server_id:
+        return next((s for s in servers if s.id == server_id), None)
+    of_type = [s for s in servers if s.type == server_type]
+    return of_type[0] if len(of_type) == 1 else None
 
 
 class SectionMetadata(BaseModel):
@@ -77,7 +88,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 
 @router.get("/sections", response_model=Dict[str, List[SectionMetadata]])
-async def get_sections():
+async def get_sections(_auth=Depends(require_auth_if_private)):
     """Get metadata about all configuration sections."""
     sections = [
         SectionMetadata(
@@ -166,7 +177,7 @@ async def get_sections():
 
 
 @router.get("/section/{section_name}", response_model=SectionResponse)
-async def get_section(section_name: str, request: Request):
+async def get_section(section_name: str, request: Request, _auth=Depends(require_auth_if_private)):
     """Get configuration for a specific section."""
     config: SpeedarrConfig = request.app.state.config
 
@@ -210,8 +221,11 @@ async def get_section(section_name: str, request: Request):
             detail=f"Section '{section_name}' not found",
         )
 
-    # Mask sensitive values
-    masked_config = _mask_sensitive_values(section_config)
+    # Mask sensitive values. A section that is unset (Optional=None, e.g. an
+    # unconfigured qbittorrent/sabnzbd) or list-typed (media_servers /
+    # download_clients, which have dedicated endpoints) yields no dict here —
+    # return an empty config rather than crashing the endpoint with a 500.
+    masked_config = _mask_sensitive_values(section_config) if section_config else {}
 
     return SectionResponse(section=section_name, config=masked_config)
 
@@ -286,27 +300,44 @@ async def test_connection(
         if service == "plex":
             from app.clients.plex import PlexClient
 
-            url = config_data.get("url") or app_config.plex.url
+            url = config_data.get("url")
             token = config_data.get("token")
 
-            # If use_existing or token is masked, use the saved config
+            # If use_existing or token is masked, resolve from saved server
+            # (covers both legacy plex.* [synthesized id "plex"] and new media_servers entries)
             if test_request.use_existing or token == "***REDACTED***":
-                if app_config.plex.token:
-                    token = app_config.plex.token
+                saved = resolve_test_media_server(
+                    app_config.get_all_media_servers(), "plex", config_data.get("id")
+                )
+                if saved and saved.token:
+                    token = saved.token
+                    if not url:
+                        url = saved.url
                 else:
                     return TestConnectionResponse(
                         success=False,
                         message="No Plex token configured. Please enter a token.",
                     )
 
+            # Fall back to saved url if still missing
+            if not url:
+                _srv = resolve_test_media_server(
+                    app_config.get_all_media_servers(), "plex", config_data.get("id")
+                )
+                url = _srv.url if _srv else None
+
             if not url or not token:
                 return TestConnectionResponse(
                     success=False, message="Missing required fields: url and token"
                 )
 
-            client = PlexClient(url=url, token=token)
-            success = await client.test_connection()
-            await client.close()
+            client = PlexClient(MediaServerConfig(
+                id=config_data.get("id", "plex"), type="plex", name="Plex", url=url, token=token,
+            ))
+            try:
+                success = await client.test_connection()
+            finally:
+                await client.close()
 
             if success:
                 return TestConnectionResponse(
@@ -773,6 +804,42 @@ async def test_connection(
                     message="Failed to connect to SNMP device. Check host, port, and credentials.",
                 )
 
+        elif service in ("emby", "jellyfin"):
+            from app.clients.media_server_factory import create_media_server
+
+            url = config_data.get("url")
+            api_key = config_data.get("api_key")
+            # Reuse saved api_key if masked / use_existing
+            if test_request.use_existing or api_key == "***REDACTED***":
+                existing = next(
+                    (s for s in app_config.get_all_media_servers()
+                     if s.type == service and (config_data.get("id") in (None, s.id))),
+                    None,
+                )
+                api_key = existing.api_key if existing else None
+            if not url or not api_key:
+                return TestConnectionResponse(success=False, message="Missing required fields: url and api_key")
+            client = create_media_server(MediaServerConfig(
+                id=config_data.get("id", service), type=service, name=service.title(),
+                url=url, api_key=api_key, lan_networks=config_data.get("lan_networks", []),
+            ))
+            try:
+                success = await client.test_connection()
+            finally:
+                await client.close()
+            if success:
+                # Re-read LocalNetworkSubnets for the live adapter (Emby/Jellyfin). A not-yet-saved server has no live adapter; its refresh happens on save via _reload_services.
+                live = getattr(request.app.state, "media_servers", {}).get(
+                    config_data.get("id")
+                )
+                if live is not None:
+                    await live.refresh_lan_subnets()
+            return TestConnectionResponse(
+                success=success,
+                message=f"Successfully connected to {service.title()}" if success
+                else f"Failed to connect to {service.title()}. Check URL and API key.",
+            )
+
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -925,7 +992,7 @@ async def complete_setup(
         request.app.state.controller_manager = controller_manager
         request.app.state.polling_monitor = polling_monitor
         request.app.state.notification_service = notification_service
-        request.app.state.plex_client = polling_monitor.plex
+        request.app.state.media_servers = polling_monitor.media_servers
         request.app.state.config = config
         request.app.state.setup_required = False
 
@@ -1299,10 +1366,6 @@ async def update_download_clients(
             except Exception as e:
                 raise ValueError(f"Invalid client configuration for {client_data.get('name', 'unknown')}: {e}")
 
-        # Check if enabled client types changed - if so, reset percentage splits
-        old_enabled_types = set() if is_setup_mode else {c.type for c in config.get_enabled_download_clients()}
-        new_enabled_types = {c.type for c in processed_clients if c.enabled}
-
         # Update configuration
         # In setup mode, load the current config from database (it was initialized earlier)
         if is_setup_mode:
@@ -1317,11 +1380,9 @@ async def update_download_clients(
         new_config_data.pop("qbittorrent", None)
         new_config_data.pop("sabnzbd", None)
 
-        # Reset bandwidth percentages if enabled client types changed
-        if old_enabled_types != new_enabled_types:
-            logger.info(f"Enabled client types changed from {old_enabled_types} to {new_enabled_types}, resetting bandwidth splits")
-            new_config_data["bandwidth"]["download"]["client_percents"] = {}
-            new_config_data["bandwidth"]["upload"]["upload_client_percents"] = {}
+        # Prune per-client percent splits to the current set of client ids, so a removed
+        # client's id-keyed entry can't linger and a new same-type client starts at equal split.
+        _prune_percent_dicts(new_config_data, {c.id for c in processed_clients})
 
         # Update via config manager
         updated_config = await config_manager.update_full_config(
@@ -1357,6 +1418,23 @@ async def update_download_clients(
         )
 
 
+def _prune_percent_dicts(config_data: dict, valid_ids: set) -> None:
+    """Filter every per-client percent dict in config_data to keys in valid_ids (in place)."""
+    def _keep(d):
+        return {k: v for k, v in (d or {}).items() if k in valid_ids}
+
+    bw = config_data.get("bandwidth", {})
+    dl = bw.get("download", {})
+    ul = bw.get("upload", {})
+    dl["client_percents"] = _keep(dl.get("client_percents"))
+    ul["upload_client_percents"] = _keep(ul.get("upload_client_percents"))
+    dl.setdefault("scheduled", {})["client_percents"] = _keep(dl.get("scheduled", {}).get("client_percents"))
+    ul.setdefault("scheduled", {})["client_percents"] = _keep(ul.get("scheduled", {}).get("client_percents"))
+    fs = config_data.get("failsafe", {})
+    fs["shutdown_download_client_percents"] = _keep(fs.get("shutdown_download_client_percents"))
+    fs["shutdown_upload_client_percents"] = _keep(fs.get("shutdown_upload_client_percents"))
+
+
 def _find_existing_client(config: SpeedarrConfig, client_id: Optional[str], client_type: str) -> Optional[DownloadClientConfig]:
     """Find an existing download client by ID or type."""
     all_clients = config.get_all_download_clients()
@@ -1388,5 +1466,102 @@ def _mask_sensitive_values(config: Dict[str, Any]) -> Dict[str, Any]:
             sensitive in key.lower() for sensitive in sensitive_keys
         ):
             masked[key] = "***REDACTED***"
+
+    return masked
+
+
+# Media Servers Management Endpoints
+
+class MediaServerResponse(BaseModel):
+    """Response for media servers."""
+    servers: List[Dict[str, Any]]
+    connection_results: Optional[Dict[str, bool]] = None
+
+
+class MediaServersUpdateRequest(BaseModel):
+    """Request to update media servers."""
+    servers: List[Dict[str, Any]]
+
+
+def _mask_media_server(d: Dict[str, Any]) -> Dict[str, Any]:
+    d = dict(d)
+    if d.get("token"):
+        d["token"] = "***REDACTED***"
+    if d.get("api_key"):
+        d["api_key"] = "***REDACTED***"
+    return d
+
+
+@router.get("/media-servers", response_model=MediaServerResponse)
+async def get_media_servers(request: Request, current_user: User = Depends(get_current_user)):
+    """Get all media servers (merged, with legacy Plex synthesized)."""
+    config: SpeedarrConfig = request.app.state.config
+    servers = [_mask_media_server(s.model_dump()) for s in config.get_all_media_servers()]
+    return MediaServerResponse(servers=servers)
+
+
+@router.put("/media-servers", response_model=MediaServerResponse)
+async def update_media_servers(
+    update_request: MediaServersUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Replace the media_servers list, clear legacy plex, reload adapters."""
+    if not hasattr(request.app.state, "config_manager"):
+        request.app.state.config_manager = ConfigManager(request.app)
+    config_manager: ConfigManager = request.app.state.config_manager
+    config: SpeedarrConfig = request.app.state.config
+    is_setup_mode = config is None
+
+    try:
+        existing = {} if is_setup_mode else {s.id: s for s in config.get_all_media_servers()}
+        processed = []
+        for data in update_request.servers:
+            sid = data.get("id")
+            prev = existing.get(sid) if sid else None
+            # Preserve masked secrets
+            if data.get("token") == "***REDACTED***":
+                data["token"] = prev.token if prev and prev.token else ""
+            if data.get("api_key") == "***REDACTED***":
+                data["api_key"] = prev.api_key if prev and prev.api_key else ""
+            try:
+                processed.append(MediaServerConfig(**data))
+            except Exception as e:
+                raise ValueError(f"Invalid media server '{data.get('name', 'unknown')}': {e}")
+
+        if is_setup_mode:
+            config = await config_manager.load_config_from_db(db)
+            if not config:
+                raise ValueError("Configuration not initialized. Call /initialize-config first.")
+
+        new_config_data = config.model_dump()
+        new_config_data["media_servers"] = [s.model_dump() for s in processed]
+        # Clear legacy single Plex so it doesn't double-add
+        new_config_data["plex"] = {"url": "", "token": "", "include_lan_streams": False}
+
+        updated_config = await config_manager.update_full_config(
+            config_data=new_config_data, db=db, user_id=current_user.id,
+        )
+
+        # Explicitly reload media server adapters (update_full_config does not do this)
+        await config_manager._reload_services("media_servers", updated_config)
+
+        # Test connections after reload
+        connection_results: Dict[str, bool] = {}
+        if hasattr(request.app.state, "polling_monitor"):
+            for sid, server in request.app.state.polling_monitor.media_servers.items():
+                try:
+                    connection_results[sid] = await server.test_connection()
+                except Exception:
+                    connection_results[sid] = False
+
+        servers = [_mask_media_server(s.model_dump()) for s in updated_config.get_all_media_servers()]
+        return MediaServerResponse(servers=servers, connection_results=connection_results)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to update media servers: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to update media servers: {str(e)}")
 
     return masked

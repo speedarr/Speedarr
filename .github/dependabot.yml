@@ -1,0 +1,63 @@
+# Routine dependency version-update PRs, targeting develop to match the branch workflow.
+#
+# NOTE: Dependabot only reads this file from the DEFAULT branch (main), so changes
+# here take effect after they are merged to main. GitHub always opens *security*
+# update PRs against main regardless of target-branch; keeping deps current here
+# makes those rare.
+#
+# Cooldown holds new releases back a few days before proposing them — most npm/pip
+# supply-chain compromises are caught within days of publication, and it also
+# avoids churn from quickly-yanked releases.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      backend-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Base images in backend/Dockerfile (node build stage + python runtime) —
+  # previously uncovered; python:3.11.7 and node:20.11 have long-stale pins.
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(ci)"

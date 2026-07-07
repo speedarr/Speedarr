@@ -1,0 +1,68 @@
+name: Cut Release
+
+# One-button release: tags main, triggers the release build, and syncs develop.
+# Run from the Actions tab after merging the develop -> main release PR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (vYYYY.MM.DD). Leave empty to use today's date."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cut-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="v$(date +%Y.%m.%d)"
+          fi
+          if ! echo "$VERSION" | grep -qE '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$'; then
+            echo "::error::Version '$VERSION' does not match vYYYY.MM.DD or vYYYY.MM.DD.N"
+            exit 1
+          fi
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag $VERSION already exists. For a same-day re-release, pass e.g. $VERSION.1 explicitly."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.version }}" -m "Release ${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
+
+      - name: Trigger release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Tags pushed with GITHUB_TOKEN do not fire on:push workflows
+          # (GitHub anti-recursion), so dispatch the release workflow explicitly.
+          gh workflow run release.yml --ref "${{ steps.version.outputs.version }}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Sync develop with main
+        run: |
+          git checkout develop
+          if ! git merge main -m "chore: sync develop with main after ${{ steps.version.outputs.version }}"; then
+            echo "::error::Merge conflict syncing develop with main. Sync manually: git checkout develop && git merge main && git push"
+            exit 1
+          fi
+          git push origin develop

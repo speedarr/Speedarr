@@ -37,12 +37,12 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
       </div>
 
       <div className="space-y-4 max-w-lg mx-auto">
-        {/* Plex */}
+        {/* Media Servers */}
         <div className="border rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />
-              <h3 className="font-medium">Plex</h3>
+              <h3 className="font-medium">Media Servers</h3>
             </div>
             <Button
               variant="ghost"
@@ -54,15 +54,23 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
               Edit
             </Button>
           </div>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Server URL</span>
-              <span className="font-mono text-xs">{state.plex?.url || 'Not set'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Token</span>
-              <span>{state.plex?.token ? '••••••••' : 'Not set'}</span>
-            </div>
+          <div className="space-y-2">
+            {state.mediaServers && state.mediaServers.length > 0 ? (
+              state.mediaServers.map(server => (
+                <div key={server.id} className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium">{server.name}</span>
+                    <span className="text-xs text-muted-foreground capitalize">{server.type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">URL</span>
+                    <span className="font-mono text-xs">{server.url || 'Not set'}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">None configured</p>
+            )}
           </div>
         </div>
 

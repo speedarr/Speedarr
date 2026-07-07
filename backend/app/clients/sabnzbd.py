@@ -96,13 +96,14 @@ class SABnzbdClient:
             return
 
         try:
-            # Set absolute speed limit using value with M suffix for MB/s
-            # Convert Mbps to MB/s (divide by 8)
-            mb_per_sec = download_limit / 8
-            value = f"{mb_per_sec:.1f}M"
+            # Set absolute speed limit in KB/s (K suffix). Convert Mbps -> KB/s and
+            # clamp to >= 1 so a throttle floor never rounds to 0, which SABnzbd
+            # treats as unlimited. See issue #43.
+            kb_per_sec = max(1, round(download_limit * 1000 / 8))
+            value = f"{kb_per_sec}K"
             await self._api_call("config", {"name": "speedlimit", "value": value})
 
-            logger.debug(f"Set SABnzbd download limit: {download_limit:.1f} Mbps ({mb_per_sec:.1f} MB/s)")
+            logger.debug(f"Set SABnzbd download limit: {download_limit:.3f} Mbps ({kb_per_sec} KB/s)")
 
         except Exception as e:
             logger.error(f"Failed to set SABnzbd speed limit: {e}")

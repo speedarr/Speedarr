@@ -1,21 +1,62 @@
 """
 Bandwidth API routes for viewing bandwidth metrics and usage.
 """
+import json
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from typing import Optional, List, Dict, Any, Iterable
 from datetime import datetime, timedelta, date, timezone
 from loguru import logger
 
 from app.api.auth import require_admin
 from app.models import User, BandwidthMetric, BandwidthMetricHourly, BandwidthMetricDaily
 from app.database import get_db
-from app.utils.bandwidth import filter_streams_for_bandwidth
 from app.utils.errors import ErrorCode, raise_error
 
 router = APIRouter(prefix="/api/bandwidth", tags=["bandwidth"])
+
+
+def pivot_per_server(rows):
+    """rows: iterable of (timestamp, per_server_json). Returns (series_ids, points)."""
+    series_ids = set()
+    points = []
+    for ts, raw in rows:
+        point = {"timestamp": ts}
+        if raw:
+            try:
+                data = json.loads(raw)
+                for sid, mbps in data.items():
+                    point[sid] = mbps
+                    series_ids.add(sid)
+            except (ValueError, TypeError):
+                pass
+        points.append(point)
+    return sorted(series_ids), points
+
+
+def parse_per_client(raw):
+    """Parse a BandwidthMetric.per_client JSON string into {client_id: {d,u,dl,ul}}.
+
+    Tolerant of None and malformed JSON (returns {}), mirroring pivot_per_server.
+    """
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def client_series_from_ids(ids):
+    """Build the sorted client_series descriptor list from a set of series ids.
+
+    Type is derived by splitting on '_' (client ids are '<type>_<timestamp>';
+    legacy series ids equal the bare type).
+    """
+    return [{"id": sid, "type": sid.split("_")[0]} for sid in sorted(ids)]
 
 
 class TemporaryLimitRequest(BaseModel):
@@ -40,66 +81,6 @@ class TemporaryLimitResponse(BaseModel):
     remaining_minutes: Optional[float] = None
     source: Optional[str] = None
     set_by: Optional[str] = None
-
-
-@router.get("/current")
-async def get_current_bandwidth(request: Request):
-    """
-    Get current real-time bandwidth allocation and usage.
-
-    Returns current throttle state and active stream bandwidth.
-    """
-    try:
-        decision_engine = request.app.state.decision_engine
-        polling_monitor = request.app.state.polling_monitor
-        controller_manager = request.app.state.controller_manager
-
-        # Get active streams (use bitrate - media file's encoded rate)
-        active_streams = polling_monitor._cached_streams or []
-        total_stream_bandwidth = sum(s.get("stream_bitrate_mbps", 0) for s in active_streams)
-
-        # Get reserved bandwidth
-        reserved_bandwidth = await polling_monitor.get_total_reserved_bandwidth()
-
-        # Get configuration limits
-        config = decision_engine.config
-
-        # Filter streams for reserved bandwidth based on LAN/WAN config
-        bandwidth_streams = filter_streams_for_bandwidth(
-            active_streams, config.plex.include_lan_streams
-        )
-        reserved_stream_bandwidth = sum(s.get("stream_bitrate_mbps", 0) for s in bandwidth_streams)
-
-        # Get current client stats
-        client_stats = await controller_manager.get_client_stats()
-
-        return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "download": {
-                "total_limit_mbps": config.bandwidth.download.total_limit,
-                "qbittorrent_limit_mbps": client_stats.get("qbittorrent", {}).get("download_limit"),
-                "sabnzbd_limit_mbps": client_stats.get("sabnzbd", {}).get("download_limit"),
-                "allocated_mbps": sum(
-                    client_stats.get(client, {}).get("download_limit", 0)
-                    for client in ["qbittorrent", "sabnzbd"]
-                )
-            },
-            "upload": {
-                "total_limit_mbps": config.bandwidth.upload.total_limit,
-                "qbittorrent_limit_mbps": client_stats.get("qbittorrent", {}).get("upload_limit"),
-                "reserved_for_streams_mbps": reserved_stream_bandwidth,
-                "reserved_for_reservations_mbps": reserved_bandwidth
-            },
-            "streams": {
-                "active_count": len(active_streams),
-                "total_bandwidth_mbps": total_stream_bandwidth,
-                "reserved_bandwidth_mbps": reserved_stream_bandwidth
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting current bandwidth: {e}")
-        raise_error(ErrorCode.INTERNAL_ERROR, "Failed to get current bandwidth", log=False)
 
 
 @router.get("/history")
@@ -287,9 +268,10 @@ async def get_bandwidth_chart_data(
 
         # Convert to chart data format with per-datapoint limits
         chart_data = []
+        client_series_ids: set = set()
 
         for m in metrics:
-            chart_data.append({
+            point = {
                 "timestamp": m.timestamp.isoformat() + 'Z',  # Add Z to indicate UTC
                 "download_speed": sum(filter(None, [
                     m.qbittorrent_download_speed, m.sabnzbd_download_speed,
@@ -300,26 +282,6 @@ async def get_bandwidth_chart_data(
                 ])),
                 "stream_bandwidth": m.total_stream_bandwidth or 0,
                 "plex_bandwidth": m.total_stream_actual_bandwidth or 0,
-                # Per-client download speeds
-                "qbittorrent_speed": m.qbittorrent_download_speed or 0,
-                "sabnzbd_speed": m.sabnzbd_download_speed or 0,
-                "nzbget_speed": m.nzbget_download_speed or 0,
-                "transmission_speed": m.transmission_download_speed or 0,
-                "deluge_speed": m.deluge_download_speed or 0,
-                # Per-client upload speeds
-                "qbittorrent_upload_speed": m.qbittorrent_upload_speed or 0,
-                "transmission_upload_speed": m.transmission_upload_speed or 0,
-                "deluge_upload_speed": m.deluge_upload_speed or 0,
-                # Per-client download limits
-                "qbittorrent_download_limit": m.qbittorrent_download_limit,
-                "sabnzbd_download_limit": m.sabnzbd_download_limit,
-                "nzbget_download_limit": m.nzbget_download_limit,
-                "transmission_download_limit": m.transmission_download_limit,
-                "deluge_download_limit": m.deluge_download_limit,
-                # Per-client upload limits
-                "qbittorrent_upload_limit": m.qbittorrent_upload_limit,
-                "transmission_upload_limit": m.transmission_upload_limit,
-                "deluge_upload_limit": m.deluge_upload_limit,
                 # Other
                 "active_streams_count": m.active_streams_count or 0,
                 "wan_stream_bandwidth": m.wan_stream_bandwidth,
@@ -328,13 +290,56 @@ async def get_bandwidth_chart_data(
                 "lan_streams_count": m.lan_streams_count,
                 "snmp_download_speed": m.snmp_download_speed,
                 "snmp_upload_speed": m.snmp_upload_speed,
-            })
+            }
+
+            per_client = parse_per_client(m.per_client)
+            if per_client:
+                # New row — emit per-client-id fields keyed by client id.
+                for cid, vals in per_client.items():
+                    point[f"{cid}_speed"] = vals.get("d") or 0
+                    point[f"{cid}_upload_speed"] = vals.get("u") or 0
+                    point[f"{cid}_download_limit"] = vals.get("dl")
+                    point[f"{cid}_upload_limit"] = vals.get("ul")
+                    client_series_ids.add(cid)
+            else:
+                # Legacy row (no per_client) — emit one merged series per type,
+                # keyed by the type string (series id == type).
+                legacy = [
+                    ("qbittorrent", m.qbittorrent_download_speed, m.qbittorrent_upload_speed,
+                     m.qbittorrent_download_limit, m.qbittorrent_upload_limit),
+                    ("sabnzbd", m.sabnzbd_download_speed, None, m.sabnzbd_download_limit, None),
+                    ("nzbget", m.nzbget_download_speed, None, m.nzbget_download_limit, None),
+                    ("transmission", m.transmission_download_speed, m.transmission_upload_speed,
+                     m.transmission_download_limit, m.transmission_upload_limit),
+                    ("deluge", m.deluge_download_speed, m.deluge_upload_speed,
+                     m.deluge_download_limit, m.deluge_upload_limit),
+                ]
+                for t, dl_speed, ul_speed, dl_limit, ul_limit in legacy:
+                    if dl_speed is None and ul_speed is None and dl_limit is None and ul_limit is None:
+                        continue
+                    point[f"{t}_speed"] = dl_speed or 0
+                    point[f"{t}_upload_speed"] = ul_speed or 0
+                    point[f"{t}_download_limit"] = dl_limit
+                    point[f"{t}_upload_limit"] = ul_limit
+                    client_series_ids.add(t)
+
+            chart_data.append(point)
+
+        # Build per-server pivot from raw BandwidthMetric rows.
+        # v1 limitation: per_server data is only available on raw metrics (this
+        # window); hourly/daily rollups do not carry the per_server JSON column.
+        server_series, server_points = pivot_per_server(
+            [(m.timestamp.isoformat() + 'Z', m.per_server) for m in metrics]
+        )
 
         return {
             "data": chart_data,
             "start_time": chart_data[0]["timestamp"] if chart_data else (datetime.now(timezone.utc).isoformat() + 'Z'),
             "end_time": chart_data[-1]["timestamp"] if chart_data else (datetime.now(timezone.utc).isoformat() + 'Z'),
             "interval_minutes": interval_minutes,
+            "per_server_series": server_series,
+            "per_server_points": server_points,
+            "client_series": client_series_from_ids(client_series_ids),
         }
 
     except Exception as e:

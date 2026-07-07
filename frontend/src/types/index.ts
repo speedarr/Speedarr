@@ -29,6 +29,21 @@ export interface ActiveStream {
   player?: string;
   platform?: string;
   is_lan?: boolean;
+  server_id?: string;
+  server_name?: string;
+  server_type?: 'plex' | 'emby' | 'jellyfin';
+}
+
+export interface MediaServer {
+  id: string;
+  type: 'plex' | 'emby' | 'jellyfin';
+  name: string;
+  enabled: boolean;
+  url: string;
+  token?: string;
+  api_key?: string;
+  include_lan_streams: boolean;
+  lan_networks?: string[];
 }
 
 export interface StreamReservation {
@@ -85,30 +100,10 @@ export interface StreamSummary {
 }
 
 // Bandwidth types
-export interface BandwidthInfo {
-  total_limit: number;
-  qbittorrent_speed: number | null;
-  qbittorrent_limit: number | null;
-  sabnzbd_speed: number | null;
-  sabnzbd_limit: number | null;
-  snmp_speed: number | null;
-  available: number;
-  current_usage: number;
-  used: number;
-  utilization_percent: number;
-}
-
 export interface StreamInfo {
   active_count: number;
   total_bandwidth_mbps: number;
   reserved_bandwidth_mbps: number;
-}
-
-export interface CurrentBandwidthResponse {
-  timestamp: string;
-  download: BandwidthInfo;
-  upload: BandwidthInfo;
-  streams: StreamInfo;
 }
 
 export interface BandwidthMetric {
@@ -153,26 +148,6 @@ export interface ChartDataPoint {
   download_speed: number;
   upload_speed: number;
   stream_bandwidth: number;
-  // Per-client download speeds
-  qbittorrent_speed: number;
-  sabnzbd_speed: number;
-  nzbget_speed: number;
-  transmission_speed: number;
-  deluge_speed: number;
-  // Per-client upload speeds
-  qbittorrent_upload_speed: number;
-  transmission_upload_speed: number;
-  deluge_upload_speed: number;
-  // Per-client download limits
-  qbittorrent_download_limit: number | null;
-  sabnzbd_download_limit: number | null;
-  nzbget_download_limit: number | null;
-  transmission_download_limit: number | null;
-  deluge_download_limit: number | null;
-  // Per-client upload limits
-  qbittorrent_upload_limit: number | null;
-  transmission_upload_limit: number | null;
-  deluge_upload_limit: number | null;
   // WAN/LAN stream split
   wan_stream_bandwidth: number | null;
   lan_stream_bandwidth: number | null;
@@ -182,6 +157,10 @@ export interface ChartDataPoint {
   active_streams_count: number;
   snmp_download_speed: number | null;
   snmp_upload_speed: number | null;
+  // Per-client-id metrics are dynamic, keyed by client id (and legacy `<type>`
+  // for pre-fix rows): `<id>_speed`, `<id>_upload_speed`, `<id>_download_limit`,
+  // `<id>_upload_limit`. Accessed via the index signature below.
+  [key: string]: number | string | null | undefined;
 }
 
 export interface BandwidthChartDataResponse {
@@ -189,10 +168,14 @@ export interface BandwidthChartDataResponse {
   start_time: string;
   end_time: string;
   interval_minutes: number;
+  per_server_series?: string[];
+  per_server_points?: Array<Record<string, number | string>>;
+  client_series?: Array<{ id: string; type: string }>;
 }
 
 // Client status for bandwidth cards
 export interface ClientBandwidthStatus {
+  id: string;
   type: string;
   name: string;
   color: string;
@@ -210,13 +193,8 @@ export interface SystemStatus {
   monitoring_enabled: boolean;
   setup_required?: boolean;
   snmp_enabled?: boolean;
-  plex_status?: { connected: boolean; consecutive_failures: number };
+  media_server_statuses?: Record<string, { connected: boolean; consecutive_failures: number; type: string; name: string }>;
   snmp_status?: { enabled: boolean; connected: boolean };
-  clients: {
-    qbittorrent: boolean;
-    sabnzbd: boolean;
-    plex: boolean;
-  };
   bandwidth: {
     download: {
       total_limit: number;
@@ -225,10 +203,6 @@ export interface SystemStatus {
       clients?: ClientBandwidthStatus[];
       stream_reserve?: number | null;
       holding_reserve?: number | null;
-      qbittorrent_speed?: number | null;
-      qbittorrent_limit?: number | null;
-      sabnzbd_speed?: number | null;
-      sabnzbd_limit?: number | null;
       snmp_speed?: number | null;
     };
     upload: {
@@ -236,37 +210,47 @@ export interface SystemStatus {
       current_usage: number;
       available: number;
       clients?: ClientBandwidthStatus[];
-      qbittorrent_speed?: number | null;
-      qbittorrent_limit?: number | null;
       snmp_speed?: number | null;
       stream_bandwidth?: number | null;
+      wan_stream_bandwidth?: number | null;
+      lan_stream_bandwidth?: number | null;
       reserved_bandwidth?: number | null;
       holding_bandwidth?: number | null;
     };
   };
 }
 
+export interface BootstrapResponse {
+  setup_required: boolean;
+  require_login: boolean;
+}
+
 // Control types
 export interface RestoreSpeedsResponse {
   message: string;
-  qbittorrent_restored: boolean;
-  sabnzbd_restored: boolean;
+  results: Record<string, boolean>;
+  clients: Record<string, unknown>;
+  restored_by: string;
+}
+
+export interface ClientThrottle {
+  client_id: string;
+  download_limit?: number;
+  upload_limit?: number;
 }
 
 export interface ManualThrottleRequest {
-  download_limit?: number;
-  upload_limit?: number;
+  clients: ClientThrottle[];
+  duration_minutes?: number;
   reason?: string;
 }
 
 export interface ManualThrottleResponse {
   message: string;
-  applied_limits: {
-    qbittorrent_download?: number;
-    qbittorrent_upload?: number;
-    sabnzbd_download?: number;
-    sabnzbd_upload?: number;
-  };
+  results: Record<string, boolean>;
+  decisions: Record<string, unknown>;
+  applied_by: string;
+  duration_minutes?: number | null;
 }
 
 export interface MonitoringControlResponse {

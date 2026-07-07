@@ -2,13 +2,15 @@
 Configuration management for Speedarr.
 """
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 import json
+import ipaddress
 from pathlib import Path
 from cryptography.fernet import Fernet
 import os
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,49 @@ class PlexConfig(BaseModel):
         default=False,
         description="Include LAN streams in bandwidth calculations (WAN-only by default)"
     )
+
+
+class MediaServerConfig(BaseModel):
+    """Unified media server configuration supporting multiple server types."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Stable unique id (not derived from URL)")
+    name: str = Field("Plex", description="Display name for this server")
+    type: str = Field("plex", description="Server type: plex, emby, jellyfin")
+    enabled: bool = True
+    url: str = ""
+    token: str = ""        # Plex (X-Plex-Token)
+    api_key: str = ""      # Emby / Jellyfin
+    include_lan_streams: bool = Field(
+        default=False,
+        description="Include LAN streams from this server in bandwidth calculations",
+    )
+    lan_networks: List[str] = Field(
+        default_factory=list,
+        description="Manual LAN subnet overrides (CIDR or bare IP). When set, "
+                    "replaces auto-detected subnets and the private-IP heuristic "
+                    "for IP-based LAN/WAN classification.",
+    )
+
+    @field_validator("lan_networks", mode="before")
+    @classmethod
+    def _normalize_lan_networks(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = v.replace("\n", ",").split(",")
+        cleaned = []
+        for entry in v:
+            if not isinstance(entry, str):
+                continue
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                logger.warning(f"Ignoring invalid LAN network entry: {entry!r}")
+                continue
+            cleaned.append(entry)
+        return cleaned
 
 
 class QBittorrentConfig(BaseModel):
@@ -79,15 +124,21 @@ class TimeBasedScheduleConfig(BaseModel):
     total_limit: float = Field(0, description="Alternate bandwidth limit during scheduled time (Mbps)")
     client_percents: Dict[str, int] = Field(
         default_factory=dict,
-        description="Alternate client percentages during scheduled time"
+        description="Alternate client percentages during scheduled time (maps client id -> percent)"
     )
 
 
 class DownloadBandwidthConfig(BaseModel):
     """Download bandwidth configuration."""
     total_limit: float = Field(..., description="Total download bandwidth in Mbps")
+    min_limit_mbps: float = Field(
+        1.0, ge=0,
+        description="Minimum speed each client is throttled to (Mbps). "
+                    "Clients are never throttled below this; 0 = trickle to near-zero. "
+                    "Prevents the limit from being removed entirely."
+    )
 
-    # Client percentages when multiple clients are downloading (maps client_type -> percent)
+    # Client percentages when multiple clients are downloading (maps client id -> percent)
     # When no clients are downloading: equal split
     # When one client is downloading: 95% to active, 5% safety net
     # When multiple clients are downloading: use these percentages
@@ -112,7 +163,13 @@ class DownloadBandwidthConfig(BaseModel):
 class UploadBandwidthConfig(BaseModel):
     """Upload bandwidth configuration."""
     total_limit: float = Field(..., description="Total upload bandwidth in Mbps")
-    # Client percentages for upload bandwidth splitting (maps client_type -> percent)
+    min_limit_mbps: float = Field(
+        1.0, ge=0,
+        description="Minimum speed each client is throttled to (Mbps). "
+                    "Clients are never throttled below this; 0 = trickle to near-zero. "
+                    "Prevents the limit from being removed entirely."
+    )
+    # Client percentages for upload bandwidth splitting (maps client id -> percent)
     upload_client_percents: Dict[str, int] = Field(
         default_factory=dict,
         description="Upload client percentages for bandwidth splitting"
@@ -245,15 +302,19 @@ class HistoryConfig(BaseModel):
 class FailsafeConfig(BaseModel):
     """Failsafe configuration."""
     plex_timeout: int = Field(300, description="Seconds before assuming no streams")
-    shutdown_download_speed: Optional[float] = Field(None, description="Total download speed applied to clients on shutdown (Mbps), null = restore normal speeds")
-    shutdown_upload_speed: Optional[float] = Field(None, description="Total upload speed applied to torrent clients on shutdown (Mbps), null = restore normal speeds")
+    shutdown_download_speed: Optional[float] = Field(None, ge=0, description="Total download speed applied to clients on shutdown (Mbps), null = restore normal speeds. 0 floors to a non-zero trickle, never unlimited.")
+    shutdown_upload_speed: Optional[float] = Field(None, ge=0, description="Total upload speed applied to torrent clients on shutdown (Mbps), null = restore normal speeds. 0 floors to a non-zero trickle, never unlimited.")
     shutdown_download_client_percents: Dict[str, float] = Field(
         default_factory=dict,
-        description="Per-client-type percentage split of shutdown download speed (empty = equal split)"
+        description="Per-client-id percentage split of shutdown download speed (empty = equal split)"
     )
     shutdown_upload_client_percents: Dict[str, float] = Field(
         default_factory=dict,
-        description="Per-client-type percentage split of shutdown upload speed (empty = equal split)"
+        description="Per-client-id percentage split of shutdown upload speed (empty = equal split)"
+    )
+    server_hold_grace_seconds: int = Field(
+        300, ge=0,
+        description="How long to keep a down media server's last-known streams before dropping them (partial outage). 0 = drop immediately.",
     )
 
 
@@ -262,6 +323,10 @@ class SystemConfig(BaseModel):
     update_frequency: int = Field(5, ge=5, description="Polling interval in seconds (minimum 5)")
     log_level: str = "INFO"
     speedarr_url: str = Field("", description="Base URL of Speedarr instance for webhooks (empty = auto-detect from browser)")
+    require_login: bool = Field(
+        False,
+        description="When true, the dashboard and read APIs require authentication. Default false (public).",
+    )
 
 
 def _atomic_write_file(file_path: Path, content: bytes | str, mode: str = "text") -> bool:
@@ -386,6 +451,8 @@ class SpeedarrConfig(BaseModel):
     """Main Speedarr configuration stored in database."""
     system: SystemConfig = Field(default_factory=SystemConfig)
     plex: PlexConfig = Field(default_factory=PlexConfig)
+    # New multi-server config (legacy `plex` above is kept for backward compatibility)
+    media_servers: List[MediaServerConfig] = Field(default_factory=list)
     # Legacy single-client configs (for backward compatibility)
     qbittorrent: Optional[QBittorrentConfig] = None
     sabnzbd: Optional[SABnzbdConfig] = None
@@ -443,6 +510,28 @@ class SpeedarrConfig(BaseModel):
     def get_upload_clients(self) -> List[DownloadClientConfig]:
         """Get enabled clients that support upload (torrent clients)."""
         return [c for c in self.get_enabled_download_clients() if c.supports_upload]
+
+    def get_all_media_servers(self) -> List["MediaServerConfig"]:
+        """
+        Get all media servers, merging the legacy single Plex into the new format.
+        Mirrors get_all_download_clients(): legacy entry uses the fixed id "plex".
+        """
+        servers = list(self.media_servers)
+        existing_ids = {s.id for s in servers}
+        if self.plex.url and "plex" not in existing_ids:
+            servers.append(MediaServerConfig(
+                id="plex",
+                type="plex",
+                name="Plex",
+                url=self.plex.url,
+                token=self.plex.token,
+                include_lan_streams=self.plex.include_lan_streams,
+            ))
+        return servers
+
+    def get_enabled_media_servers(self) -> List["MediaServerConfig"]:
+        """Get only enabled media servers."""
+        return [s for s in self.get_all_media_servers() if s.enabled]
 
 
 # Global settings instance

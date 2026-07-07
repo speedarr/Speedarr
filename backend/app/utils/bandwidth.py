@@ -82,21 +82,21 @@ def calculate_stream_bandwidth(
 
 def filter_streams_for_bandwidth(
     streams: List[Dict[str, Any]],
-    include_lan_streams: bool = False
 ) -> List[Dict[str, Any]]:
     """
-    Filter streams for bandwidth calculations based on LAN/WAN config.
+    Filter streams for bandwidth calculations using each stream's OWN server policy.
 
-    Args:
-        streams: List of stream data dicts
-        include_lan_streams: If False, excludes LAN streams from calculations
-
-    Returns:
-        Filtered list of streams to use for bandwidth calculations
+    A LAN stream is included only when the server it came from has
+    include_lan_streams=True (carried on the stream dict). WAN streams are
+    always included. Missing policy defaults to excluding LAN (legacy default).
     """
-    if include_lan_streams:
-        return streams
-    return [s for s in streams if not s.get("is_lan", False)]
+    kept = []
+    for s in streams:
+        if not s.get("is_lan", False):
+            kept.append(s)
+        elif s.get("include_lan_streams", False):
+            kept.append(s)
+    return kept
 
 
 def calculate_total_stream_bitrate(streams: List[Dict[str, Any]]) -> float:
@@ -110,3 +110,22 @@ def calculate_total_stream_bitrate(streams: List[Dict[str, Any]]) -> float:
         Total bitrate in Mbps
     """
     return sum(s.get("stream_bitrate_mbps", 0) for s in streams)
+
+
+def split_stream_bitrate_by_network(
+    streams: List[Dict[str, Any]],
+) -> tuple[float, float]:
+    """
+    Split total stream bitrate into (WAN, LAN) totals using each stream's
+    is_lan flag.
+
+    A stream counts as LAN only when is_lan is truthy; missing/falsy is_lan
+    counts as WAN. Returns (wan_bitrate_mbps, lan_bitrate_mbps); the two
+    always sum to the total stream bitrate.
+    """
+    wan_streams = [s for s in streams if not s.get("is_lan", False)]
+    lan_streams = [s for s in streams if s.get("is_lan", False)]
+    return (
+        calculate_total_stream_bitrate(wan_streams),
+        calculate_total_stream_bitrate(lan_streams),
+    )

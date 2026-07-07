@@ -25,8 +25,8 @@ const DEFAULT_EVENTS = [
 ];
 
 const AVAILABLE_EVENTS = [
-  { value: 'stream_started', label: 'Stream Started', description: 'When a new Plex stream begins' },
-  { value: 'stream_ended', label: 'Stream Ended', description: 'When a Plex stream stops' },
+  { value: 'stream_started', label: 'Stream Started', description: 'When a new stream begins' },
+  { value: 'stream_ended', label: 'Stream Ended', description: 'When a stream stops' },
   { value: 'stream_count_exceeded', label: 'Stream Count Exceeded', description: 'When streams exceed threshold' },
   { value: 'stream_bitrate_exceeded', label: 'Stream Bitrate Exceeded', description: 'When bitrate exceeds threshold' },
   { value: 'service_unreachable', label: 'Service Unreachable', description: 'When a service becomes unreachable' },

@@ -2,10 +2,11 @@
 Status API routes.
 """
 from datetime import datetime
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Depends
 from loguru import logger
 from app import __version__, __commit__, __branch__
-from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
+from app.api.auth import require_auth_if_private
+from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth, split_stream_bitrate_by_network
 from app.services.decision_engine import is_within_schedule
 from app.services.version_service import version_checker
 
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 
 
 @router.get("/current")
-async def get_current_status(request: Request):
+async def get_current_status(request: Request, _auth=Depends(require_auth_if_private)):
     """Get current system status."""
     # Check if setup is required
     setup_flag = getattr(request.app.state, 'setup_required', False)
@@ -26,7 +27,6 @@ async def get_current_status(request: Request):
             "active_streams": 0,
             "is_throttled": False,
             "monitoring_enabled": False,
-            "clients": {},
             "bandwidth": {
                 "download": {"total_limit": 0, "current_usage": 0, "clients": []},
                 "upload": {"total_limit": 0, "current_usage": 0, "clients": []},
@@ -52,10 +52,11 @@ async def get_current_status(request: Request):
         stream.get("stream_bitrate_mbps", 0) for stream in active_streams
     )
 
+    # Split stream bitrate into WAN/LAN for the WAN-focused dashboard card
+    wan_stream_bandwidth, lan_stream_bandwidth = split_stream_bitrate_by_network(active_streams)
+
     # Filter streams for bandwidth calculation based on LAN/WAN config
-    bandwidth_streams = filter_streams_for_bandwidth(
-        active_streams, config.plex.include_lan_streams
-    )
+    bandwidth_streams = filter_streams_for_bandwidth(active_streams)
 
     # Calculate reserved bandwidth (with overhead, or fixed manual value) - only counts WAN streams when toggle is off
     streams_config = config.bandwidth.streams
@@ -125,29 +126,6 @@ async def get_current_status(request: Request):
                 "error": (stats.get("error") or "Connection failed") if "error" in stats else None,
             })
 
-    # Legacy fields for backward compatibility (find first client of each type)
-    def find_stats_by_type(client_type: str) -> dict:
-        for cid, stats in download_stats.items():
-            if stats.get("client_type") == client_type:
-                return stats
-        return {}
-
-    qb_stats = find_stats_by_type("qbittorrent")
-    sab_stats = find_stats_by_type("sabnzbd")
-    qb_download = qb_stats.get("download_speed", 0) or 0
-    qb_upload = qb_stats.get("upload_speed", 0) or 0
-    qb_download_limit = qb_stats.get("download_limit", 0) or 0
-    qb_upload_limit = qb_stats.get("upload_limit", 0) or 0
-    sab_download = sab_stats.get("download_speed", 0) or 0
-    sab_download_limit = sab_stats.get("download_limit", 0) or 0
-
-    # Build clients status dict dynamically
-    clients_status = {
-        c.id: download_stats.get(c.id, {}).get("active", False)
-        for c in enabled_clients
-    }
-    clients_status["plex"] = polling_monitor._plex_consecutive_failures == 0
-
     # Calculate effective total limits (use scheduled if in schedule window)
     download_in_schedule = is_within_schedule(config.bandwidth.download.scheduled)
     upload_in_schedule = is_within_schedule(config.bandwidth.upload.scheduled)
@@ -166,6 +144,16 @@ async def get_current_status(request: Request):
     # Check if SNMP is enabled in config
     snmp_enabled = config.snmp.enabled if hasattr(config, 'snmp') and config.snmp else False
 
+    media_server_statuses = {}
+    for s in config.get_all_media_servers():
+        st = getattr(polling_monitor, "_server_state", {}).get(s.id, {})
+        media_server_statuses[s.id] = {
+            "connected": st.get("failures", 0) == 0,
+            "consecutive_failures": st.get("failures", 0),
+            "type": s.type,
+            "name": s.name,
+        }
+
     return {
         "status": "running",
         "setup_required": False,
@@ -173,15 +161,11 @@ async def get_current_status(request: Request):
         "is_throttled": len(active_streams) > 0,
         "monitoring_enabled": not polling_monitor._paused if hasattr(polling_monitor, '_paused') else True,
         "snmp_enabled": snmp_enabled,
-        "plex_status": {
-            "connected": polling_monitor._plex_consecutive_failures == 0,
-            "consecutive_failures": polling_monitor._plex_consecutive_failures,
-        },
+        "media_server_statuses": media_server_statuses,
         "snmp_status": {
             "enabled": snmp_enabled,
             "connected": polling_monitor._last_snmp_data is not None if snmp_enabled else True,
         },
-        "clients": clients_status,
         "bandwidth": {
             "download": {
                 "total_limit": effective_download_limit,
@@ -190,11 +174,6 @@ async def get_current_status(request: Request):
                 # Download reserve for TCP ACKs from Plex streams
                 "stream_reserve": download_stream_reserve,
                 "holding_reserve": download_holding_reserve,
-                # Legacy fields for backward compatibility
-                "qbittorrent_speed": qb_download,
-                "qbittorrent_limit": qb_download_limit,
-                "sabnzbd_speed": sab_download,
-                "sabnzbd_limit": sab_download_limit,
                 "snmp_speed": snmp_download,
                 "available": max(0, effective_download_limit - total_download_usage - download_stream_reserve - download_holding_reserve),
                 "scheduled_active": download_in_schedule,
@@ -203,12 +182,11 @@ async def get_current_status(request: Request):
                 "total_limit": effective_upload_limit,
                 "current_usage": total_upload_usage,
                 "clients": upload_clients,  # New dynamic client data
-                # Legacy fields for backward compatibility
-                "qbittorrent_speed": qb_upload,
-                "qbittorrent_limit": qb_upload_limit,
                 "snmp_speed": snmp_upload,
                 "available": max(0, effective_upload_limit - reserved_bandwidth - holding_bandwidth),
                 "stream_bandwidth": total_stream_bandwidth,
+                "wan_stream_bandwidth": wan_stream_bandwidth,
+                "lan_stream_bandwidth": lan_stream_bandwidth,
                 "reserved_bandwidth": reserved_bandwidth,
                 "holding_bandwidth": holding_bandwidth,
                 "scheduled_active": upload_in_schedule,

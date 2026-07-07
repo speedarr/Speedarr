@@ -4,11 +4,12 @@ import { BandwidthChart } from '@/components/BandwidthChart';
 import { ActiveStreams } from '@/components/ActiveStreams';
 import type { ZoomRange } from '@/hooks/useChartZoom';
 import { TemporaryLimits } from '@/components/TemporaryLimits';
+import { StreamCountDisplay } from '@/components/StreamCountDisplay';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { SystemStatus } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, AlertTriangle, Frown, Clock } from 'lucide-react';
+import { Loader2, AlertCircle, AlertTriangle, Clock } from 'lucide-react';
 
 interface TemporaryLimitState {
   active: boolean;
@@ -91,6 +92,11 @@ export const Home: React.FC = () => {
     );
   }
 
+  // Configured media servers (every server in media_server_statuses, connected or not).
+  const configuredServerCount = status?.media_server_statuses
+    ? Object.keys(status.media_server_statuses).length
+    : 0;
+
   return (
     <div className="space-y-6">
       {error && (
@@ -124,7 +130,7 @@ export const Home: React.FC = () => {
                 </span>
               </div>
               {status.bandwidth.download.clients?.map((client) => (
-                <div key={client.type} className="flex justify-between items-center">
+                <div key={client.id} className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground" style={{ color: client.error ? undefined : client.color }}>
                     {client.error ? (
                       <span className="text-red-500 dark:text-red-400 flex items-center gap-1">
@@ -172,7 +178,7 @@ export const Home: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Plex Streams Count with WAN Usage (when SNMP enabled) */}
+          {/* Stream Count with WAN Usage (when SNMP enabled) */}
           <Card className="flex items-center">
             <CardContent className="py-6 px-2 sm:px-4 w-full">
               {status.snmp_enabled ? (
@@ -197,31 +203,9 @@ export const Home: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Plex Streams - Center */}
+                  {/* Stream Count - Center */}
                   <div className="flex flex-col items-center justify-center border-x border-border py-2 w-full">
-                    {status.plex_status && !status.plex_status.connected ? (
-                      <>
-                        <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
-                        <p className="text-sm text-red-500 dark:text-red-400 mt-2">Plex Unreachable</p>
-                      </>
-                    ) : status.active_streams === 0 ? (
-                      <>
-                        <Frown className="h-16 w-16 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground mt-2">No Plex Streams</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
-                          {status.active_streams}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Plex {status.active_streams === 1 ? 'Stream' : 'Streams'}
-                        </p>
-                        <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
-                          {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
-                        </p>
-                      </>
-                    )}
+                    <StreamCountDisplay status={status} />
                   </div>
 
                   {/* WAN Upload - Right */}
@@ -245,31 +229,9 @@ export const Home: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                /* Plex Streams Only (no SNMP) - Centered */
+                /* Stream Count Only (no SNMP) - Centered */
                 <div className="flex flex-col items-center justify-center">
-                  {status.plex_status && !status.plex_status.connected ? (
-                    <>
-                      <AlertTriangle className="h-16 w-16 text-red-500 dark:text-red-400" />
-                      <p className="text-sm text-red-500 dark:text-red-400 mt-2">Plex Unreachable</p>
-                    </>
-                  ) : status.active_streams === 0 ? (
-                    <>
-                      <Frown className="h-16 w-16 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground mt-2">No Plex Streams</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-6xl font-bold text-orange-500 dark:text-orange-400">
-                        {status.active_streams}
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Plex {status.active_streams === 1 ? 'Stream' : 'Streams'}
-                      </p>
-                      <p className="text-xl font-semibold text-orange-500 dark:text-orange-400 text-center">
-                        {(status.bandwidth.upload.stream_bandwidth ?? 0).toFixed(1)} Mbps Bitrate
-                      </p>
-                    </>
-                  )}
+                  <StreamCountDisplay status={status} />
                 </div>
               )}
             </CardContent>
@@ -296,7 +258,7 @@ export const Home: React.FC = () => {
                 </span>
               </div>
               {status.bandwidth.upload.clients?.map((client) => (
-                <div key={client.type} className="flex justify-between items-center">
+                <div key={client.id} className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground" style={{ color: client.error ? undefined : client.color }}>
                     {client.error ? (
                       <span className="text-red-500 dark:text-red-400 flex items-center gap-1">
@@ -317,7 +279,7 @@ export const Home: React.FC = () => {
                 </div>
               ))}
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Plex Reserved:</span>
+                <span className="text-sm text-muted-foreground">Stream Reserved:</span>
                 <span className="font-semibold text-orange-500 dark:text-orange-400">
                   {(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps
                 </span>
@@ -326,7 +288,7 @@ export const Home: React.FC = () => {
                 <Alert variant="destructive" className="py-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients limited to 1% each.
+                    Stream reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
                   </AlertDescription>
                 </Alert>
               )}
@@ -335,7 +297,7 @@ export const Home: React.FC = () => {
                 <Alert variant="destructive" className="py-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Plex reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients limited to 1% each.
+                    Stream reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
                   </AlertDescription>
                 </Alert>
               )}
@@ -375,6 +337,7 @@ export const Home: React.FC = () => {
           setDataInterval={setDataInterval}
           timeRanges={timeRanges}
           onZoomChange={setZoomRange}
+          configuredServerCount={configuredServerCount}
         />
       </ErrorBoundary>
 
@@ -384,6 +347,7 @@ export const Home: React.FC = () => {
           timeRange={timeRange}
           dataInterval={dataInterval}
           zoomRange={zoomRange}
+          configuredServerCount={configuredServerCount}
         />
       </ErrorBoundary>
     </div>
