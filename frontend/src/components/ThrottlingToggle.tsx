@@ -77,6 +77,7 @@ export const ThrottlingToggle: React.FC = () => {
       console.error('Error enabling throttling:', err);
     } finally {
       setIsBusy(false);
+      setMenuOpen(false);
     }
   };
 
@@ -91,7 +92,7 @@ export const ThrottlingToggle: React.FC = () => {
   return (
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger asChild>
+        <DropdownMenuTrigger asChild disabled={!enabled}>
           <span
             title={enabled ? 'Throttling active - click to disable' : 'Throttling disabled - click to re-enable'}
             onClick={(e) => {
