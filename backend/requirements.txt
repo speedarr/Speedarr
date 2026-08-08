@@ -8,7 +8,7 @@ sqlalchemy==2.0.25
 aiosqlite==0.20.0
 
 # HTTP Client
-aiohttp==3.14.1
+aiohttp==3.14.3
 
 # Configuration
 pydantic==2.5.3
@@ -22,7 +22,7 @@ bcrypt==4.0.1
 
 # SNMP
 pysnmp==7.1.27
-pyasn1==0.6.3
+pyasn1==0.6.4
 
 # Scheduling
 apscheduler==3.10.4
