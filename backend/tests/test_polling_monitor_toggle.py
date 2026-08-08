@@ -81,24 +81,40 @@ class FakeControllerManager:
 
 
 class FakeDB:
-    """Async-context-manager session capturing added ORM objects."""
-    def __init__(self, store):
+    """Async-context-manager session capturing added ORM objects, executed
+    statements, and commits. `executed`/`commits` are shared mutable
+    containers so every `_get_db_session()` call within a cycle (there can be
+    several: expiry persistence, decision saving, metric recording) records
+    into the same place the test inspects afterward — a swallowed exception
+    inside `_check_throttling_expiry`'s try/except can no longer produce a
+    false pass, because `execute`/`commit` must actually run to populate
+    these lists."""
+    def __init__(self, store, executed, commits):
         self.store = store
+        self.executed = executed
+        self.commits = commits
     async def __aenter__(self):
         return self
     async def __aexit__(self, *exc):
         return False
     def add(self, obj):
         self.store.append(obj)
+    async def execute(self, statement):
+        self.executed.append(statement)
+        return None
     async def commit(self):
-        pass
+        self.commits.append(True)
 
 
 def _cycle_monitor(db_store):
     pm = _monitor()
     pm.decision_engine = FakeEngine()
     pm.controller_manager = FakeControllerManager()
-    pm._get_db_session = lambda: FakeDB(db_store)
+    db_executed: list = []
+    db_commits: list = []
+    pm._get_db_session = lambda: FakeDB(db_store, db_executed, db_commits)
+    pm._db_executed = db_executed  # test-only introspection hooks
+    pm._db_commits = db_commits
     pm.snmp_monitor = None
     pm._cached_streams = []
     pm._cached_client_stats = {}
@@ -145,3 +161,8 @@ async def test_cycle_auto_reenables_after_expiry():
     await pm._download_poll_cycle()
     assert pm._throttling_disabled is False
     assert pm.decision_engine.calls == 1
+    # Persistence contract: _check_throttling_expiry must have actually run
+    # clear_throttling_state (an execute) and committed it, not silently
+    # swallowed an AttributeError from a DB fake missing `execute`.
+    assert len(pm._db_executed) >= 1
+    assert len(pm._db_commits) >= 1
