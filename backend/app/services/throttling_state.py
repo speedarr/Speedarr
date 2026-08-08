@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +50,14 @@ async def load_throttling_state(db: AsyncSession) -> ThrottlingState:
     until: Optional[datetime] = None
     raw_until = rows.get(KEY_UNTIL, "")
     if raw_until:
-        until = datetime.fromisoformat(raw_until)
+        try:
+            until = datetime.fromisoformat(raw_until)
+        except ValueError:
+            logger.warning(
+                f"Malformed throttling state timestamp for {KEY_UNTIL}: {raw_until!r}; "
+                "treating throttling as enabled"
+            )
+            return ThrottlingState(disabled=False, disabled_until=None, disabled_by=None)
         if until.tzinfo is None:
             until = until.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) >= until:

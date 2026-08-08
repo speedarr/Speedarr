@@ -70,6 +70,38 @@ async def test_keys_are_underscore_prefixed(db_session):
     assert rows and all(k.startswith("_throttling") for k in rows)
 
 
+async def test_naive_disabled_until_is_coerced_to_utc(db_session):
+    """A naive ISO timestamp in storage (no tzinfo) is treated as UTC on load."""
+    db_session.add(Configuration(key="_throttling_enabled", value="false", value_type="string"))
+    db_session.add(
+        Configuration(
+            key="_throttling_disabled_until",
+            value="2999-01-01T12:00:00",
+            value_type="string",
+        )
+    )
+    await db_session.commit()
+    state = await load_throttling_state(db_session)
+    assert state.disabled is True
+    assert state.disabled_until is not None
+    assert state.disabled_until.tzinfo is not None
+
+
+async def test_malformed_disabled_until_fails_open(db_session):
+    """A corrupted timestamp must not raise; load fails open to enabled."""
+    db_session.add(Configuration(key="_throttling_enabled", value="false", value_type="string"))
+    db_session.add(
+        Configuration(
+            key="_throttling_disabled_until",
+            value="not-a-date",
+            value_type="string",
+        )
+    )
+    await db_session.commit()
+    state = await load_throttling_state(db_session)
+    assert state == ThrottlingState(disabled=False, disabled_until=None, disabled_by=None)
+
+
 async def test_full_config_save_preserves_toggle_state(db_session):
     """update_full_config must not delete the underscore state keys."""
     from types import SimpleNamespace
