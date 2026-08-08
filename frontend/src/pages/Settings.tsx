@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Settings as SettingsIcon, Server, Gauge, Clock, Bell, Database, Shield, Network, UserCog, Puzzle } from 'lucide-react';
 import { SystemSettings } from '@/components/settings/SystemSettings';

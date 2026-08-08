@@ -5,7 +5,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { WizardContextType, WizardState, ValidationResult, DEFAULT_WIZARD_STATE } from './types';
 import { WIZARD_STEPS } from './wizardConfig';
 import { apiClient } from '@/api/client';
