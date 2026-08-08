@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { ThrottlingToggle } from '@/components/ThrottlingToggle';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -88,7 +89,10 @@ const DashboardContent: React.FC = () => {
             <img src="/speedarr.svg" alt="Speedarr" className="h-7 w-7" />
             <h1 className="text-xl font-bold">Speedarr</h1>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThrottlingToggle />
+            <ThemeToggle />
+          </div>
         </div>
       </div>
 
@@ -107,7 +111,10 @@ const DashboardContent: React.FC = () => {
               <img src="/speedarr.svg" alt="Speedarr" className="h-8 w-8" />
               <h1 className="text-xl font-bold">Speedarr</h1>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <ThrottlingToggle />
+              <ThemeToggle />
+            </div>
           </div>
 
           {/* Navigation */}

@@ -274,13 +274,16 @@ class ApiClient {
     return response.data;
   }
 
-  async pauseMonitoring(): Promise<MonitoringControlResponse> {
-    const response = await this.client.post<MonitoringControlResponse>('/control/pause');
+  async pauseMonitoring(durationMinutes?: number | null): Promise<MonitoringControlResponse> {
+    const response = await this.client.post<MonitoringControlResponse>(
+      '/control/pause-monitoring',
+      durationMinutes ? { duration_minutes: durationMinutes } : {}
+    );
     return response.data;
   }
 
   async resumeMonitoring(): Promise<MonitoringControlResponse> {
-    const response = await this.client.post<MonitoringControlResponse>('/control/resume');
+    const response = await this.client.post<MonitoringControlResponse>('/control/resume-monitoring');
     return response.data;
   }
 

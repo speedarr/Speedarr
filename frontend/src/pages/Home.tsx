@@ -4,6 +4,7 @@ import { BandwidthChart } from '@/components/BandwidthChart';
 import { ActiveStreams } from '@/components/ActiveStreams';
 import type { ZoomRange } from '@/hooks/useChartZoom';
 import { TemporaryLimits } from '@/components/TemporaryLimits';
+import { ThrottlingBanner } from '@/components/ThrottlingBanner';
 import { StreamCountDisplay } from '@/components/StreamCountDisplay';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { SystemStatus } from '@/types';
@@ -105,6 +106,8 @@ export const Home: React.FC = () => {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+
+      {status && <ThrottlingBanner status={status} onReenabled={fetchStatus} />}
 
       {/* Bandwidth Overview */}
       {status && (
@@ -325,7 +328,7 @@ export const Home: React.FC = () => {
 
       {/* Temporary Limits */}
       <ErrorBoundary>
-        <TemporaryLimits />
+        <TemporaryLimits throttlingDisabled={status ? !status.throttling_enabled : false} />
       </ErrorBoundary>
 
       {/* Bandwidth Chart */}

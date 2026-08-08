@@ -27,7 +27,11 @@ interface TemporaryLimitState {
   set_by: string | null;
 }
 
-export const TemporaryLimits: React.FC = () => {
+interface TemporaryLimitsProps {
+  throttlingDisabled?: boolean;
+}
+
+export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisabled = false }) => {
   const { user, login } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -234,6 +238,12 @@ export const TemporaryLimits: React.FC = () => {
             </Alert>
           )}
 
+          {throttlingDisabled && !limits?.active && (
+            <p className="text-xs text-muted-foreground">
+              Temporary limits are stored but not enforced while Speedarr throttling is disabled.
+            </p>
+          )}
+
           {/* Active Limits Display */}
           {limits?.active && (
             <div
@@ -283,6 +293,11 @@ export const TemporaryLimits: React.FC = () => {
                 <div className="text-xs text-muted-foreground">
                   Source: {limits.source}
                   {limits.set_by && ` (by ${limits.set_by})`}
+                </div>
+              )}
+              {throttlingDisabled && (
+                <div className="text-xs text-orange-700 dark:text-orange-300">
+                  Not enforced while Speedarr throttling is disabled.
                 </div>
               )}
             </div>
