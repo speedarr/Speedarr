@@ -13,6 +13,10 @@ from app.config import SpeedarrConfig
 from app.services.decision_engine import DecisionEngine
 from app.services.controller_manager import ControllerManager
 from app.models import BandwidthMetric, ThrottleDecision
+from app.services.throttling_state import (
+    load_throttling_state,
+    clear_throttling_state,
+)
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 from app.utils.formatting import format_display_title
 
@@ -167,8 +171,15 @@ class PollingMonitor:
         self._session_bandwidth_lock = asyncio.Lock()
         self._temporary_limits_lock = asyncio.Lock()
 
+        # On/off toggle state (issue #78) - persisted via throttling_state module
+        self._throttling_disabled: bool = False
+        self._throttling_disabled_until: Optional[datetime] = None
+        self._throttling_disabled_by: Optional[str] = None
+        self._throttling_state_lock = asyncio.Lock()
+
     async def start(self):
         """Start the polling monitor with separate download and Plex cycles."""
+        await self.load_throttling_state_from_db()
         self._running = True
         # Pre-fetch each media server's LAN subnets once (Emby/Jellyfin read
         # LocalNetworkSubnets; Plex is a no-op). Never raises.
@@ -478,6 +489,80 @@ class PollingMonitor:
                 self._temporary_limits.get('download_mbps'),
                 self._temporary_limits.get('upload_mbps')
             )
+
+    def is_throttling_enabled(self) -> bool:
+        """Effective toggle state - an expired disable window counts as enabled."""
+        if not self._throttling_disabled:
+            return True
+        until = self._throttling_disabled_until
+        if until is not None and datetime.now(timezone.utc) >= until:
+            return True
+        return False
+
+    async def set_throttling_state(
+        self,
+        disabled: bool,
+        until: Optional[datetime],
+        by: Optional[str],
+    ) -> None:
+        """Set in-memory toggle state. Persistence is the caller's job (endpoints)."""
+        async with self._throttling_state_lock:
+            self._throttling_disabled = disabled
+            self._throttling_disabled_until = until
+            self._throttling_disabled_by = by
+
+    def get_throttling_status(self) -> Dict[str, Any]:
+        """Status-payload fragment, computed from effective state."""
+        if self.is_throttling_enabled():
+            return {
+                "throttling_enabled": True,
+                "throttling_disabled_until": None,
+                "throttling_disabled_by": None,
+            }
+        return {
+            "throttling_enabled": False,
+            "throttling_disabled_until": (
+                self._throttling_disabled_until.isoformat()
+                if self._throttling_disabled_until else None
+            ),
+            "throttling_disabled_by": self._throttling_disabled_by,
+        }
+
+    async def load_throttling_state_from_db(self) -> None:
+        """Restore persisted toggle state on startup (expired windows load enabled)."""
+        if not getattr(self, "_get_db_session", None):
+            return
+        try:
+            async with self._get_db_session() as db:
+                state = await load_throttling_state(db)
+            await self.set_throttling_state(state.disabled, state.disabled_until, state.disabled_by)
+            if state.disabled:
+                logger.info(
+                    f"Throttling disabled state restored from database "
+                    f"(until={state.disabled_until}, by={state.disabled_by})"
+                )
+        except Exception as e:
+            logger.error(f"Failed to load throttling state: {e}")
+
+    async def _check_throttling_expiry(self) -> None:
+        """Poll-tick expiry check: flip to enabled and persist the flip."""
+        async with self._throttling_state_lock:
+            if not self._throttling_disabled:
+                return
+            until = self._throttling_disabled_until
+            if until is None or datetime.now(timezone.utc) < until:
+                return
+            self._throttling_disabled = False
+            self._throttling_disabled_until = None
+            self._throttling_disabled_by = None
+        logger.info("Throttling disable window expired - auto re-enabling")
+        if self._get_db_session:
+            try:
+                async with self._get_db_session() as db:
+                    await clear_throttling_state(db)
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Failed to persist throttling re-enable: {e}")
 
     async def _clear_specific_reservation(self, reservation_id: str, delay_seconds: int):
         """Wait for reservation period, then clear ONLY this specific reservation."""
@@ -875,16 +960,22 @@ class PollingMonitor:
             # Get active temporary limits (if any)
             temp_download_limit, temp_upload_limit = await self.get_active_temporary_limits()
 
-            # Calculate throttling decisions using cached stream data + reserved bandwidth
-            decisions = self.decision_engine.calculate_throttle(
-                self._cached_streams,
-                download_stats,
-                snmp_data,
-                reserved_bandwidth,
-                temp_download_limit,
-                temp_upload_limit,
-                reserved_download_bandwidth
-            )
+            # Calculate throttling decisions using cached stream data + reserved bandwidth.
+            # While the toggle is off (issue #78) decisions stays {} so the metric
+            # recording below still runs and records is_throttled=False.
+            await self._check_throttling_expiry()
+            if self.is_throttling_enabled():
+                decisions = self.decision_engine.calculate_throttle(
+                    self._cached_streams,
+                    download_stats,
+                    snmp_data,
+                    reserved_bandwidth,
+                    temp_download_limit,
+                    temp_upload_limit,
+                    reserved_download_bandwidth
+                )
+            else:
+                decisions = {}
 
             # Apply decisions if any
             if decisions:
