@@ -286,7 +286,10 @@ async def lifespan(app: FastAPI):
         # Read failsafe from app.state.config (kept fresh by ConfigManager on saves)
         config = getattr(app.state, 'config', None)
         failsafe = config.failsafe if config else None
-        use_shutdown_speeds = failsafe is not None and (
+        # Toggle off (issue #78) = hands off: never apply shutdown caps while disabled.
+        pm = getattr(app.state, 'polling_monitor', None)
+        throttling_disabled = pm is not None and not pm.is_throttling_enabled()
+        use_shutdown_speeds = failsafe is not None and not throttling_disabled and (
             failsafe.shutdown_download_speed is not None
             or failsafe.shutdown_upload_speed is not None
         )

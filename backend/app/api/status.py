@@ -26,7 +26,9 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
             "setup_required": True,
             "active_streams": 0,
             "is_throttled": False,
-            "monitoring_enabled": False,
+            "throttling_enabled": True,
+            "throttling_disabled_until": None,
+            "throttling_disabled_by": None,
             "bandwidth": {
                 "download": {"total_limit": 0, "current_usage": 0, "clients": []},
                 "upload": {"total_limit": 0, "current_usage": 0, "clients": []},
@@ -159,7 +161,7 @@ async def get_current_status(request: Request, _auth=Depends(require_auth_if_pri
         "setup_required": False,
         "active_streams": len(active_streams),
         "is_throttled": len(active_streams) > 0,
-        "monitoring_enabled": not polling_monitor._paused if hasattr(polling_monitor, '_paused') else True,
+        **polling_monitor.get_throttling_status(),
         "snmp_enabled": snmp_enabled,
         "media_server_statuses": media_server_statuses,
         "snmp_status": {

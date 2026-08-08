@@ -1,14 +1,18 @@
 """
 Control API routes for manual overrides.
 """
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from loguru import logger
 
 from app.api.auth import require_admin
 from app.models import User
 from app.utils.errors import ErrorCode, raise_error
+from app.database import AsyncSessionLocal
+from app.services.throttling_state import save_throttling_disabled, clear_throttling_state
 
 router = APIRouter(prefix="/api/control", tags=["control"])
 
@@ -103,6 +107,14 @@ async def manual_throttle(
     This overrides automatic throttling.
     """
     try:
+        polling_monitor = getattr(request.app.state, "polling_monitor", None)
+        if polling_monitor is not None and not polling_monitor.is_throttling_enabled():
+            raise_error(
+                ErrorCode.VALIDATION_ERROR,
+                "Speedarr throttling is disabled",
+                status_code=409,
+            )
+
         controller_manager = request.app.state.controller_manager
         notification_service = request.app.state.notification_service
 
@@ -140,41 +152,56 @@ async def manual_throttle(
         raise_error(ErrorCode.INTERNAL_ERROR, "Failed to apply manual throttle", log=False)
 
 
+class PauseMonitoringRequest(BaseModel):
+    duration_minutes: Optional[int] = Field(None, ge=1, le=10080)
+
+
 @router.post("/pause-monitoring")
 async def pause_monitoring(
     request: Request,
-    duration_minutes: int = 30,
-    restore_speeds: bool = True,
+    body: PauseMonitoringRequest = PauseMonitoringRequest(),
     current_user: User = Depends(require_admin)
 ):
     """
-    Temporarily pause all monitoring and throttling.
-
-    Useful for maintenance or troubleshooting.
+    Disable throttling: restore all client speeds and stop applying decisions.
+    Polling and the dashboard stay live. Omit duration_minutes for indefinite.
+    Calling while already disabled replaces the window (last write wins).
     """
+    polling_monitor = request.app.state.polling_monitor
+    controller_manager = request.app.state.controller_manager
+    if polling_monitor is None or controller_manager is None:
+        raise_error(ErrorCode.VALIDATION_ERROR, "Speedarr is not configured yet", status_code=400)
+
+    until = (
+        datetime.now(timezone.utc) + timedelta(minutes=body.duration_minutes)
+        if body.duration_minutes else None
+    )
+
     try:
-        polling_monitor = request.app.state.polling_monitor
-        controller_manager = request.app.state.controller_manager
+        # Persist first - memory only updates after a durable write.
+        async with AsyncSessionLocal() as db:
+            await save_throttling_disabled(db, until=until, by=current_user.username)
+            await db.commit()
+        await polling_monitor.set_throttling_state(True, until, current_user.username)
 
-        # Restore speeds if requested
-        if restore_speeds:
-            await controller_manager.restore_all_speeds()
+        restore_results = await controller_manager.restore_all_speeds()
 
-        # TODO: Implement pause mechanism
-        # For now, just restore speeds and log
-
-        logger.warning(f"Monitoring pause requested by {current_user.username} for {duration_minutes}min")
-
+        logger.info(
+            f"Throttling disabled by {current_user.username}"
+            + (f" until {until.isoformat()}" if until else " indefinitely")
+        )
         return {
-            "message": "Monitoring paused",
-            "duration_minutes": duration_minutes,
-            "speeds_restored": restore_speeds,
-            "paused_by": current_user.username
+            "message": "Throttling disabled",
+            "throttling_enabled": False,
+            "throttling_disabled_until": until.isoformat() if until else None,
+            "throttling_disabled_by": current_user.username,
+            "restore_results": restore_results,
         }
-
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error pausing monitoring: {e}")
-        raise_error(ErrorCode.INTERNAL_ERROR, "Failed to pause monitoring", log=False)
+        logger.error(f"Error disabling throttling: {e}")
+        raise_error(ErrorCode.INTERNAL_ERROR, "Failed to disable throttling", log=False)
 
 
 @router.post("/resume-monitoring")
@@ -182,19 +209,26 @@ async def resume_monitoring(
     request: Request,
     current_user: User = Depends(require_admin)
 ):
-    """
-    Resume monitoring if paused.
-    """
+    """Re-enable throttling. Idempotent when already enabled."""
+    polling_monitor = request.app.state.polling_monitor
+    if polling_monitor is None:
+        raise_error(ErrorCode.VALIDATION_ERROR, "Speedarr is not configured yet", status_code=400)
+
     try:
-        # TODO: Implement resume mechanism
+        async with AsyncSessionLocal() as db:
+            await clear_throttling_state(db)
+            await db.commit()
+        await polling_monitor.set_throttling_state(False, None, None)
 
-        logger.info(f"Monitoring resumed by {current_user.username}")
-
+        logger.info(f"Throttling re-enabled by {current_user.username}")
         return {
-            "message": "Monitoring resumed",
-            "resumed_by": current_user.username
+            "message": "Throttling enabled",
+            "throttling_enabled": True,
+            "throttling_disabled_until": None,
+            "throttling_disabled_by": None,
         }
-
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error resuming monitoring: {e}")
-        raise_error(ErrorCode.INTERNAL_ERROR, "Failed to resume monitoring", log=False)
+        logger.error(f"Error re-enabling throttling: {e}")
+        raise_error(ErrorCode.INTERNAL_ERROR, "Failed to re-enable throttling", log=False)
