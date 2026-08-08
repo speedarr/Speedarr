@@ -24,6 +24,7 @@ class NotificationService:
         self._session: Optional[aiohttp.ClientSession] = None
         self._last_notified_stream_count: Optional[int] = None
         self._last_notified_bitrate: Optional[float] = None
+        self._last_threshold_sent: Dict[str, datetime] = {}
 
     def initialize_state(self, stream_count: int, total_bitrate: float):
         """
@@ -345,6 +346,22 @@ class NotificationService:
         }
         return emoji_map.get(event_type, "ℹ️")
 
+    def _get_threshold_cooldown_minutes(self) -> int:
+        """Cooldown from config - handle both SpeedarrConfig and NotificationsConfig."""
+        if hasattr(self.config, 'notifications'):
+            return getattr(self.config.notifications, 'threshold_cooldown_minutes', 0) or 0
+        return getattr(self.config, 'threshold_cooldown_minutes', 0) or 0
+
+    def _in_threshold_cooldown(self, event_type: str) -> bool:
+        """True while event_type is inside its cooldown window (issue #72)."""
+        cooldown = self._get_threshold_cooldown_minutes()
+        if cooldown <= 0:
+            return False
+        last_sent = self._last_threshold_sent.get(event_type)
+        if last_sent is None:
+            return False
+        return datetime.now(timezone.utc) - last_sent < timedelta(minutes=cooldown)
+
     async def check_stream_count_threshold(self, active_stream_count: int, total_bandwidth_mbps: float = 0.0):
         """
         Check if active streams exceed threshold and send notification if so.
@@ -371,12 +388,17 @@ class NotificationService:
                 logger.debug(f"Skipping stream count notification (count unchanged: {active_stream_count})")
                 return
 
+            if self._in_threshold_cooldown("stream_count_exceeded"):
+                logger.debug("Skipping stream count notification (cooldown active)")
+                return
+
             message = f"Active streams ({active_stream_count}) exceeded threshold ({threshold}) - Total: {total_bandwidth_mbps:.1f} Mbps"
             await self.notify(
                 "stream_count_exceeded",
                 message,
                 {"active_streams": active_stream_count, "threshold": threshold, "total_bandwidth_mbps": total_bandwidth_mbps}
             )
+            self._last_threshold_sent["stream_count_exceeded"] = datetime.now(timezone.utc)
             self._last_notified_stream_count = active_stream_count
         else:
             # Reset when back below threshold so we notify again if it exceeds
@@ -408,12 +430,17 @@ class NotificationService:
                 logger.debug(f"Skipping bitrate notification (already above threshold: {total_bitrate_mbps:.1f} Mbps)")
                 return
 
+            if self._in_threshold_cooldown("stream_bitrate_exceeded"):
+                logger.debug("Skipping bitrate notification (cooldown active)")
+                return
+
             message = f"Total stream bitrate ({total_bitrate_mbps:.1f} Mbps) exceeded threshold ({threshold:.1f} Mbps) - {active_stream_count} active stream(s)"
             await self.notify(
                 "stream_bitrate_exceeded",
                 message,
                 {"total_bitrate_mbps": total_bitrate_mbps, "threshold": threshold, "active_streams": active_stream_count}
             )
+            self._last_threshold_sent["stream_bitrate_exceeded"] = datetime.now(timezone.utc)
             self._last_notified_bitrate = total_bitrate_mbps
         else:
             # Reset when back below threshold so we notify again if it exceeds

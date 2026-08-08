@@ -292,6 +292,10 @@ class NotificationsConfig(BaseModel):
         None,
         description="Notify when total stream bitrate exceeds this value in Mbps (null to disable)"
     )
+    threshold_cooldown_minutes: int = Field(
+        0, ge=0, le=1440,
+        description="Minimum minutes between repeated threshold alerts of the same type (0 = no cooldown)"
+    )
 
 
 class HistoryConfig(BaseModel):
