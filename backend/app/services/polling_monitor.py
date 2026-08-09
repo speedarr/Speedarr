@@ -979,7 +979,10 @@ class PollingMonitor:
 
             # Apply decisions if any
             if decisions:
-                await self.controller_manager.apply_decisions(decisions)
+                await self.controller_manager.apply_decisions(
+                    decisions,
+                    abort_if=lambda: not self.is_throttling_enabled(),
+                )
 
                 # Get new stats after applying decisions
                 new_stats = await self.controller_manager.get_client_stats()

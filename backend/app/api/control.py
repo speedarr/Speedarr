@@ -126,7 +126,10 @@ async def manual_throttle(
             raise_error(ErrorCode.VALIDATION_ERROR, str(e), status_code=400)
 
         # Apply throttling
-        results = await controller_manager.apply_decisions(decisions)
+        results = await controller_manager.apply_decisions(
+            decisions,
+            abort_if=lambda: polling_monitor is not None and not polling_monitor.is_throttling_enabled(),
+        )
 
         # Send notification
         await notification_service.notify(
@@ -163,7 +166,7 @@ async def pause_monitoring(
     current_user: User = Depends(require_admin)
 ):
     """
-    Disable throttling: restore all client speeds and stop applying decisions.
+    Disable throttling: set all client limits to unlimited and stop applying decisions.
     Polling and the dashboard stay live. Omit duration_minutes for indefinite.
     Calling while already disabled replaces the window (last write wins).
     """
@@ -184,11 +187,12 @@ async def pause_monitoring(
             await db.commit()
         await polling_monitor.set_throttling_state(True, until, current_user.username)
 
-        restore_results = await controller_manager.restore_all_speeds()
+        restore_results = await controller_manager.remove_all_limits()
 
         logger.info(
             f"Throttling disabled by {current_user.username}"
             + (f" until {until.isoformat()}" if until else " indefinitely")
+            + " - all client limits removed"
         )
         return {
             "message": "Throttling disabled",

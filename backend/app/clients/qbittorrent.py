@@ -172,3 +172,11 @@ class QBittorrentClient:
                 upload_limit=self._original_limits["upload_limit"],
             )
             logger.debug("Restored qBittorrent to original limits")
+
+    async def set_unlimited(self):
+        """Remove all speed limits (0 maps to qBittorrent's native unlimited).
+
+        QBittorrentClient does not inherit BaseDownloadClient, so this mirrors
+        that base class's default set_unlimited rather than being inherited.
+        """
+        await self.set_speed_limits(download_limit=0, upload_limit=0)

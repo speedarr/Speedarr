@@ -2,7 +2,7 @@
 Controller manager for applying throttling decisions to download clients.
 """
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Any, Callable, Dict, Optional
 from loguru import logger
 from app.clients import QBittorrentClient, SABnzbdClient, create_download_client
 from app.config import SpeedarrConfig, FailsafeConfig
@@ -18,6 +18,8 @@ class ControllerManager:
         self.config = config
         self.clients: Dict[str, Any] = {}  # client_id -> client instance
         self.client_configs: Dict[str, Any] = {}  # client_id -> client config (for type, name lookup)
+        # Serializes bulk limit writes (apply vs restore/remove) - issue #78 race
+        self._write_lock = asyncio.Lock()
         self._initialize_clients()
 
     def _initialize_clients(self):
@@ -129,75 +131,89 @@ class ControllerManager:
         ])
         return dict(results_list)
 
-    async def apply_decisions(self, decisions: Dict[str, Dict[str, Any]]) -> Dict[str, bool]:
+    async def apply_decisions(
+        self,
+        decisions: Dict[str, Dict[str, Any]],
+        abort_if: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, bool]:
         """
         Apply throttling decisions to download clients.
 
         Args:
             decisions: Dict mapping client names to decision dicts
+            abort_if: Optional gate re-checked under the write lock, right
+                before any client writes happen. If it returns True, no
+                writes are made and {} is returned - issue #78 race, so a
+                poll tick that passed the outer gate before I/O can't land
+                writes after a concurrent disable/restore.
 
         Returns:
             Dict mapping client names to success status
         """
-        results = {}
+        async with self._write_lock:
+            if abort_if is not None and abort_if():
+                logger.info("Skipping decision apply - throttling state changed mid-tick")
+                return {}
 
-        # Collect download and upload info separately
-        download_info = []
-        upload_info = []
+            results = {}
 
-        for client_name, decision in decisions.items():
-            if client_name not in self.clients:
-                logger.warning(f"Unknown client in decisions: {client_name}")
-                continue
+            # Collect download and upload info separately
+            download_info = []
+            upload_info = []
 
-            client = self.clients[client_name]
-            action = decision.get("action")
+            for client_name, decision in decisions.items():
+                if client_name not in self.clients:
+                    logger.warning(f"Unknown client in decisions: {client_name}")
+                    continue
 
-            try:
-                if action == "throttle":
-                    await client.set_speed_limits(
-                        download_limit=decision.get("download_limit"),
-                        upload_limit=decision.get("upload_limit")
-                    )
+                client = self.clients[client_name]
+                action = decision.get("action")
 
-                    # Collect download info
-                    download_info.append(
-                        f"{client_name}: {decision.get('download_limit')} Mbps"
-                    )
-
-                    # Collect upload info (only if > 0)
-                    upload_limit = decision.get('upload_limit', 0)
-                    if upload_limit > 0:
-                        upload_info.append(
-                            f"{client_name}: {upload_limit} Mbps"
+                try:
+                    if action == "throttle":
+                        await client.set_speed_limits(
+                            download_limit=decision.get("download_limit"),
+                            upload_limit=decision.get("upload_limit")
                         )
 
-                    results[client_name] = True
+                        # Collect download info
+                        download_info.append(
+                            f"{client_name}: {decision.get('download_limit')} Mbps"
+                        )
 
-                elif action == "restore":
-                    await client.restore_speed_limits()
-                    logger.info(f"Restored {client_name} to normal speeds")
-                    results[client_name] = True
+                        # Collect upload info (only if > 0)
+                        upload_limit = decision.get('upload_limit', 0)
+                        if upload_limit > 0:
+                            upload_info.append(
+                                f"{client_name}: {upload_limit} Mbps"
+                            )
 
-                else:
-                    logger.warning(f"Unknown action for {client_name}: {action}")
+                        results[client_name] = True
+
+                    elif action == "restore":
+                        await client.restore_speed_limits()
+                        logger.info(f"Restored {client_name} to normal speeds")
+                        results[client_name] = True
+
+                    else:
+                        logger.warning(f"Unknown action for {client_name}: {action}")
+                        results[client_name] = False
+
+                except Exception as e:
+                    logger.error(f"Failed to apply decision to {client_name}: {e}")
                     results[client_name] = False
 
-            except Exception as e:
-                logger.error(f"Failed to apply decision to {client_name}: {e}")
-                results[client_name] = False
+            # Log download limits (no stream info)
+            if download_info:
+                logger.info(f"Download limits | {' | '.join(download_info)}")
 
-        # Log download limits (no stream info)
-        if download_info:
-            logger.info(f"Download limits | {' | '.join(download_info)}")
+            # Log upload limits (with stream info)
+            if upload_info:
+                # Extract stream info from reason
+                reason = next(iter(decisions.values())).get("reason", "")
+                logger.info(f"Upload limits | {' | '.join(upload_info)} | {reason}")
 
-        # Log upload limits (with stream info)
-        if upload_info:
-            # Extract stream info from reason
-            reason = next(iter(decisions.values())).get("reason", "")
-            logger.info(f"Upload limits | {' | '.join(upload_info)} | {reason}")
-
-        return results
+            return results
 
     async def restore_all_speeds(self, retries: int = 3, retry_delay: float = 1.0) -> Dict[str, bool]:
         """
@@ -228,10 +244,46 @@ class ControllerManager:
         if not self.clients:
             return {}
 
-        results_list = await asyncio.gather(*[
-            restore_client_with_retry(name, client)
-            for name, client in self.clients.items()
-        ])
+        async with self._write_lock:
+            results_list = await asyncio.gather(*[
+                restore_client_with_retry(name, client)
+                for name, client in self.clients.items()
+            ])
+        return dict(results_list)
+
+    async def remove_all_limits(self, retries: int = 3, retry_delay: float = 1.0) -> Dict[str, bool]:
+        """
+        Set every client to unlimited (issue #78 disable semantics).
+
+        Unlike restore_all_speeds, this does not depend on captured
+        _original_limits - "disabled" means Speedarr leaves no limits behind.
+        Each adapter's set_unlimited() maps to its native unlimited
+        (qBittorrent 0, Transmission enabled=false, Deluge -1, SABnzbd 0
+        written directly bypassing the issue-#43 floor, NZBGet 0).
+        """
+        async def remove_client_with_retry(name: str, client: Any) -> tuple[str, bool]:
+            for attempt in range(1, retries + 1):
+                try:
+                    await client.set_unlimited()
+                    logger.info(f"Removed all speed limits from {name}")
+                    return (name, True)
+                except Exception as e:
+                    if attempt < retries:
+                        logger.warning(f"Failed to remove limits on {name} (attempt {attempt}/{retries}): {e}")
+                        await asyncio.sleep(retry_delay)
+                    else:
+                        logger.error(f"Failed to remove limits on {name} after {retries} attempts: {e}")
+                        return (name, False)
+            return (name, False)
+
+        if not self.clients:
+            return {}
+
+        async with self._write_lock:
+            results_list = await asyncio.gather(*[
+                remove_client_with_retry(name, client)
+                for name, client in self.clients.items()
+            ])
         return dict(results_list)
 
     def _split_shutdown_speed(

@@ -61,6 +61,10 @@ class BaseDownloadClient(ABC):
             )
             logger.debug(f"Restored {self.name} to original limits")
 
+    async def set_unlimited(self):
+        """Remove all speed limits. Default: 0 maps to native unlimited."""
+        await self.set_speed_limits(download_limit=0, upload_limit=0)
+
     @property
     @abstractmethod
     def supports_upload(self) -> bool:

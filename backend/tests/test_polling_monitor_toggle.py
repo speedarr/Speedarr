@@ -76,7 +76,7 @@ class FakeControllerManager:
         self.applied = []
     async def get_client_stats(self):
         return {}
-    async def apply_decisions(self, decisions):
+    async def apply_decisions(self, decisions, abort_if=None):
         self.applied.append(decisions)
 
 

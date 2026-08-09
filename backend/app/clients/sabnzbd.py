@@ -118,6 +118,15 @@ class SABnzbdClient:
         except Exception as e:
             logger.error(f"Failed to restore speed limit: {e}")
 
+    async def set_unlimited(self):
+        """Remove the SABnzbd speed limit (bypasses set_speed_limits' 1 KB/s floor)."""
+        try:
+            await self._api_call("config", {"name": "speedlimit", "value": "0"})
+            logger.debug("Removed SABnzbd speed limit (unlimited)")
+        except Exception as e:
+            logger.error(f"Failed to remove SABnzbd speed limit: {e}")
+            raise
+
     async def _api_call(self, mode: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """Execute a SABnzbd API call."""
         api_params = {
