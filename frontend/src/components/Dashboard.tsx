@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { ThrottlingToggle } from '@/components/ThrottlingToggle';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -90,7 +89,6 @@ const DashboardContent: React.FC = () => {
             <h1 className="text-xl font-bold">Speedarr</h1>
           </div>
           <div className="flex items-center gap-2">
-            <ThrottlingToggle />
             <ThemeToggle />
           </div>
         </div>
@@ -112,7 +110,6 @@ const DashboardContent: React.FC = () => {
               <h1 className="text-xl font-bold">Speedarr</h1>
             </div>
             <div className="flex items-center gap-2">
-              <ThrottlingToggle />
               <ThemeToggle />
             </div>
           </div>

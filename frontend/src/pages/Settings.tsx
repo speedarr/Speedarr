@@ -3,6 +3,7 @@ import { Navigate } from 'react-router';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Settings as SettingsIcon, Server, Gauge, Clock, Bell, Database, Shield, Network, UserCog, Puzzle } from 'lucide-react';
 import { SystemSettings } from '@/components/settings/SystemSettings';
+import { ThrottlingControl } from '@/components/settings/ThrottlingControl';
 import { MediaServerSettings } from '@/components/settings/MediaServerSettings';
 import { DownloadClientsSettings } from '@/components/settings/DownloadClientsSettings';
 import { BandwidthSettings } from '@/components/settings/BandwidthSettings';
@@ -106,6 +107,7 @@ export const Settings: React.FC = () => {
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
+          <ThrottlingControl />
           <SystemSettings />
         </TabsContent>
 
