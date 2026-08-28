@@ -6,7 +6,7 @@ ARG SPEEDARR_COMMIT=unknown
 ARG SPEEDARR_BRANCH=unknown
 
 # Stage 1: Build React Frontend
-FROM node:20.11-alpine3.19 AS frontend-builder
+FROM node:23.3-alpine3.19 AS frontend-builder
 
 # Re-declare ARGs for this stage
 ARG SPEEDARR_VERSION
