@@ -51,6 +51,30 @@ def test_give_back_cap_follows_usage_then_full_share_on_second_call():
     assert dl(d, "sabnzbd_1") == pytest.approx(50.0, abs=0.01)
 
 
+def test_saturated_client_that_cannot_use_borrowed_share_does_not_cycle():
+    # A can only ever pull 48 of its 50 share; B is slack at 20. After the squeeze (70/30) A must
+    # stay SATURATED against its own share and the split must hold, poll after poll.
+    e = engine()
+    polls = [stats({"qbittorrent_1": 48.0, "sabnzbd_1": 20.0})]
+    run(e, polls * 4)
+    for _ in range(10):
+        d = run(e, polls)
+        assert dl(d, "qbittorrent_1") == pytest.approx(70.0, abs=0.01)
+        assert dl(d, "sabnzbd_1") == pytest.approx(30.0, abs=0.01)
+        assert e._demand["download"].state("qbittorrent_1") is DemandState.SATURATED
+
+
+def test_slack_floor_respects_min_limit_so_pool_is_not_oversubscribed():
+    # Pool 50, safety net 2.5 but min_limit_mbps 10: the slack client is held at the effective
+    # floor (10) and only 15 is freed, so the flooring pass cannot push the sum above the pool.
+    e = engine(download_total=50.0, dl_min=10.0)
+    polls = [stats({"qbittorrent_1": 25.0, "sabnzbd_1": 2.2})] * 4
+    d = run(e, polls)
+    assert dl(d, "qbittorrent_1") == pytest.approx(40.0, abs=0.01)
+    assert dl(d, "sabnzbd_1") == pytest.approx(10.0, abs=0.01)
+    assert dl(d, "qbittorrent_1") + dl(d, "sabnzbd_1") == pytest.approx(50.0, abs=0.02)
+
+
 def test_toggle_off_reproduces_fixed_split():
     d = run(engine(demand_aware=False), [A_SAT_B_SLACK] * 6)
     assert dl(d, "qbittorrent_1") == pytest.approx(50.0, abs=0.01)

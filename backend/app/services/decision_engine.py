@@ -154,6 +154,10 @@ class DecisionEngine:
 
         states: Dict[str, DemandState] = {}
         speeds: Dict[str, float] = {}
+        # Saturation is judged against the client's own share, never against share it
+        # borrowed: a client that fills its share but cannot grow past it stays SATURATED
+        # instead of sawtoothing between promotion and demotion (issue #85).
+        denominators: Dict[str, float] = {}
         for client_id in target:
             client_stats = stats.get(client_id, {})
             if client_id not in active or "error" in client_stats:
@@ -161,13 +165,16 @@ class DecisionEngine:
                 continue
             speed = float(client_stats.get(speed_key, 0) or 0.0)
             speeds[client_id] = speed
-            states[client_id] = tracker.observe(client_id, speed, last.get(client_id))
+            last_limit = last.get(client_id)
+            denominator = None if last_limit is None else min(last_limit, target[client_id])
+            denominators[client_id] = 0.0 if denominator is None else denominator
+            states[client_id] = tracker.observe(client_id, speed, denominator)
 
         adjusted = apply_demand(
             target, states, speeds, percents, safety_net_amount,
             self.config.bandwidth.demand_aware_allocation,
         )
-        self._log_demand(direction, previous, states, speeds, target, adjusted)
+        self._log_demand(direction, previous, states, speeds, denominators, target, adjusted)
         return adjusted
 
     @staticmethod
@@ -176,14 +183,16 @@ class DecisionEngine:
         previous: Dict[str, DemandState],
         states: Dict[str, DemandState],
         speeds: Dict[str, float],
+        limits: Dict[str, float],
         target: Dict[str, float],
         adjusted: Dict[str, float],
     ) -> None:
+        """Log transitions at INFO; limits holds the denominator each client was judged against."""
         split = ", ".join(f"{c}: {adjusted[c]:.1f} Mbps" for c in adjusted)
         transitions = [c for c in states if previous.get(c, DemandState.UNKNOWN) != states[c]]
         if transitions:
             described = ", ".join(
-                f"{c} {states[c].value.upper()} ({speeds[c]:.1f} of {target[c]:.1f} Mbps)"
+                f"{c} {states[c].value.upper()} ({speeds[c]:.1f} of {limits.get(c, 0.0):.1f} Mbps)"
                 for c in transitions
             )
             logger.info(f"Demand-aware {direction}: {described} | {split}")
@@ -347,7 +356,11 @@ class DecisionEngine:
         )
         download_allocations = self._demand_adjust(
             "download", download_targets, active_downloading, download_stats,
-            "download_speed", dl_percents, available_download * safety_net_fraction,
+            "download_speed", dl_percents,
+            # The effective floor a squeezed client lands on, so _floor below cannot raise it
+            # again after its freed share was handed out and oversubscribe the pool (#85).
+            max(available_download * safety_net_fraction,
+                self.config.bandwidth.download.min_limit_mbps, HARD_MIN_MBPS),
         )
 
         # Calculate upload bandwidth (Plex-aware, qBittorrent only)
@@ -451,7 +464,9 @@ class DecisionEngine:
         )
         upload_limits.update(self._demand_adjust(
             "upload", targets, active_uploading, download_stats,
-            "upload_speed", percents, available_upload * safety_net_fraction,
+            "upload_speed", percents,
+            max(available_upload * safety_net_fraction,
+                self.config.bandwidth.upload.min_limit_mbps, HARD_MIN_MBPS),
         ))
         return upload_limits
 
