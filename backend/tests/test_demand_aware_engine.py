@@ -103,7 +103,9 @@ def test_erroring_client_keeps_target_and_never_lends():
 def test_inactive_client_is_not_classified_and_keeps_safety_net():
     e = engine()
     polls = [stats({"qbittorrent_1": 50.0, "sabnzbd_1": 30.0, "nzbget_1": 0.0})] * 6
-    d = run(e, polls)  # nzbget inactive from call 6; qbittorrent saturates its 47.5, sabnzbd goes SLACK
+    # nzbget is SLACK on calls 4-5, then inactive from call 6 and dropped from the tracker;
+    # qbittorrent and sabnzbd both stay SATURATED (sabnzbd only goes SLACK on call 8)
+    d = run(e, polls)
     assert dl(d, "nzbget_1") == pytest.approx(5.0, abs=0.01)
     assert e._demand["download"].state("nzbget_1") is DemandState.UNKNOWN
 
