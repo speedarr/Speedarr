@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { SplitSlider } from '@/components/ui/split-slider';
+import { SpeedUnitHint } from '@/components/SpeedUnitHint';
 import { WizardStepProps, BandwidthConfig, DownloadClientConfig } from '../types';
 import { useWizard } from '../WizardContext';
 
@@ -241,8 +242,9 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
             className={showValidation && !downloadValid ? 'border-destructive' : ''}
           />
           <p className="text-xs text-muted-foreground">
-            Your allocated download speed (10-20% less than your actual is recommended)
+            Your allocated download speed (<strong className="text-foreground">10-20%</strong> less than your actual is recommended)
           </p>
+          <SpeedUnitHint mbps={config.download.total_limit} className="text-xs text-muted-foreground" />
           {showValidation && !downloadValid && (
             <p className="text-xs text-destructive">Download limit must be greater than 0</p>
           )}
@@ -329,8 +331,9 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
             className={showValidation && !uploadValid ? 'border-destructive' : ''}
           />
           <p className="text-xs text-muted-foreground">
-            Your allocated upload speed (10-20% less than your actual is recommended)
+            Your allocated upload speed (<strong className="text-foreground">10-20%</strong> less than your actual is recommended)
           </p>
+          <SpeedUnitHint mbps={config.upload.total_limit} className="text-xs text-muted-foreground" />
           {showValidation && !uploadValid && (
             <p className="text-xs text-destructive">Upload limit must be greater than 0</p>
           )}

@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { PasswordInput } from '@/components/settings/PasswordInput';
+import { ClientSpeedUnitNote } from '@/components/SpeedUnitHint';
 import { apiClient } from '@/api/client';
 import { WizardStepProps, DownloadClientConfig } from '../types';
 
@@ -29,6 +30,7 @@ const CLIENT_TYPES = {
     authType: 'username_password',
     defaultUrl: 'http://qbittorrent:8080',
     apiKeyLocation: null,
+    speedUnit: 'KiB/s and MiB/s',
   },
   sabnzbd: {
     name: 'SABnzbd',
@@ -37,6 +39,7 @@ const CLIENT_TYPES = {
     authType: 'api_key',
     defaultUrl: 'http://sabnzbd:8080',
     apiKeyLocation: 'Config → General → Security → API Key',
+    speedUnit: 'MB/s',
   },
   nzbget: {
     name: 'NZBGet',
@@ -45,6 +48,7 @@ const CLIENT_TYPES = {
     authType: 'username_password',
     defaultUrl: 'http://nzbget:6789',
     apiKeyLocation: null,
+    speedUnit: 'KB/s and MB/s',
   },
   transmission: {
     name: 'Transmission',
@@ -53,6 +57,7 @@ const CLIENT_TYPES = {
     authType: 'username_password',
     defaultUrl: 'http://transmission:9091',
     apiKeyLocation: null,
+    speedUnit: 'kB/s and MB/s',
   },
   deluge: {
     name: 'Deluge',
@@ -61,6 +66,7 @@ const CLIENT_TYPES = {
     authType: 'password',
     defaultUrl: 'http://deluge:8112',
     apiKeyLocation: null,
+    speedUnit: 'KiB/s and MiB/s',
   },
 } as const;
 
@@ -239,6 +245,11 @@ export const DownloadClientsStep: React.FC<WizardStepProps> = ({
                     placeholder={typeInfo.defaultUrl}
                     disabled={isLoading}
                     maxLength={512}
+                  />
+                  <ClientSpeedUnitNote
+                    clientName={typeInfo.name}
+                    speedUnit={typeInfo.speedUnit}
+                    className="text-xs text-muted-foreground"
                   />
                 </div>
 

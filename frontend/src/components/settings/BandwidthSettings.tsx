@@ -15,6 +15,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SplitSlider } from '@/components/ui/split-slider';
+import { SpeedUnitHint } from '@/components/SpeedUnitHint';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -517,8 +518,9 @@ export const BandwidthSettings: React.FC = () => {
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">
-              Total available download bandwidth in Mbps
+              Total download bandwidth for your clients, in Mbps. <strong className="text-foreground">10-20%</strong> less than your actual line speed is recommended.
             </p>
+            <SpeedUnitHint mbps={config.download.total_limit} />
           </div>
 
           <div className="space-y-2">
@@ -802,8 +804,9 @@ export const BandwidthSettings: React.FC = () => {
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">
-              Total available upload bandwidth in Mbps
+              Total upload bandwidth for your clients, in Mbps. <strong className="text-foreground">10-20%</strong> less than your actual line speed is recommended.
             </p>
+            <SpeedUnitHint mbps={config.upload.total_limit} />
           </div>
 
           <div className="space-y-2">
