@@ -195,6 +195,12 @@ class BandwidthConfig(BaseModel):
     download: DownloadBandwidthConfig
     upload: UploadBandwidthConfig
     streams: StreamBandwidthConfig = Field(default_factory=StreamBandwidthConfig)
+    demand_aware_allocation: bool = Field(
+        True,
+        description="Move unused share from active clients that are not using it to active "
+                    "clients that are saturating theirs (download and upload). Off holds active "
+                    "clients to their configured percentages."
+    )
 
 
 class RestorationDelaysConfig(BaseModel):

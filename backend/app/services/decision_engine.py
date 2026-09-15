@@ -7,7 +7,12 @@ from loguru import logger
 from app.config import SpeedarrConfig, TimeBasedScheduleConfig
 from app.constants import HARD_MIN_MBPS
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
-from app.services.demand_allocation import split_weights
+from app.services.demand_allocation import (
+    DemandState,
+    DemandTracker,
+    apply_demand,
+    split_weights,
+)
 
 
 def is_within_schedule(schedule: TimeBasedScheduleConfig) -> bool:
@@ -60,6 +65,10 @@ class DecisionEngine:
         self._inactive_counter: Dict[str, int] = {}
         # Track consecutive intervals each upload client has been below the active threshold
         self._upload_inactive_counter: Dict[str, int] = {}
+        # Demand-aware allocation state (issue #85): one classifier per direction, and the
+        # floored/rounded limit last emitted per client, which is the saturation denominator.
+        self._demand: Dict[str, DemandTracker] = {"download": DemandTracker(), "upload": DemandTracker()}
+        self._last_emitted: Dict[str, Dict[str, float]] = {"download": {}, "upload": {}}
 
     def _floor(self, limit: float, configured_min: float) -> float:
         """Clamp a throttle allocation so it is never 0 (which clients read as 'unlimited')."""
@@ -126,6 +135,60 @@ class DecisionEngine:
                 f"Active: {active_str} | Inactive: {inactive_str}"
             )
         return alloc
+
+    def _demand_adjust(
+        self,
+        direction: str,
+        target: Dict[str, float],
+        active: List[str],
+        stats: Dict[str, Dict[str, Any]],
+        speed_key: str,
+        percents: Dict[str, int],
+        safety_net_amount: float,
+    ) -> Dict[str, float]:
+        """Classify the active clients for this direction and redistribute unused share."""
+        tracker = self._demand[direction]
+        last = self._last_emitted[direction]
+        tracker.prune(target.keys())
+        previous = tracker.states()
+
+        states: Dict[str, DemandState] = {}
+        speeds: Dict[str, float] = {}
+        for client_id in target:
+            client_stats = stats.get(client_id, {})
+            if client_id not in active or "error" in client_stats:
+                tracker.reset(client_id)
+                continue
+            speed = float(client_stats.get(speed_key, 0) or 0.0)
+            speeds[client_id] = speed
+            states[client_id] = tracker.observe(client_id, speed, last.get(client_id))
+
+        adjusted = apply_demand(
+            target, states, speeds, percents, safety_net_amount,
+            self.config.bandwidth.demand_aware_allocation,
+        )
+        self._log_demand(direction, previous, states, speeds, target, adjusted)
+        return adjusted
+
+    @staticmethod
+    def _log_demand(
+        direction: str,
+        previous: Dict[str, DemandState],
+        states: Dict[str, DemandState],
+        speeds: Dict[str, float],
+        target: Dict[str, float],
+        adjusted: Dict[str, float],
+    ) -> None:
+        split = ", ".join(f"{c}: {adjusted[c]:.1f} Mbps" for c in adjusted)
+        transitions = [c for c in states if previous.get(c, DemandState.UNKNOWN) != states[c]]
+        if transitions:
+            described = ", ".join(
+                f"{c} {states[c].value.upper()} ({speeds[c]:.1f} of {target[c]:.1f} Mbps)"
+                for c in transitions
+            )
+            logger.info(f"Demand-aware {direction}: {described} | {split}")
+        elif any(abs(adjusted[c] - target[c]) > 0.01 for c in target):
+            logger.debug(f"Demand-aware {direction} split: {split}")
 
     def calculate_throttle(
         self,
@@ -276,11 +339,15 @@ class DecisionEngine:
                         f"inactive buffer {self._inactive_counter[name]}/{self.INACTIVE_BUFFER_INTERVALS}"
                     )
 
-        # Allocate download bandwidth (independent of streams)
+        # Allocate download bandwidth (independent of streams), then move unused share
         dl_percents = self._download_percents(download_in_schedule)
-        download_allocations = self._target_split(
+        download_targets = self._target_split(
             all_clients, available_download, active_downloading,
             dl_percents, safety_net_fraction, "download",
+        )
+        download_allocations = self._demand_adjust(
+            "download", download_targets, active_downloading, download_stats,
+            "download_speed", dl_percents, available_download * safety_net_fraction,
         )
 
         # Calculate upload bandwidth (Plex-aware, qBittorrent only)
@@ -315,14 +382,20 @@ class DecisionEngine:
             # Upload floor only applies to upload-capable clients; others keep 0.
             if download_stats.get(client_name, {}).get("supports_upload", False):
                 upload_limit = self._floor(upload_allocations.get(client_name, 0), ul_min)
+                self._last_emitted["upload"][client_name] = round(upload_limit, 2)
             else:
                 upload_limit = 0
+                self._last_emitted["upload"].pop(client_name, None)
+            self._last_emitted["download"][client_name] = round(download_limit, 2)
             decisions[client_name] = {
                 "action": "throttle",
                 "download_limit": round(download_limit, 2),
                 "upload_limit": round(upload_limit, 2),
                 "reason": reason,
             }
+        for direction_limits in self._last_emitted.values():
+            for stale in [c for c in direction_limits if c not in all_clients]:
+                direction_limits.pop(stale, None)
 
         # Record throttle time
         self._last_throttle_time = {name: datetime.now(timezone.utc) for name in all_clients}
@@ -372,9 +445,13 @@ class DecisionEngine:
                         f"inactive buffer {self._upload_inactive_counter[client_id]}/{self.INACTIVE_BUFFER_INTERVALS}"
                     )
 
-        upload_limits.update(self._target_split(
+        targets = self._target_split(
             upload_clients, available_upload, active_uploading,
             percents, safety_net_fraction, "upload",
+        )
+        upload_limits.update(self._demand_adjust(
+            "upload", targets, active_uploading, download_stats,
+            "upload_speed", percents, available_upload * safety_net_fraction,
         ))
         return upload_limits
 
