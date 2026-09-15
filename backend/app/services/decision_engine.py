@@ -78,6 +78,12 @@ class DecisionEngine:
         """Inactive safety net as a fraction (default 5%). Upload reuses the download value."""
         return getattr(self.config.bandwidth.download, 'inactive_safety_net_percent', 5) / 100
 
+    def _active_threshold(self, available: float, n_clients: int) -> float:
+        """10% of the per-client standby share, capped at 80% of the safety-net amount (issue #85)."""
+        standby_per_client = available / n_clients if n_clients else 0
+        return min(standby_per_client * 0.10,
+                   available * self._safety_net_fraction() * self.PROMOTION_CAP_FRACTION)
+
     def _download_percents(self, use_scheduled: bool) -> Dict[str, int]:
         if use_scheduled and self.config.bandwidth.download.scheduled.client_percents:
             logger.debug(f"Using scheduled client percentages: {self.config.bandwidth.download.scheduled.client_percents}")
@@ -130,7 +136,9 @@ class DecisionEngine:
         else:
             active_str = ", ".join(f"{c}: {alloc[c]:.1f} Mbps" for c in active)
             inactive_str = ", ".join(f"{c}: {alloc[c]:.1f} Mbps" for c in inactive) if inactive else "none"
-            logger.info(
+            # DEBUG, not INFO: this reports the target split, while the controller manager
+            # already logs the limits actually emitted at INFO every poll (issue #85).
+            logger.debug(
                 f"{direction.capitalize()} multiple active ({len(active)}/{len(clients)}) - "
                 f"Active: {active_str} | Inactive: {inactive_str}"
             )
@@ -320,16 +328,10 @@ class DecisionEngine:
             logger.debug("No download clients configured")
             return decisions
 
-        # Calculate standby bandwidth per client (equal split for idle mode)
-        standby_per_client = available_download / len(all_clients) if all_clients else 0
-
         # Active threshold: 10% of standby bandwidth, but never above 80% of the safety-net
         # cap an inactive client is held to (with two clients the two are otherwise equal).
         safety_net_fraction = self._safety_net_fraction()
-        active_threshold = min(
-            standby_per_client * 0.10,
-            available_download * safety_net_fraction * self.PROMOTION_CAP_FRACTION,
-        )
+        active_threshold = self._active_threshold(available_download, len(all_clients))
 
         # Identify which clients are actively downloading, with inactive buffer
         # A client is considered active if:
@@ -442,11 +444,7 @@ class DecisionEngine:
         percents = self._upload_percents(use_scheduled)
         safety_net_fraction = self._safety_net_fraction()
 
-        standby_per_client = available_upload / len(upload_clients)
-        active_threshold = min(
-            standby_per_client * 0.10,
-            available_upload * safety_net_fraction * self.PROMOTION_CAP_FRACTION,
-        )
+        active_threshold = self._active_threshold(available_upload, len(upload_clients))
 
         active_uploading = []
         for client_id in upload_clients:
