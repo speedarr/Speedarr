@@ -1,5 +1,12 @@
 """
 Bandwidth calculation utilities.
+
+Speedarr's internal speed unit is decimal megabits per second: 1 Mbps is
+1,000,000 bits, or 125,000 bytes, per second. That matches Plex bitrates and
+ISP-quoted line speeds. Download clients count kilobytes as either 1000 bytes
+(kilobytes, Transmission) or 1024 bytes (kibibytes: qBittorrent's UI, NZBGet,
+Deluge, SABnzbd's K suffix). The helpers below are the only place that should
+know the difference; adapters must not hand-roll these conversions.
 """
 from typing import Dict, Any, List
 
@@ -9,9 +16,33 @@ def mbps_to_bytes_per_sec(mbps: float) -> int:
     return int(mbps * 1_000_000 / 8)
 
 
-def bytes_per_sec_to_mbps(bytes_per_sec: int) -> float:
+def bytes_per_sec_to_mbps(bytes_per_sec: float) -> float:
     """Convert bytes per second to Megabits per second."""
     return (bytes_per_sec * 8) / 1_000_000
+
+
+BYTES_PER_KILOBYTE = 1000
+BYTES_PER_KIBIBYTE = 1024
+
+
+def mbps_to_kilobytes_per_sec(mbps: float) -> float:
+    """Convert Megabits per second to kilobytes (1000 bytes) per second."""
+    return mbps * 1_000_000 / 8 / BYTES_PER_KILOBYTE
+
+
+def kilobytes_per_sec_to_mbps(kilobytes_per_sec: float) -> float:
+    """Convert kilobytes (1000 bytes) per second to Megabits per second."""
+    return kilobytes_per_sec * BYTES_PER_KILOBYTE * 8 / 1_000_000
+
+
+def mbps_to_kibibytes_per_sec(mbps: float) -> float:
+    """Convert Megabits per second to kibibytes (1024 bytes) per second."""
+    return mbps * 1_000_000 / 8 / BYTES_PER_KIBIBYTE
+
+
+def kibibytes_per_sec_to_mbps(kibibytes_per_sec: float) -> float:
+    """Convert kibibytes (1024 bytes) per second to Megabits per second."""
+    return kibibytes_per_sec * BYTES_PER_KIBIBYTE * 8 / 1_000_000
 
 
 def mbps_to_kbps(mbps: float) -> float:

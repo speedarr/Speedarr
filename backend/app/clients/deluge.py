@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
 from .base import BaseDownloadClient
+from app.utils.bandwidth import bytes_per_sec_to_mbps, kibibytes_per_sec_to_mbps, mbps_to_kibibytes_per_sec
 
 
 class DelugeClient(BaseDownloadClient):
@@ -156,8 +157,8 @@ class DelugeClient(BaseDownloadClient):
             config = await self._rpc_call("core.get_config")
 
             # Deluge reports speeds in bytes/sec
-            download_speed = status.get("download_rate", 0) / 1_048_576 * 8
-            upload_speed = status.get("upload_rate", 0) / 1_048_576 * 8
+            download_speed = bytes_per_sec_to_mbps(status.get("download_rate", 0))
+            upload_speed = bytes_per_sec_to_mbps(status.get("upload_rate", 0))
 
             # Get speed limits
             speed_limits = await self.get_speed_limits()
@@ -187,13 +188,13 @@ class DelugeClient(BaseDownloadClient):
         try:
             config = await self._rpc_call("core.get_config")
 
-            # Deluge uses bytes/sec for limits, -1 means unlimited
+            # Deluge stores limits in KiB/s (1 KiB = 1024 bytes), -1 means unlimited
             dl_limit = config.get("max_download_speed", -1)
             ul_limit = config.get("max_upload_speed", -1)
 
             return {
-                "download_limit": (dl_limit * 8 / 1000) if dl_limit > 0 else 0,
-                "upload_limit": (ul_limit * 8 / 1000) if ul_limit > 0 else 0,
+                "download_limit": kibibytes_per_sec_to_mbps(dl_limit) if dl_limit > 0 else 0,
+                "upload_limit": kibibytes_per_sec_to_mbps(ul_limit) if ul_limit > 0 else 0,
             }
         except Exception as e:
             logger.error(f"Failed to get Deluge speed limits: {e}")
@@ -207,12 +208,12 @@ class DelugeClient(BaseDownloadClient):
             config_updates = {}
 
             if download_limit is not None:
-                # Convert Mbps to KB/s (Deluge uses KB/s in config)
-                limit_kbps = float(download_limit * 1000 / 8) if download_limit > 0 else -1.0
+                # Deluge's max_*_speed config values are KiB/s (1 KiB = 1024 bytes)
+                limit_kbps = mbps_to_kibibytes_per_sec(download_limit) if download_limit > 0 else -1.0
                 config_updates["max_download_speed"] = limit_kbps
 
             if upload_limit is not None:
-                limit_kbps = float(upload_limit * 1000 / 8) if upload_limit > 0 else -1.0
+                limit_kbps = mbps_to_kibibytes_per_sec(upload_limit) if upload_limit > 0 else -1.0
                 config_updates["max_upload_speed"] = limit_kbps
 
             if config_updates:

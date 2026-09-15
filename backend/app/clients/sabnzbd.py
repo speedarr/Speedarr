@@ -4,6 +4,7 @@ SABnzbd API client for monitoring and controlling Usenet downloads.
 from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
+from app.utils.bandwidth import bytes_per_sec_to_mbps, kibibytes_per_sec_to_mbps, mbps_to_kibibytes_per_sec
 
 
 class SABnzbdClient:
@@ -49,17 +50,15 @@ class SABnzbdClient:
             # Access the nested queue object
             queue = response["queue"]
 
-            # Extract speed (KB/s as float)
+            # Extract speed (SABnzbd reports kbpersec in KiB/s, 1 KiB = 1024 bytes)
             speed_kbps = float(queue.get("kbpersec", 0))
-            speed_mbps = (speed_kbps / 1024) * 8  # KB/s to Mbps
+            speed_mbps = kibibytes_per_sec_to_mbps(speed_kbps)
 
             # Get speed limit using speedlimit_abs which is in bytes per second
             # This is the actual effective limit regardless of how it was set
             speedlimit_abs = queue.get("speedlimit_abs", "0")
             speedlimit_bytes = float(speedlimit_abs) if speedlimit_abs else 0
-            # Convert bytes/s to Mbps using binary (1024*1024 = 1048576)
-            # bytes/s * 8 / 1048576 = Mbps, simplified: bytes/s / 131072
-            limit_mbps = (speedlimit_bytes * 8) / (1024 * 1024) if speedlimit_bytes > 0 else 0
+            limit_mbps = bytes_per_sec_to_mbps(speedlimit_bytes) if speedlimit_bytes > 0 else 0
 
             # Store original limit
             if self._original_limit is None and limit_mbps > 0:
@@ -90,20 +89,20 @@ class SABnzbdClient:
         """Set speed limit for downloads (upload ignored).
 
         First sets percentage to 100% to clear any percentage-based throttling,
-        then sets the absolute speed limit in MB/s.
+        then sets the absolute speed limit in KiB/s.
         """
         if download_limit is None:
             return
 
         try:
-            # Set absolute speed limit in KB/s (K suffix). Convert Mbps -> KB/s and
-            # clamp to >= 1 so a throttle floor never rounds to 0, which SABnzbd
-            # treats as unlimited. See issue #43.
-            kb_per_sec = max(1, round(download_limit * 1000 / 8))
+            # Set an absolute speed limit with the K suffix, which SABnzbd reads as
+            # KiB/s (1 KiB = 1024 bytes). Clamp to >= 1 so a throttle floor never
+            # rounds to 0, which SABnzbd treats as unlimited. See issue #43.
+            kb_per_sec = max(1, round(mbps_to_kibibytes_per_sec(download_limit)))
             value = f"{kb_per_sec}K"
             await self._api_call("config", {"name": "speedlimit", "value": value})
 
-            logger.debug(f"Set SABnzbd download limit: {download_limit:.3f} Mbps ({kb_per_sec} KB/s)")
+            logger.debug(f"Set SABnzbd download limit: {download_limit:.3f} Mbps ({kb_per_sec} KiB/s)")
 
         except Exception as e:
             logger.error(f"Failed to set SABnzbd speed limit: {e}")
