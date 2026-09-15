@@ -96,3 +96,49 @@ class DemandTracker:
     def prune(self, current_ids: Iterable[str]) -> None:
         keep = set(current_ids)
         self._entries = {cid: e for cid, e in self._entries.items() if cid in keep}
+
+
+def apply_demand(
+    target: Dict[str, float],
+    states: Dict[str, DemandState],
+    speeds: Dict[str, float],
+    percents: Dict[str, float],
+    safety_net_amount: float,
+    enabled: bool,
+) -> Dict[str, float]:
+    """
+    Move unused share from SLACK clients to SATURATED clients.
+
+    target: the split from _target_split (every client, inactive ones included).
+    states/speeds: only the active clients (inactive and errored clients are absent).
+
+    Rules (spec section 3):
+    - Off, or no SATURATED client: return the target untouched.
+    - Each SLACK client keeps usage * DEMAND_HEADROOM_MULTIPLIER, clamped to
+      [safety_net_amount, its target]; the difference to its target is freed.
+    - SATURATED clients receive their target plus the freed total, weighted by their
+      configured percents when all of them have one, else equally.
+    - UNKNOWN clients, and clients absent from states, keep their target.
+    The sum is preserved by construction.
+    """
+    result = dict(target)
+    if not enabled:
+        return result
+    saturated = [c for c, s in states.items() if s == DemandState.SATURATED and c in target]
+    if not saturated:
+        return result
+
+    freed = 0.0
+    for client_id, state in states.items():
+        if state != DemandState.SLACK or client_id not in target:
+            continue
+        share = target[client_id]
+        wanted = speeds.get(client_id, 0.0) * DEMAND_HEADROOM_MULTIPLIER
+        new_limit = min(max(wanted, safety_net_amount), share)
+        freed += share - new_limit
+        result[client_id] = new_limit
+
+    weights = split_weights(saturated, percents)
+    for client_id in saturated:
+        result[client_id] = target[client_id] + freed * weights[client_id]
+    return result
