@@ -179,11 +179,12 @@ def test_capped_client_above_standby_threshold_promoted():
     assert dl(d, "sabnzbd_1") == pytest.approx(50.0, abs=0.01)
 
 
-def test_capped_client_at_90_percent_of_cap_not_promoted_today():
-    # Changes in Task 3: the promotion threshold is capped at 80% of the safety net,
-    # after which 4.5 Mbps (90% of the 5.0 cap) IS promoted.
+def test_capped_client_at_90_percent_of_cap_is_promoted():
+    # Threshold is min(10% of standby, 80% of the safety net) = min(5.0, 4.0) = 4.0,
+    # so a capped client no longer depends on limiter overshoot to be promoted.
     d = run(_capped_engine(), [stats({"qbittorrent_1": 30, "sabnzbd_1": 4.5})])
-    assert dl(d, "sabnzbd_1") == pytest.approx(5.0, abs=0.01)
+    assert dl(d, "qbittorrent_1") == pytest.approx(50.0, abs=0.01)
+    assert dl(d, "sabnzbd_1") == pytest.approx(50.0, abs=0.01)
 
 
 # --- upload branches (upload_total 50: standby 25 each, safety net 2.5) --------
@@ -229,5 +230,13 @@ def test_upload_inactive_buffer_five_polls():
 def test_upload_standby_equal_split_after_buffer():
     engine = engine_with()
     d = run(engine, [stats(upload={"qbittorrent_1": 0, "transmission_1": 0})] * 6)
+    assert ul(d, "qbittorrent_1") == pytest.approx(25.0, abs=0.01)
+    assert ul(d, "transmission_1") == pytest.approx(25.0, abs=0.01)
+
+
+def test_upload_capped_client_at_90_percent_of_cap_is_promoted():
+    engine = engine_with()
+    run(engine, [stats(upload={"qbittorrent_1": 20, "transmission_1": 0})] * 6)  # transmission capped at 2.5
+    d = run(engine, [stats(upload={"qbittorrent_1": 20, "transmission_1": 2.25})])
     assert ul(d, "qbittorrent_1") == pytest.approx(25.0, abs=0.01)
     assert ul(d, "transmission_1") == pytest.approx(25.0, abs=0.01)

@@ -48,6 +48,9 @@ class DecisionEngine:
 
     # Number of polling intervals before a client is marked as inactive
     INACTIVE_BUFFER_INTERVALS = 6
+    # A client capped at the safety net is promoted once it reaches this fraction of its
+    # cap, so promotion never depends on the client's limiter overshooting (issue #85).
+    PROMOTION_CAP_FRACTION = 0.8
 
     def __init__(self, config: SpeedarrConfig):
         self.config = config
@@ -243,9 +246,13 @@ class DecisionEngine:
         # Calculate standby bandwidth per client (equal split for idle mode)
         standby_per_client = available_download / len(all_clients) if all_clients else 0
 
-        # Active threshold: 10% of standby bandwidth
-        # A client is considered "actively downloading" if its speed exceeds this threshold
-        active_threshold = standby_per_client * 0.10
+        # Active threshold: 10% of standby bandwidth, but never above 80% of the safety-net
+        # cap an inactive client is held to (with two clients the two are otherwise equal).
+        safety_net_fraction = self._safety_net_fraction()
+        active_threshold = min(
+            standby_per_client * 0.10,
+            available_download * safety_net_fraction * self.PROMOTION_CAP_FRACTION,
+        )
 
         # Identify which clients are actively downloading, with inactive buffer
         # A client is considered active if:
@@ -270,7 +277,6 @@ class DecisionEngine:
                     )
 
         # Allocate download bandwidth (independent of streams)
-        safety_net_fraction = self._safety_net_fraction()
         dl_percents = self._download_percents(download_in_schedule)
         download_allocations = self._target_split(
             all_clients, available_download, active_downloading,
@@ -346,7 +352,10 @@ class DecisionEngine:
         safety_net_fraction = self._safety_net_fraction()
 
         standby_per_client = available_upload / len(upload_clients)
-        active_threshold = standby_per_client * 0.10
+        active_threshold = min(
+            standby_per_client * 0.10,
+            available_upload * safety_net_fraction * self.PROMOTION_CAP_FRACTION,
+        )
 
         active_uploading = []
         for client_id in upload_clients:
