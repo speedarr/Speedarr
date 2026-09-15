@@ -81,6 +81,19 @@ def test_toggle_off_reproduces_fixed_split():
     assert dl(d, "sabnzbd_1") == pytest.approx(50.0, abs=0.01)
 
 
+def test_toggle_off_emits_no_demand_log_lines_and_clears_tracker(caplog):
+    from loguru import logger as loguru_logger
+    e = engine(demand_aware=False)
+    handler_id = loguru_logger.add(caplog.handler, level="DEBUG", format="{message}")
+    try:
+        run(e, [A_SAT_B_SLACK] * 6)
+    finally:
+        loguru_logger.remove(handler_id)
+    assert not any("Demand-aware" in r.getMessage() for r in caplog.records)
+    assert e._demand["download"].states() == {}
+    assert e._demand["upload"].states() == {}
+
+
 def test_erroring_client_keeps_target_and_never_lends():
     polls = [stats({"qbittorrent_1": 50.0, "sabnzbd_1": 20.0}, errors=("sabnzbd_1",))] * 6
     d = run(engine(), polls)
@@ -161,3 +174,15 @@ def test_download_and_upload_trackers_are_independent():
     d = run(e, polls)
     assert dl(d, "qbittorrent_1") == pytest.approx(70.0, abs=0.01)   # qB saturated on download
     assert ul(d, "transmission_1") == pytest.approx(38.0, abs=0.01)  # transmission saturated on upload
+
+
+def test_single_upload_client_emits_no_upload_demand_lines(caplog):
+    from loguru import logger as loguru_logger
+    e = engine()
+    handler_id = loguru_logger.add(caplog.handler, level="DEBUG", format="{message}")
+    try:
+        run(e, [stats({"sabnzbd_1": 10.0}, upload={"qbittorrent_1": 25.0})] * 6)
+    finally:
+        loguru_logger.remove(handler_id)
+    assert not any("Demand-aware upload" in r.getMessage() for r in caplog.records)
+    assert e._demand["upload"].states() == {}

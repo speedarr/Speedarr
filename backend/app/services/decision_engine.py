@@ -149,6 +149,11 @@ class DecisionEngine:
         """Classify the active clients for this direction and redistribute unused share."""
         tracker = self._demand[direction]
         last = self._last_emitted[direction]
+        # Nothing to redistribute when the feature is off or there is a single client:
+        # skip classification entirely, drop any stale state and log nothing (spec 3.2).
+        if not self.config.bandwidth.demand_aware_allocation or len(target) < 2:
+            tracker.prune([])
+            return dict(target)
         tracker.prune(target.keys())
         previous = tracker.states()
 
