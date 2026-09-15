@@ -1547,10 +1547,13 @@ async def update_media_servers(
         # Explicitly reload media server adapters (update_full_config does not do this)
         await config_manager._reload_services("media_servers", updated_config)
 
-        # Test connections after reload
+        # Test connections after reload. In setup mode main.py sets polling_monitor
+        # to None (not unset) until complete-setup builds the services, so check
+        # the value rather than hasattr.
         connection_results: Dict[str, bool] = {}
-        if hasattr(request.app.state, "polling_monitor"):
-            for sid, server in request.app.state.polling_monitor.media_servers.items():
+        polling_monitor = getattr(request.app.state, "polling_monitor", None)
+        if polling_monitor is not None:
+            for sid, server in polling_monitor.media_servers.items():
                 try:
                     connection_results[sid] = await server.test_connection()
                 except Exception:
