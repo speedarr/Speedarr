@@ -7,46 +7,24 @@ here must pass unchanged before and after the refactor, except the one marked
 import pytest
 
 from app.services.decision_engine import DecisionEngine
-from tests.conftest import make_config
+from tests.conftest import make_config, stats, run, dl, ul
 
-UPLOAD_CAPABLE = ("qbittorrent", "transmission", "deluge")
-
-
-def stats(download=None, upload=None, errors=()):
-    """Build a stats dict. Keys are client ids; upload capability from the id prefix."""
-    download = download or {}
-    upload = upload or {}
-    ids = list(download) + [c for c in upload if c not in download]
-    out = {}
-    for cid in ids:
-        out[cid] = {
-            "download_speed": float(download.get(cid, 0.0)),
-            "upload_speed": float(upload.get(cid, 0.0)),
-            "supports_upload": cid.split("_")[0] in UPLOAD_CAPABLE,
-        }
-        if cid in errors:
-            out[cid]["error"] = "unreachable"
-    return out
+# Every case below is a pure-split characterisation, so it must hold with demand-aware
+# allocation on and off; the autouse fixture runs the whole module both ways (issue #85).
+_DEMAND_AWARE = True
 
 
-def run(engine, polls):
-    """Feed a list of stats dicts through the engine; return the last decisions."""
-    decisions = None
-    for poll in polls:
-        decisions = engine.calculate_throttle(active_streams=[], download_stats=poll)
-    return decisions
-
-
-def dl(decisions, cid):
-    return decisions[cid]["download_limit"]
-
-
-def ul(decisions, cid):
-    return decisions[cid]["upload_limit"]
+@pytest.fixture(autouse=True, params=[True, False], ids=["demand_on", "demand_off"])
+def _demand_toggle(request):
+    global _DEMAND_AWARE
+    _DEMAND_AWARE = request.param
+    yield
+    _DEMAND_AWARE = True
 
 
 def engine_with(download_total=100.0, upload_total=50.0, percents=None, upload_percents=None):
     cfg = make_config(download_total=download_total, upload_total=upload_total)
+    cfg.bandwidth.demand_aware_allocation = _DEMAND_AWARE
     if percents is not None:
         cfg.bandwidth.download.client_percents = percents
     if upload_percents is not None:

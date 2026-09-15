@@ -2,6 +2,7 @@
 from app.services.demand_allocation import (
     DemandState,
     DemandTracker,
+    DEMAND_HEADROOM_MULTIPLIER,
     DEMAND_POLLS_TO_SATURATED,
     DEMAND_POLLS_TO_SLACK,
     DEMAND_SATURATION_RATIO,
@@ -20,6 +21,7 @@ def test_constants_match_spec():
     assert DEMAND_SATURATION_RATIO == 0.9
     assert DEMAND_POLLS_TO_SATURATED == 2
     assert DEMAND_POLLS_TO_SLACK == 3
+    assert DEMAND_HEADROOM_MULTIPLIER == 1.5
 
 
 def test_unknown_client_is_unknown():

@@ -30,6 +30,42 @@ def make_stats():
     }
 
 
+UPLOAD_CAPABLE = ("qbittorrent", "transmission", "deluge")
+
+
+def stats(download=None, upload=None, errors=()):
+    """Build a stats dict. Keys are client ids; upload capability from the id prefix."""
+    download = download or {}
+    upload = upload or {}
+    ids = list(download) + [c for c in upload if c not in download]
+    out = {}
+    for cid in ids:
+        out[cid] = {
+            "download_speed": float(download.get(cid, 0.0)),
+            "upload_speed": float(upload.get(cid, 0.0)),
+            "supports_upload": cid.split("_")[0] in UPLOAD_CAPABLE,
+        }
+        if cid in errors:
+            out[cid]["error"] = "unreachable"
+    return out
+
+
+def run(engine, polls):
+    """Feed a list of stats dicts through the engine; return the last decisions."""
+    decisions = None
+    for poll in polls:
+        decisions = engine.calculate_throttle(active_streams=[], download_stats=poll)
+    return decisions
+
+
+def dl(decisions, cid):
+    return decisions[cid]["download_limit"]
+
+
+def ul(decisions, cid):
+    return decisions[cid]["upload_limit"]
+
+
 @pytest.fixture
 def make_engine():
     def _make(**kwargs):

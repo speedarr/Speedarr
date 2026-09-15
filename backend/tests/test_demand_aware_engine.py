@@ -7,8 +7,7 @@ import pytest
 
 from app.services.decision_engine import DecisionEngine
 from app.services.demand_allocation import DemandState
-from tests.conftest import make_config
-from tests.test_allocation_characterisation import stats, run, dl, ul
+from tests.conftest import make_config, stats, run, dl, ul
 
 
 def engine(demand_aware=True, **limits):
@@ -104,7 +103,7 @@ def test_erroring_client_keeps_target_and_never_lends():
 def test_inactive_client_is_not_classified_and_keeps_safety_net():
     e = engine()
     polls = [stats({"qbittorrent_1": 50.0, "sabnzbd_1": 30.0, "nzbget_1": 0.0})] * 6
-    d = run(e, polls)  # nzbget inactive from call 6; A and B both saturate their 47.5
+    d = run(e, polls)  # nzbget inactive from call 6; qbittorrent saturates its 47.5, sabnzbd goes SLACK
     assert dl(d, "nzbget_1") == pytest.approx(5.0, abs=0.01)
     assert e._demand["download"].state("nzbget_1") is DemandState.UNKNOWN
 
@@ -126,7 +125,6 @@ def test_two_client_promotion_at_85_percent_of_cap_with_demand_on():
 
 
 def test_state_transition_logged_at_info(caplog):
-    import logging
     from loguru import logger as loguru_logger
 
     handler_id = loguru_logger.add(caplog.handler, level="INFO", format="{message}")
