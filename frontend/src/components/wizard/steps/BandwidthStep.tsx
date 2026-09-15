@@ -257,7 +257,8 @@ export const BandwidthStep: React.FC<WizardStepProps> = ({
             <ul className="list-disc list-inside space-y-0.5 text-xs">
               <li><strong>No active downloads:</strong> Bandwidth split evenly between clients</li>
               <li><strong>One client downloading:</strong> 95% allocated to the active client</li>
-              <li><strong>Multiple clients active:</strong> Follows your configured ratios below</li>
+              <li><strong>Multiple clients active:</strong> Follows your configured ratios below when every client wants more</li>
+              <li><strong>Unused share:</strong> A client that isn't using its share lends the unused part to busy clients automatically (Settings &gt; Bandwidth to turn off)</li>
             </ul>
           </div>
         )}
