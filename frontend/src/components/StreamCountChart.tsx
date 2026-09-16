@@ -12,7 +12,6 @@ import {
 import { formatInTimeZone } from 'date-fns-tz';
 import { apiClient } from '@/api/client';
 import type { ChartDataPoint } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 import type { TimeRange, DataInterval } from './BandwidthChart';
@@ -142,13 +141,8 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Active Streams</CardTitle>
-      </CardHeader>
-
-      <CardContent>
-        {error && (
+    <div>
+      {error && (
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
@@ -228,7 +222,6 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
             </LineChart>
           </ResponsiveContainer>
         )}
-      </CardContent>
-    </Card>
-  );
+      </div>
+    );
 };

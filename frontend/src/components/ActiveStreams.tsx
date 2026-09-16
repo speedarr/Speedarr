@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ActiveStream, StreamReservation } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -132,20 +131,15 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCo
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="flex justify-center p-8">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
+      <div className="flex justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <CardTitle>Active Streams</CardTitle>
-          <div className="flex flex-wrap gap-2">
+    <div>
+        <div className="flex flex-wrap gap-2 justify-end mb-4">
             <Badge variant="outline" className="text-sm">
               {streams.length} Active
             </Badge>
@@ -172,11 +166,7 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCo
                 {totalReserved.toFixed(1)} Mbps Holding
               </Badge>
             )}
-          </div>
         </div>
-      </CardHeader>
-
-      <CardContent>
         {error && (
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
@@ -342,7 +332,6 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCo
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </CardContent>
-    </Card>
+    </div>
   );
 };
