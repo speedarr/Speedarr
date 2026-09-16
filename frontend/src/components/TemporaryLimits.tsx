@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { getErrorMessage } from '@/lib/utils';
+import { formatRemainingTime } from '@/lib/dashboardSummaries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -178,17 +179,6 @@ export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisa
     } finally {
       setIsLoggingIn(false);
     }
-  };
-
-  const formatRemainingTime = (minutes: number | null, expiresAt: string | null): string => {
-    if (minutes === null && expiresAt === null) return 'Until cleared';
-    if (minutes === null) return '--';
-    if (minutes < 1) return 'Less than 1 minute';
-    if (minutes < 60) return `${Math.round(minutes)} minute${Math.round(minutes) !== 1 ? 's' : ''}`;
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    if (mins === 0) return `${hours} hour${hours !== 1 ? 's' : ''}`;
-    return `${hours}h ${mins}m`;
   };
 
   if (isLoading) {
