@@ -3,7 +3,6 @@ import { apiClient } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { getErrorMessage } from '@/lib/utils';
 import { formatRemainingTime } from '@/lib/dashboardSummaries';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -183,29 +182,15 @@ export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisa
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="flex justify-center items-center p-4">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
+      <div className="flex justify-center items-center p-4">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
     );
-  }
-
-  // Non-admin users only see the active override banner
-  if (!isAdmin && !limits?.active) {
-    return null;
   }
 
   return (
     <>
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            Temporary Limits
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div className="space-y-4">
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
@@ -346,8 +331,7 @@ export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisa
               </p>
             </>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Login Dialog for non-admin Clear action */}
       <Dialog open={showLoginDialog} onOpenChange={(open) => {
