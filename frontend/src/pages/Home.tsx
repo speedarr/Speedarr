@@ -20,8 +20,7 @@ import {
 } from '@/lib/dashboardSummaries';
 import type { SystemStatus, TemporaryLimitState } from '@/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Loader2, AlertCircle, RotateCcw, Settings2 } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 interface TimeRange {
   label: string;
@@ -52,7 +51,8 @@ interface PanelSpec {
   title: string;
   visible: boolean;
   summary: string;
-  content: React.ReactNode;
+  /** Renders the panel content with the shell's controls to place in its title row. */
+  content: (controls: React.ReactNode) => React.ReactNode;
 }
 
 export const Home: React.FC = () => {
@@ -67,7 +67,6 @@ export const Home: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const { layout, move, toggle, reset, isDefault } = useDashboardLayout();
-  const [editing, setEditing] = useState(false);
 
   // A collapsed bandwidth chart cannot show its Reset Zoom button, so drop the zoom it published.
   const chartCollapsed = layout.collapsed.includes('bandwidth-chart');
@@ -122,20 +121,23 @@ export const Home: React.FC = () => {
       title: 'Overview',
       visible: status !== null,
       summary: overviewSummary(status, tempLimits),
-      content: status ? <BandwidthOverview status={status} tempLimits={tempLimits} /> : null,
+      content: (controls) =>
+        status ? <BandwidthOverview status={status} tempLimits={tempLimits} controls={controls} /> : null,
     },
     'temporary-limits': {
       title: 'Temporary Limits',
       // Non-admins only see this panel while an override is active (was a guard inside the component).
       visible: isAdmin || !!tempLimits?.active,
       summary: temporaryLimitsSummary(tempLimits),
-      content: <TemporaryLimits throttlingDisabled={status ? !status.throttling_enabled : false} />,
+      content: (controls) => (
+        <TemporaryLimits throttlingDisabled={status ? !status.throttling_enabled : false} controls={controls} />
+      ),
     },
     'bandwidth-chart': {
       title: 'Bandwidth Usage',
       visible: true,
       summary: bandwidthChartSummary(status),
-      content: (
+      content: (controls) => (
         <BandwidthChart
           timeRange={timeRange}
           setTimeRange={handleTimeRangeChange}
@@ -144,6 +146,7 @@ export const Home: React.FC = () => {
           timeRanges={timeRanges}
           onZoomChange={setZoomRange}
           configuredServerCount={configuredServerCount}
+          controls={controls}
         />
       ),
     },
@@ -151,13 +154,15 @@ export const Home: React.FC = () => {
       title: 'Stream Count',
       visible: true,
       summary: streamCountSummary(status),
-      content: <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />,
+      content: (controls) => (
+        <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} controls={controls} />
+      ),
     },
     'active-streams': {
       title: 'Active Streams',
       visible: true,
       summary: activeStreamsSummary(status),
-      content: <ActiveStreams configuredServerCount={configuredServerCount} />,
+      content: (controls) => <ActiveStreams configuredServerCount={configuredServerCount} controls={controls} />,
     },
   };
 
@@ -174,26 +179,6 @@ export const Home: React.FC = () => {
 
       {status && <ThrottlingBanner status={status} onReenabled={fetchStatus} />}
 
-      {/* Layout toolbar: edit mode is per page load, the layout itself is per browser */}
-      <div className="flex justify-end gap-2">
-        {editing ? (
-          <>
-            <Button variant="outline" size="sm" onClick={reset} disabled={isDefault}>
-              <RotateCcw className="h-4 w-4 mr-2" aria-hidden="true" />
-              Reset layout
-            </Button>
-            <Button variant="default" size="sm" onClick={() => setEditing(false)}>
-              Done
-            </Button>
-          </>
-        ) : (
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-            <Settings2 className="h-4 w-4 mr-2" aria-hidden="true" />
-            Customise layout
-          </Button>
-        )}
-      </div>
-
       {visibleIds.map((id, index) => (
         <DashboardPanel
           key={id}
@@ -201,11 +186,12 @@ export const Home: React.FC = () => {
           title={panels[id].title}
           summary={panels[id].summary}
           collapsed={layout.collapsed.includes(id)}
-          editing={editing}
           canMoveUp={index > 0}
           canMoveDown={index < visibleIds.length - 1}
+          isDefaultLayout={isDefault}
           onMoveUp={() => move(id, 'up', visibleIds)}
           onMoveDown={() => move(id, 'down', visibleIds)}
+          onResetLayout={reset}
           onToggleCollapsed={() => toggle(id)}
         >
           {panels[id].content}

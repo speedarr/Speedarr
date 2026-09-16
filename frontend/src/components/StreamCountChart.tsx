@@ -21,9 +21,11 @@ interface StreamCountChartProps {
   timeRange: TimeRange;
   dataInterval: DataInterval;
   zoomRange?: ZoomRange | null;
+  /** Panel chrome (options menu + collapse chevron) to place at the end of the title row. */
+  controls?: React.ReactNode;
 }
 
-export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, dataInterval, zoomRange }) => {
+export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, dataInterval, zoomRange, controls }) => {
   const [rawData, setRawData] = useState<ChartDataPoint[]>([]);
   const [data, setData] = useState<any[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -142,6 +144,10 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
 
   return (
     <div>
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <h3 className="text-lg font-semibold">Stream Count</h3>
+        {controls}
+      </div>
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />

@@ -8,13 +8,17 @@ import type { ClientBandwidthStatus, SystemStatus, TemporaryLimitState } from '@
 export interface BandwidthOverviewProps {
   status: SystemStatus;
   tempLimits: TemporaryLimitState | null;
+  /** Panel chrome (options menu + collapse chevron); pinned to the top-right corner, over the heading row. */
+  controls?: React.ReactNode;
 }
+
+type RowProps = Pick<BandwidthOverviewProps, 'status' | 'tempLimits'> & { direction: Direction };
 
 const hasOverride = (tempLimits: TemporaryLimitState | null, direction: Direction): boolean =>
   !!tempLimits?.active && (direction === 'download' ? tempLimits.download_mbps : tempLimits.upload_mbps) !== null;
 
 /** "Total Limit" row, or the red "Temporary Limit" row while an override is active. */
-const TotalLimitRow: React.FC<BandwidthOverviewProps & { direction: Direction }> = ({ status, tempLimits, direction }) => {
+const TotalLimitRow: React.FC<RowProps> = ({ status, tempLimits, direction }) => {
   const override = hasOverride(tempLimits, direction);
   return (
     <div className="flex justify-between items-center">
@@ -61,7 +65,7 @@ const ClientRows: React.FC<{ clients?: ClientBandwidthStatus[] }> = ({ clients }
 );
 
 /** "Available" row: against the temporary limit while one is active, else the engine's figure. */
-const AvailableRow: React.FC<BandwidthOverviewProps & { direction: Direction }> = ({ status, tempLimits, direction }) => {
+const AvailableRow: React.FC<RowProps> = ({ status, tempLimits, direction }) => {
   const side = status.bandwidth[direction];
   const available = hasOverride(tempLimits, direction)
     ? Math.max(0, effectiveLimit(status, tempLimits, direction) - side.current_usage)
@@ -97,90 +101,96 @@ const WanFigure: React.FC<{ label: string; speed: number | null | undefined; sta
  * The dashboard's overview trio (Download | stream count | Upload) as three columns of one panel.
  * Extracted from Home.tsx for issue #86; the rows and figures are unchanged.
  */
-export const BandwidthOverview: React.FC<BandwidthOverviewProps> = ({ status, tempLimits }) => {
+export const BandwidthOverview: React.FC<BandwidthOverviewProps> = ({ status, tempLimits, controls }) => {
   const download = status.bandwidth.download;
   const upload = status.bandwidth.upload;
   const uploadReserved = upload.reserved_bandwidth ?? 0;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
-      {/* Download */}
-      <div className="py-4 md:py-0 md:pr-6 space-y-3">
-        <h4 className="text-base font-semibold">Download Bandwidth</h4>
-        <TotalLimitRow status={status} tempLimits={tempLimits} direction="download" />
-        <ClientRows clients={download.clients} />
-        {(download.stream_reserve ?? 0) > 0 && (
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Stream Reserve:</span>
-            <span className="font-semibold text-orange-500 dark:text-orange-400">
-              {(download.stream_reserve ?? 0).toFixed(1)} Mbps
-            </span>
-          </div>
-        )}
-        {(download.holding_reserve ?? 0) > 0 && (
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Holding Reserve:</span>
-            <span className="font-semibold text-orange-500 dark:text-orange-400">
-              {(download.holding_reserve ?? 0).toFixed(1)} Mbps
-            </span>
-          </div>
-        )}
-        <AvailableRow status={status} tempLimits={tempLimits} direction="download" />
-      </div>
+    <div className="relative">
+      {/* Keeps the heading order (h1 → h3 → h4) for assistive tech without a visible title row. */}
+      <h3 className="sr-only">Overview</h3>
+      {controls && <div className="absolute right-0 -top-1">{controls}</div>}
+      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
+        {/* Download */}
+        <div className="py-4 md:py-0 md:pr-6 space-y-3">
+          {/* pr-20 keeps the heading clear of the pinned controls on whichever column sits under them */}
+          <h4 className="text-base font-semibold pr-20 md:pr-0">Download Bandwidth</h4>
+          <TotalLimitRow status={status} tempLimits={tempLimits} direction="download" />
+          <ClientRows clients={download.clients} />
+          {(download.stream_reserve ?? 0) > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Stream Reserve:</span>
+              <span className="font-semibold text-orange-500 dark:text-orange-400">
+                {(download.stream_reserve ?? 0).toFixed(1)} Mbps
+              </span>
+            </div>
+          )}
+          {(download.holding_reserve ?? 0) > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Holding Reserve:</span>
+              <span className="font-semibold text-orange-500 dark:text-orange-400">
+                {(download.holding_reserve ?? 0).toFixed(1)} Mbps
+              </span>
+            </div>
+          )}
+          <AvailableRow status={status} tempLimits={tempLimits} direction="download" />
+        </div>
 
-      {/* Stream count, with WAN figures when SNMP is enabled */}
-      <div className="flex items-center py-6 md:py-0 md:px-4">
-        {status.snmp_enabled ? (
-          <div className="grid grid-cols-3 items-center justify-items-center w-full">
-            <WanFigure label="WAN Download" speed={download.snmp_speed} status={status} />
-            <div className="flex flex-col items-center justify-center border-x border-border py-2 w-full">
+        {/* Stream count, with WAN figures when SNMP is enabled */}
+        <div className="flex items-center py-6 md:py-0 md:px-4">
+          {status.snmp_enabled ? (
+            <div className="grid grid-cols-3 items-center justify-items-center w-full">
+              <WanFigure label="WAN Download" speed={download.snmp_speed} status={status} />
+              <div className="flex flex-col items-center justify-center border-x border-border py-2 w-full">
+                <StreamCountDisplay status={status} />
+              </div>
+              <WanFigure label="WAN Upload" speed={upload.snmp_speed} status={status} />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center w-full">
               <StreamCountDisplay status={status} />
             </div>
-            <WanFigure label="WAN Upload" speed={upload.snmp_speed} status={status} />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center w-full">
-            <StreamCountDisplay status={status} />
-          </div>
-        )}
-      </div>
-
-      {/* Upload */}
-      <div className="py-4 md:py-0 md:pl-6 space-y-3">
-        <h4 className="text-base font-semibold">Upload Bandwidth</h4>
-        <TotalLimitRow status={status} tempLimits={tempLimits} direction="upload" />
-        <ClientRows clients={upload.clients} />
-        <div className="flex justify-between items-center">
-          <span className="text-sm text-muted-foreground">Stream Reserved:</span>
-          <span className="font-semibold text-orange-500 dark:text-orange-400">
-            {uploadReserved.toFixed(0)} Mbps
-          </span>
+          )}
         </div>
-        {uploadReserved > upload.total_limit && (
-          <Alert variant="destructive" className="py-2">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="text-xs">
-              Stream reserved ({uploadReserved.toFixed(0)} Mbps) exceeds upload limit ({upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
-            </AlertDescription>
-          </Alert>
-        )}
-        {tempLimits?.active && tempLimits.upload_mbps !== null && uploadReserved > tempLimits.upload_mbps && (
-          <Alert variant="destructive" className="py-2">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="text-xs">
-              Stream reserved ({uploadReserved.toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
-            </AlertDescription>
-          </Alert>
-        )}
-        {(upload.holding_bandwidth ?? 0) > 0 && (
+
+        {/* Upload */}
+        <div className="py-4 md:py-0 md:pl-6 space-y-3">
+          <h4 className="text-base font-semibold md:pr-20">Upload Bandwidth</h4>
+          <TotalLimitRow status={status} tempLimits={tempLimits} direction="upload" />
+          <ClientRows clients={upload.clients} />
           <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Holding:</span>
+            <span className="text-sm text-muted-foreground">Stream Reserved:</span>
             <span className="font-semibold text-orange-500 dark:text-orange-400">
-              {(upload.holding_bandwidth ?? 0).toFixed(0)} Mbps
+              {uploadReserved.toFixed(0)} Mbps
             </span>
           </div>
-        )}
-        <AvailableRow status={status} tempLimits={tempLimits} direction="upload" />
+          {uploadReserved > upload.total_limit && (
+            <Alert variant="destructive" className="py-2">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Stream reserved ({uploadReserved.toFixed(0)} Mbps) exceeds upload limit ({upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
+              </AlertDescription>
+            </Alert>
+          )}
+          {tempLimits?.active && tempLimits.upload_mbps !== null && uploadReserved > tempLimits.upload_mbps && (
+            <Alert variant="destructive" className="py-2">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Stream reserved ({uploadReserved.toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
+              </AlertDescription>
+            </Alert>
+          )}
+          {(upload.holding_bandwidth ?? 0) > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Holding:</span>
+              <span className="font-semibold text-orange-500 dark:text-orange-400">
+                {(upload.holding_bandwidth ?? 0).toFixed(0)} Mbps
+              </span>
+            </div>
+          )}
+          <AvailableRow status={status} tempLimits={tempLimits} direction="upload" />
+        </div>
       </div>
     </div>
   );

@@ -123,6 +123,8 @@ interface BandwidthChartProps {
   timeRanges: TimeRange[];
   onZoomChange?: (zoomRange: ZoomRange | null) => void;
   configuredServerCount: number;
+  /** Panel chrome (options menu + collapse chevron) to place at the end of the title row. */
+  controls?: React.ReactNode;
 }
 
 // Default visibility for the non-per-client (fixed-key) series only. Per-client
@@ -159,6 +161,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   timeRanges,
   onZoomChange,
   configuredServerCount,
+  controls,
 }) => {
   const [rawData, setRawData] = useState<ChartDataPoint[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -617,123 +620,128 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 justify-end mb-4">
-        {stackChart && clientOrder.length > 1 && (
-          <>
-            <Select
-              value={clientOrder[0]}
-              onValueChange={(value) => {
-                setClientOrder(prev => [value, ...prev.filter(c => c !== value)]);
-              }}
-            >
-              <SelectTrigger className="w-[230px]" aria-label="Select stack order">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {clientOrder.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    {getSeriesInfo(id).name} first (bottom)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      {/* Phones: title and panel controls on one line, the chart controls wrapping below; sm and up: one row. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+        <h3 className="text-lg font-semibold shrink-0">Bandwidth Usage</h3>
+        <div className="order-3 basis-full flex flex-wrap items-center justify-end gap-2 sm:order-2 sm:basis-auto sm:flex-1">
+          {stackChart && clientOrder.length > 1 && (
+            <>
+              <Select
+                value={clientOrder[0]}
+                onValueChange={(value) => {
+                  setClientOrder(prev => [value, ...prev.filter(c => c !== value)]);
+                }}
+              >
+                <SelectTrigger className="w-[230px]" aria-label="Select stack order">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientOrder.map((id) => (
+                    <SelectItem key={id} value={id}>
+                      {getSeriesInfo(id).name} first (bottom)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <div className="border-l border-border h-6 self-center" />
-          </>
-        )}
+              <div className="border-l border-border h-6 self-center" />
+            </>
+          )}
 
-        <Select
-          value={timeRange.label}
-          onValueChange={(value) => {
-            const selected = timeRanges.find((r) => r.label === value);
-            if (selected) setTimeRange(selected);
-          }}
-        >
-          <SelectTrigger className="w-[160px]" aria-label="Select time range for chart data">
-            <SelectValue placeholder="Time Range" />
-          </SelectTrigger>
-          <SelectContent>
-            {timeRanges.map((range) => (
-              <SelectItem key={range.label} value={range.label}>
-                {range.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={dataInterval.toString()}
-          onValueChange={(value) => {
-            setDataInterval(value === 'raw' ? 'raw' : parseFloat(value) as DataInterval);
-          }}
-        >
-          <SelectTrigger className="w-[140px]" aria-label="Select data aggregation interval">
-            <SelectValue placeholder="Interval" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="raw">Raw Data</SelectItem>
-            <SelectItem value="0.25">15 sec</SelectItem>
-            <SelectItem value="0.5">30 sec</SelectItem>
-            <SelectItem value="1">1 min</SelectItem>
-            <SelectItem value="5">5 min</SelectItem>
-            <SelectItem value="10">10 min</SelectItem>
-            <SelectItem value="15">15 min</SelectItem>
-            <SelectItem value="30">30 min</SelectItem>
-            <SelectItem value="60">1 hour</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setStackChart(!stackChart)}
-          className="gap-2"
-          title={stackChart ? 'Switch to overlapping view' : 'Switch to stacked view'}
-          aria-label={stackChart ? 'Currently showing stacked view, click to switch to overlapping' : 'Currently showing overlapping view, click to switch to stacked'}
-          aria-pressed={stackChart}
-        >
-          {stackChart ? <Layers className="h-4 w-4" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
-          {stackChart ? 'Stacked' : 'Overlapping'}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setFlipped(!flipped)}
-          className="gap-2"
-          title={flipped ? 'Uploads on top — click to put downloads on top' : 'Downloads on top — click to put uploads on top'}
-          aria-label={flipped ? 'Currently showing uploads on top, click to flip' : 'Currently showing downloads on top, click to flip'}
-          aria-pressed={flipped}
-        >
-          <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
-          {flipped ? 'UL on Top' : 'DL on Top'}
-        </Button>
-        {hasMultipleServers && (
-          <Button
-            variant={showPerServer ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setShowPerServer(!showPerServer)}
-            className="gap-2"
-            title={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
-            aria-label={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
-            aria-pressed={showPerServer}
+          <Select
+            value={timeRange.label}
+            onValueChange={(value) => {
+              const selected = timeRanges.find((r) => r.label === value);
+              if (selected) setTimeRange(selected);
+            }}
           >
-            <Server className="h-4 w-4" aria-hidden="true" />
-            Per Server
-          </Button>
-        )}
-        {isZoomed && (
+            <SelectTrigger className="w-[160px]" aria-label="Select time range for chart data">
+              <SelectValue placeholder="Time Range" />
+            </SelectTrigger>
+            <SelectContent>
+              {timeRanges.map((range) => (
+                <SelectItem key={range.label} value={range.label}>
+                  {range.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={dataInterval.toString()}
+            onValueChange={(value) => {
+              setDataInterval(value === 'raw' ? 'raw' : parseFloat(value) as DataInterval);
+            }}
+          >
+            <SelectTrigger className="w-[140px]" aria-label="Select data aggregation interval">
+              <SelectValue placeholder="Interval" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="raw">Raw Data</SelectItem>
+              <SelectItem value="0.25">15 sec</SelectItem>
+              <SelectItem value="0.5">30 sec</SelectItem>
+              <SelectItem value="1">1 min</SelectItem>
+              <SelectItem value="5">5 min</SelectItem>
+              <SelectItem value="10">10 min</SelectItem>
+              <SelectItem value="15">15 min</SelectItem>
+              <SelectItem value="30">30 min</SelectItem>
+              <SelectItem value="60">1 hour</SelectItem>
+            </SelectContent>
+          </Select>
+
           <Button
             variant="outline"
             size="sm"
-            onClick={resetZoom}
+            onClick={() => setStackChart(!stackChart)}
             className="gap-2"
-            title="Reset zoom to full time range"
-            aria-label="Reset zoom"
+            title={stackChart ? 'Switch to overlapping view' : 'Switch to stacked view'}
+            aria-label={stackChart ? 'Currently showing stacked view, click to switch to overlapping' : 'Currently showing overlapping view, click to switch to stacked'}
+            aria-pressed={stackChart}
           >
-            <ZoomOut className="h-4 w-4" aria-hidden="true" />
-            Reset Zoom
+            {stackChart ? <Layers className="h-4 w-4" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
+            {stackChart ? 'Stacked' : 'Overlapping'}
           </Button>
-        )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFlipped(!flipped)}
+            className="gap-2"
+            title={flipped ? 'Uploads on top — click to put downloads on top' : 'Downloads on top — click to put uploads on top'}
+            aria-label={flipped ? 'Currently showing uploads on top, click to flip' : 'Currently showing downloads on top, click to flip'}
+            aria-pressed={flipped}
+          >
+            <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+            {flipped ? 'UL on Top' : 'DL on Top'}
+          </Button>
+          {hasMultipleServers && (
+            <Button
+              variant={showPerServer ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowPerServer(!showPerServer)}
+              className="gap-2"
+              title={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
+              aria-label={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
+              aria-pressed={showPerServer}
+            >
+              <Server className="h-4 w-4" aria-hidden="true" />
+              Per Server
+            </Button>
+          )}
+          {isZoomed && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetZoom}
+              className="gap-2"
+              title="Reset zoom to full time range"
+              aria-label="Reset zoom"
+            >
+              <ZoomOut className="h-4 w-4" aria-hidden="true" />
+              Reset Zoom
+            </Button>
+          )}
+        </div>
+        <div className="order-2 ml-auto sm:order-3 sm:ml-0">{controls}</div>
       </div>
       {error && (
         <Alert variant="destructive" className="mb-4">

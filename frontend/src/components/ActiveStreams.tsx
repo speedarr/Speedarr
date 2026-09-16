@@ -60,9 +60,11 @@ const getStateBadgeVariant = (state: string): "default" | "secondary" | "destruc
 
 interface ActiveStreamsProps {
   configuredServerCount: number;
+  /** Panel chrome (options menu + collapse chevron) to place at the end of the title row. */
+  controls?: React.ReactNode;
 }
 
-export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCount }) => {
+export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCount, controls }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -129,44 +131,61 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCo
   const showServer =
     configuredServerCount >= 2 || new Set(streams.map((s) => s.server_id).filter(Boolean)).size > 1;
 
+  // Title, badges (once loaded) and the panel controls at the far right, in both branches so the
+  // controls never move.
+  const titleRow = (badges: React.ReactNode = null) => (
+    <div className="flex items-center justify-between gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-lg font-semibold shrink-0">Active Streams</h3>
+        {badges}
+      </div>
+      {controls}
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div>
+        {titleRow()}
+        <div className="flex justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 justify-end mb-4">
-        <Badge variant="outline" className="text-sm">
-          {streams.length} Active
-        </Badge>
-        {(() => {
-          const wanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? 0 : s.stream_bitrate_mbps), 0);
-          const lanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? s.stream_bitrate_mbps : 0), 0);
-          return (
-            <>
-              {wanBandwidth > 0 && (
-                <Badge variant="outline" className="text-sm">
-                  WAN: {wanBandwidth.toFixed(1)} Mbps
-                </Badge>
-              )}
-              {lanBandwidth > 0 && (
-                <Badge variant="secondary" className="text-sm">
-                  LAN: {lanBandwidth.toFixed(1)} Mbps
-                </Badge>
-              )}
-            </>
-          );
-        })()}
-        {totalReserved > 0 && (
-          <Badge variant="secondary" className="text-sm">
-            {totalReserved.toFixed(1)} Mbps Holding
+      {titleRow(
+        <>
+          <Badge variant="outline" className="text-sm">
+            {streams.length} Active
           </Badge>
-        )}
-      </div>
+          {(() => {
+            const wanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? 0 : s.stream_bitrate_mbps), 0);
+            const lanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? s.stream_bitrate_mbps : 0), 0);
+            return (
+              <>
+                {wanBandwidth > 0 && (
+                  <Badge variant="outline" className="text-sm">
+                    WAN: {wanBandwidth.toFixed(1)} Mbps
+                  </Badge>
+                )}
+                {lanBandwidth > 0 && (
+                  <Badge variant="secondary" className="text-sm">
+                    LAN: {lanBandwidth.toFixed(1)} Mbps
+                  </Badge>
+                )}
+              </>
+            );
+          })()}
+          {totalReserved > 0 && (
+            <Badge variant="secondary" className="text-sm">
+              {totalReserved.toFixed(1)} Mbps Holding
+            </Badge>
+          )}
+        </>,
+      )}
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />

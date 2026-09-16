@@ -20,9 +20,11 @@ import type { TemporaryLimitState } from '@/types';
 
 interface TemporaryLimitsProps {
   throttlingDisabled?: boolean;
+  /** Panel chrome (options menu + collapse chevron) to place at the end of the title row. */
+  controls?: React.ReactNode;
 }
 
-export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisabled = false }) => {
+export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisabled = false, controls }) => {
   const { user, login } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -180,10 +182,23 @@ export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisa
     }
   };
 
+  const titleRow = (
+    <div className="flex items-center justify-between gap-4">
+      <h3 className="text-lg font-semibold flex items-center gap-2">
+        <Clock className="h-4 w-4" aria-hidden="true" />
+        Temporary Limits
+      </h3>
+      {controls}
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center p-4">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-4">
+        {titleRow}
+        <div className="flex justify-center items-center p-4">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
@@ -191,6 +206,7 @@ export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisa
   return (
     <>
       <div className="space-y-4">
+        {titleRow}
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
