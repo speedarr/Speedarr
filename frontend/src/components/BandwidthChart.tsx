@@ -16,7 +16,6 @@ import {
 import { formatInTimeZone } from 'date-fns-tz';
 import { apiClient } from '@/api/client';
 import type { ChartDataPoint } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -617,11 +616,8 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   const hasMultipleServers = configuredServerCount >= 2 || perServerSeries.length > 1;
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <CardTitle>Bandwidth Usage</CardTitle>
-          <div className="flex flex-wrap gap-2">
+    <div>
+      <div className="flex flex-wrap gap-2 justify-end mb-4">
             {stackChart && clientOrder.length > 1 && (
               <>
                 <Select
@@ -738,11 +734,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                 Reset Zoom
               </Button>
             )}
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent>
+      </div>
         {error && (
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
@@ -1083,7 +1075,6 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
           )}
           </>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 };
