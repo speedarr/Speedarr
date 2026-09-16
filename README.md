@@ -24,7 +24,7 @@
 
 ## Main Features
 
-- Real-time dashboard with bandwidth charts, active stream monitoring, and stream history
+- Real-time dashboard with bandwidth charts, active stream monitoring, and stream history, with panels you can reorder and minimise
 - Direct Plex API polling for stream detection
 - Support for **qBittorrent**, **SABnzbd**, **NZBGet**, **Transmission**, and **Deluge**
 - Separate upload and download management with per-client allocation
