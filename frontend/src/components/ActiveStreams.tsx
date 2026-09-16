@@ -25,9 +25,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Play, Pause, StopCircle, Loader2, AlertCircle, X } from 'lucide-react';
-import { StreamCountChart } from './StreamCountChart';
-import type { TimeRange, DataInterval } from './BandwidthChart';
-import type { ZoomRange } from '@/hooks/useChartZoom';
 import { formatInTimeZone } from 'date-fns-tz';
 
 const SERVER_TYPE_COLORS: Record<string, string> = {
@@ -63,13 +60,10 @@ const getStateBadgeVariant = (state: string): "default" | "secondary" | "destruc
 };
 
 interface ActiveStreamsProps {
-  timeRange: TimeRange;
-  dataInterval: DataInterval;
-  zoomRange?: ZoomRange | null;
   configuredServerCount: number;
 }
 
-export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange, configuredServerCount }) => {
+export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCount }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -138,21 +132,16 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
 
   if (isLoading) {
     return (
-      <>
-        <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />
-        <Card>
-          <CardContent className="flex justify-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </CardContent>
-        </Card>
-      </>
+      <Card>
+        <CardContent className="flex justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <>
-      <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />
-      <Card>
+    <Card>
       <CardHeader>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <CardTitle>Active Streams</CardTitle>
@@ -355,6 +344,5 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
         </AlertDialog>
       </CardContent>
     </Card>
-    </>
   );
 };
