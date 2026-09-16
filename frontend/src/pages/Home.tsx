@@ -7,20 +7,10 @@ import { TemporaryLimits } from '@/components/TemporaryLimits';
 import { ThrottlingBanner } from '@/components/ThrottlingBanner';
 import { StreamCountDisplay } from '@/components/StreamCountDisplay';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import type { SystemStatus } from '@/types';
+import type { SystemStatus, TemporaryLimitState } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, AlertTriangle, Clock } from 'lucide-react';
-
-interface TemporaryLimitState {
-  active: boolean;
-  download_mbps: number | null;
-  upload_mbps: number | null;
-  expires_at: string | null;
-  remaining_minutes: number | null;
-  source: string | null;
-  set_by: string | null;
-}
 
 interface TimeRange {
   label: string;

@@ -29,6 +29,7 @@ import type {
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
   VersionCheckResponse,
+  TemporaryLimitState,
 } from '@/types';
 
 class ApiClient {
@@ -420,15 +421,7 @@ class ApiClient {
   }
 
   // Temporary Limits endpoints
-  async getTemporaryLimits(): Promise<{
-    active: boolean;
-    download_mbps: number | null;
-    upload_mbps: number | null;
-    expires_at: string | null;
-    remaining_minutes: number | null;
-    source: string | null;
-    set_by: string | null;
-  }> {
+  async getTemporaryLimits(): Promise<TemporaryLimitState> {
     return this.deduplicatedGet('/bandwidth/temporary-limits');
   }
 
@@ -437,15 +430,7 @@ class ApiClient {
     upload_mbps?: number | null;
     duration_hours?: number;
     source?: string;
-  }): Promise<{
-    active: boolean;
-    download_mbps: number | null;
-    upload_mbps: number | null;
-    expires_at: string | null;
-    remaining_minutes: number | null;
-    source: string | null;
-    set_by: string | null;
-  }> {
+  }): Promise<TemporaryLimitState> {
     const response = await this.client.post('/bandwidth/temporary-limits', params);
     return response.data;
   }

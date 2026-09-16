@@ -227,6 +227,17 @@ export interface BootstrapResponse {
   require_login: boolean;
 }
 
+/** GET/POST /api/bandwidth/temporary-limits response. */
+export interface TemporaryLimitState {
+  active: boolean;
+  download_mbps: number | null;
+  upload_mbps: number | null;
+  expires_at: string | null;
+  remaining_minutes: number | null;
+  source: string | null;
+  set_by: string | null;
+}
+
 // Control types
 export interface RestoreSpeedsResponse {
   message: string;

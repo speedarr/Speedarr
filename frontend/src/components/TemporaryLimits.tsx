@@ -16,16 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Loader2, Clock, X, CheckCircle } from 'lucide-react';
-
-interface TemporaryLimitState {
-  active: boolean;
-  download_mbps: number | null;
-  upload_mbps: number | null;
-  expires_at: string | null;
-  remaining_minutes: number | null;
-  source: string | null;
-  set_by: string | null;
-}
+import type { TemporaryLimitState } from '@/types';
 
 interface TemporaryLimitsProps {
   throttlingDisabled?: boolean;
