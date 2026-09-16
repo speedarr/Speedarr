@@ -67,4 +67,12 @@ describe('useDashboardLayout', () => {
     expect(result.current.isDefault).toBe(true);
     expect(stored()).toEqual({ v: 1, order: PANEL_IDS, collapsed: [] });
   });
+
+  it('reset from the pristine default still writes the default', () => {
+    const { result } = renderHook(() => useDashboardLayout());
+    expect(stored()).toBeNull();
+    act(() => result.current.reset());
+    expect(result.current.isDefault).toBe(true);
+    expect(stored()).toEqual({ v: 1, order: PANEL_IDS, collapsed: [] });
+  });
 });

@@ -61,7 +61,11 @@ export function useDashboardLayout(): UseDashboardLayout {
     [layout, apply],
   );
   const toggle = useCallback((id: PanelId) => apply(togglePanel(layout, id)), [layout, apply]);
-  const reset = useCallback(() => apply(DEFAULT_LAYOUT), [apply]);
+  // Always writes: the identity guard in apply() would swallow a reset on a pristine layout.
+  const reset = useCallback(() => {
+    writeLayout(DEFAULT_LAYOUT);
+    setLayout(DEFAULT_LAYOUT);
+  }, []);
 
   return { layout, move, toggle, reset, isDefault: isDefaultLayout(layout) };
 }
