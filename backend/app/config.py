@@ -3,7 +3,7 @@ Configuration management for Speedarr.
 """
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
 import ipaddress
 from pathlib import Path
@@ -450,11 +450,12 @@ class Settings(BaseSettings):
     # Auth
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        env_nested_delimiter = "__"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        env_nested_delimiter="__",
+    )
 
 
 class SpeedarrConfig(BaseModel):
