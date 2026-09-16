@@ -167,7 +167,7 @@ export const Login: React.FC = () => {
                 disabled={isLoading}
                 required
                 autoComplete={isFirstRun ? 'new-password' : 'current-password'}
-                maxLength={128}
+                maxLength={isFirstRun ? 72 : 128}
               />
             </div>
 
@@ -183,7 +183,7 @@ export const Login: React.FC = () => {
                   disabled={isLoading}
                   required
                   autoComplete="new-password"
-                  maxLength={128}
+                  maxLength={72}
                 />
               </div>
             )}

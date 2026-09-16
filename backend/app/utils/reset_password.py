@@ -20,7 +20,7 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from app.models.user import User
-from app.api.auth import get_password_hash
+from app.utils.auth import get_password_hash, validate_new_password
 from app.config import settings
 
 
@@ -77,6 +77,12 @@ def main():
 
     if len(new_password) < 6:
         print("\nError: Password must be at least 6 characters.")
+        sys.exit(1)
+
+    try:
+        validate_new_password(new_password)
+    except ValueError as exc:
+        print(f"\nError: {exc}")
         sys.exit(1)
 
     # Reset password
