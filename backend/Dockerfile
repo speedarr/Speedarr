@@ -29,6 +29,9 @@ RUN npm ci
 # Copy frontend source
 COPY frontend/ ./
 
+# Unit tests gate the image the same way tsc does: a red test fails the build
+RUN npm test
+
 # Build frontend
 RUN npm run build
 
