@@ -1,7 +1,14 @@
 """Password hashing and JWT helpers in app.utils.auth (PR #64: passlib -> bcrypt 5, python-jose -> PyJWT)."""
+import base64
+import json
+import time
+from datetime import timedelta
+
 import pytest
 
+from app.config import settings
 from app.utils.auth import BCRYPT_MAX_BYTES, get_password_hash, validate_new_password, verify_password
+from app.utils.auth import create_access_token, decode_access_token
 
 # Hashes produced by passlib 1.7.4 + bcrypt 4.0.1 (the pre-#64 stack) on 2026-09-17. Test strings, not secrets.
 # passlib hashed only the first 72 bytes of a long password; the two long vectors pin that contract.
@@ -85,6 +92,13 @@ def test_nul_byte_rejected():
     assert str(exc.value) == UNSUPPORTED
 
 
+def test_lone_surrogate_rejected_with_unsupported_message():
+    with pytest.raises(ValueError) as exc:
+        get_password_hash("abc\ud800def")
+    assert str(exc.value) == UNSUPPORTED          # never the codec's own message
+    assert verify_password("abc\ud800def", PASSLIB_VECTORS[0][1]) is False
+
+
 def test_bcrypt_max_bytes_constant():
     assert BCRYPT_MAX_BYTES == 72
 
@@ -103,3 +117,81 @@ def test_verify_never_raises_on_nul_or_over_long_input():
     hashed = PASSLIB_VECTORS[0][1]
     assert verify_password("a\x00b", hashed) is False
     assert verify_password("x" * 500, hashed) is False
+
+
+# --- JWT session tokens ------------------------------------------------------------------------
+
+VECTOR_SECRET = "speedarr-test-vector-secret-not-a-real-key"
+# Minted by python-jose 3.5.0 on 2026-09-17 with VECTOR_SECRET, HS256, {"sub": "vector-user", "user_id": 7, "exp": ...}.
+JOSE_LIVE = (  # exp 4102444800 = 2100-01-01
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJzdWIiOiJ2ZWN0b3ItdXNlciIsInVzZXJfaWQiOjcsImV4cCI6NDEwMjQ0NDgwMH0."
+    "Lu9u_LpvfaYgsc2nih7tqTxTb3S52s9bWQ5a-7tkWas"
+)
+JOSE_EXPIRED = (  # exp 946684800 = 2000-01-01
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJzdWIiOiJ2ZWN0b3ItdXNlciIsInVzZXJfaWQiOjcsImV4cCI6OTQ2Njg0ODAwfQ."
+    "b2_ITuZCmhs4ibgKLpUE-EjlIUYz4NK08Cbs3kDN0Y8"
+)
+
+
+def _b64(obj) -> str:
+    return base64.urlsafe_b64encode(json.dumps(obj, separators=(",", ":")).encode()).rstrip(b"=").decode()
+
+
+@pytest.fixture
+def vector_secret(monkeypatch):
+    monkeypatch.setattr(settings.auth, "secret_key", VECTOR_SECRET)
+    monkeypatch.setattr(settings.auth, "session_timeout", 3600)
+    return VECTOR_SECRET
+
+
+def test_token_round_trip_uses_session_timeout(vector_secret):
+    token = create_access_token({"sub": "u", "user_id": 3})
+    assert isinstance(token, str)
+    payload = decode_access_token(token)
+    assert payload["sub"] == "u" and payload["user_id"] == 3
+    assert isinstance(payload["exp"], int)
+    now = int(time.time())
+    assert now + 3500 <= payload["exp"] <= now + 3700
+
+
+def test_explicit_expiry_and_expired_token(vector_secret):
+    token = create_access_token({"sub": "u"}, expires_delta=timedelta(seconds=120))
+    assert int(time.time()) + 100 <= decode_access_token(token)["exp"] <= int(time.time()) + 140
+    assert decode_access_token(create_access_token({"sub": "u"}, expires_delta=timedelta(seconds=-1))) is None
+
+
+def test_python_jose_tokens_still_decode(vector_secret):
+    assert decode_access_token(JOSE_LIVE) == {"sub": "vector-user", "user_id": 7, "exp": 4102444800}
+    assert decode_access_token(JOSE_EXPIRED) is None
+
+
+def test_wrong_secret_rejected(vector_secret, monkeypatch):
+    token = create_access_token({"sub": "u"})
+    monkeypatch.setattr(settings.auth, "secret_key", "a-different-secret-that-is-at-least-32-bytes-long")
+    assert decode_access_token(token) is None
+
+
+def test_tampered_payload_rejected(vector_secret):
+    header, payload, signature = create_access_token({"sub": "u", "user_id": 3}).split(".")
+    claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    claims["user_id"] = 999
+    assert decode_access_token(f"{header}.{_b64(claims)}.{signature}") is None
+
+
+@pytest.mark.parametrize("token", ["", "garbage", "a.b", "a.b.c", None])
+def test_garbage_tokens_rejected(vector_secret, token):
+    assert decode_access_token(token) is None
+
+
+def test_unsigned_alg_none_rejected(vector_secret):
+    header = _b64({"alg": "none", "typ": "JWT"})
+    payload = _b64({"sub": "u", "exp": 4102444800})
+    assert decode_access_token(f"{header}.{payload}.") is None
+
+
+def test_algorithm_header_swap_rejected(vector_secret):
+    _, payload, signature = create_access_token({"sub": "u"}).split(".")
+    header = _b64({"alg": "RS256", "typ": "JWT"})
+    assert decode_access_token(f"{header}.{payload}.{signature}") is None
