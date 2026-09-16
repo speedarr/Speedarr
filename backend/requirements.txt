@@ -25,9 +25,6 @@ bcrypt==4.0.1
 pysnmp==7.1.29
 pyasn1==0.6.4
 
-# Scheduling
-apscheduler==3.11.3
-
 # Logging
 loguru==0.7.3
 
