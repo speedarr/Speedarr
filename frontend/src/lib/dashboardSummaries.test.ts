@@ -96,6 +96,10 @@ describe('temporaryLimitsSummary', () => {
     expect(temporaryLimitsSummary(makeTemp({ active: false }))).toBe('No temporary limit');
     expect(temporaryLimitsSummary(null)).toBe('--');
   });
+
+  it('omits the time segment when the remaining minutes are unknown but an expiry exists', () => {
+    expect(temporaryLimitsSummary(makeTemp({ remaining_minutes: null }))).toBe('↓ 100 Mbps · ↑ 20 Mbps');
+  });
 });
 
 describe('bandwidthChartSummary', () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDashboardLayout } from './useDashboardLayout';
 import { LAYOUT_STORAGE_KEY, PANEL_IDS } from '@/lib/dashboardLayout';
@@ -74,5 +74,21 @@ describe('useDashboardLayout', () => {
     act(() => result.current.reset());
     expect(result.current.isDefault).toBe(true);
     expect(stored()).toEqual({ v: 1, order: PANEL_IDS, collapsed: [] });
+  });
+
+  it('falls back to the default when storage cannot be read', () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { result } = renderHook(() => useDashboardLayout());
+      expect(result.current.layout.order).toEqual(PANEL_IDS);
+      expect(result.current.isDefault).toBe(true);
+      expect(consoleError).toHaveBeenCalledTimes(1);
+    } finally {
+      getItem.mockRestore();
+      consoleError.mockRestore();
+    }
   });
 });
