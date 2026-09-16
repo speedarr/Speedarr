@@ -191,146 +191,146 @@ export const TemporaryLimits: React.FC<TemporaryLimitsProps> = ({ throttlingDisa
   return (
     <>
       <div className="space-y-4">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-          {success && (
-            <Alert>
-              <CheckCircle className="h-4 w-4" />
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
+        {success && (
+          <Alert>
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        )}
 
-          {throttlingDisabled && !limits?.active && (
-            <p className="text-xs text-muted-foreground">
-              Temporary limits are stored but not enforced while Speedarr throttling is disabled.
-            </p>
-          )}
+        {throttlingDisabled && !limits?.active && (
+          <p className="text-xs text-muted-foreground">
+            Temporary limits are stored but not enforced while Speedarr throttling is disabled.
+          </p>
+        )}
 
-          {/* Active Limits Display */}
-          {limits?.active && (
-            <div
-              className="rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-3 space-y-2"
-              role="status"
-              aria-live="polite"
-              aria-label="Temporary bandwidth limits are currently active"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-orange-700 dark:text-orange-300 flex items-center gap-1">
-                  <Clock className="h-3 w-3" aria-hidden="true" />
-                  Temporary Override Active
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={isAdmin ? handleClearLimits : () => setShowLoginDialog(true)}
-                  disabled={isSaving}
-                  className="h-6 px-2 text-orange-700 dark:text-orange-300 hover:text-orange-900 dark:hover:text-orange-100"
-                  aria-label="Clear temporary bandwidth limits"
-                >
-                  <X className="h-4 w-4 mr-1" aria-hidden="true" />
-                  Clear
-                </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Download:</span>
-                  <span className="ml-1 font-medium">
-                    {limits.download_mbps !== null ? `${limits.download_mbps} Mbps` : 'Normal'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Upload:</span>
-                  <span className="ml-1 font-medium">
-                    {limits.upload_mbps !== null ? `${limits.upload_mbps} Mbps` : 'Normal'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Remaining:</span>
-                  <span className="ml-1 font-medium">
-                    {formatRemainingTime(limits.remaining_minutes, limits.expires_at)}
-                  </span>
-                </div>
-              </div>
-              {limits.source && (
-                <div className="text-xs text-muted-foreground">
-                  Source: {limits.source}
-                  {limits.set_by && ` (by ${limits.set_by})`}
-                </div>
-              )}
-              {throttlingDisabled && (
-                <div className="text-xs text-orange-700 dark:text-orange-300">
-                  Not enforced while Speedarr throttling is disabled.
-                </div>
-              )}
+        {/* Active Limits Display */}
+        {limits?.active && (
+          <div
+            className="rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-3 space-y-2"
+            role="status"
+            aria-live="polite"
+            aria-label="Temporary bandwidth limits are currently active"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-orange-700 dark:text-orange-300 flex items-center gap-1">
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                Temporary Override Active
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={isAdmin ? handleClearLimits : () => setShowLoginDialog(true)}
+                disabled={isSaving}
+                className="h-6 px-2 text-orange-700 dark:text-orange-300 hover:text-orange-900 dark:hover:text-orange-100"
+                aria-label="Clear temporary bandwidth limits"
+              >
+                <X className="h-4 w-4 mr-1" aria-hidden="true" />
+                Clear
+              </Button>
             </div>
-          )}
-
-          {/* Set New Limits Form - Admin only */}
-          {isAdmin && (
-            <>
-              <div className="grid grid-cols-4 gap-3 items-end">
-                <div className="space-y-1">
-                  <Label htmlFor="temp-download" className="text-xs">Download (Mbps)</Label>
-                  <Input
-                    id="temp-download"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="e.g., 100"
-                    value={downloadMbps}
-                    onChange={(e) => setDownloadMbps(e.target.value)}
-                    disabled={isSaving}
-                    className="h-8"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="temp-upload" className="text-xs">Upload (Mbps)</Label>
-                  <Input
-                    id="temp-upload"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="e.g., 50"
-                    value={uploadMbps}
-                    onChange={(e) => setUploadMbps(e.target.value)}
-                    disabled={isSaving}
-                    className="h-8"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="temp-duration" className="text-xs">Duration (Hours)</Label>
-                  <Input
-                    id="temp-duration"
-                    type="number"
-                    min="0.5"
-                    step="0.5"
-                    placeholder="Indefinite"
-                    value={durationHours}
-                    onChange={(e) => setDurationHours(e.target.value)}
-                    disabled={isSaving}
-                    className="h-8"
-                  />
-                </div>
-                <Button
-                  onClick={handleSetLimits}
-                  disabled={isSaving || (!downloadMbps && !uploadMbps)}
-                  size="sm"
-                  className="h-8"
-                  aria-label="Apply temporary bandwidth limits"
-                >
-                  {isSaving && <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />}
-                  Set Limits
-                </Button>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Download:</span>
+                <span className="ml-1 font-medium">
+                  {limits.download_mbps !== null ? `${limits.download_mbps} Mbps` : 'Normal'}
+                </span>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Override normal bandwidth limits temporarily. Leave duration empty for indefinite (until cleared). Leave a speed field empty to use normal limits for that direction.
-              </p>
-            </>
-          )}
+              <div>
+                <span className="text-muted-foreground">Upload:</span>
+                <span className="ml-1 font-medium">
+                  {limits.upload_mbps !== null ? `${limits.upload_mbps} Mbps` : 'Normal'}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Remaining:</span>
+                <span className="ml-1 font-medium">
+                  {formatRemainingTime(limits.remaining_minutes, limits.expires_at)}
+                </span>
+              </div>
+            </div>
+            {limits.source && (
+              <div className="text-xs text-muted-foreground">
+                Source: {limits.source}
+                {limits.set_by && ` (by ${limits.set_by})`}
+              </div>
+            )}
+            {throttlingDisabled && (
+              <div className="text-xs text-orange-700 dark:text-orange-300">
+                Not enforced while Speedarr throttling is disabled.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Set New Limits Form - Admin only */}
+        {isAdmin && (
+          <>
+            <div className="grid grid-cols-4 gap-3 items-end">
+              <div className="space-y-1">
+                <Label htmlFor="temp-download" className="text-xs">Download (Mbps)</Label>
+                <Input
+                  id="temp-download"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="e.g., 100"
+                  value={downloadMbps}
+                  onChange={(e) => setDownloadMbps(e.target.value)}
+                  disabled={isSaving}
+                  className="h-8"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="temp-upload" className="text-xs">Upload (Mbps)</Label>
+                <Input
+                  id="temp-upload"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="e.g., 50"
+                  value={uploadMbps}
+                  onChange={(e) => setUploadMbps(e.target.value)}
+                  disabled={isSaving}
+                  className="h-8"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="temp-duration" className="text-xs">Duration (Hours)</Label>
+                <Input
+                  id="temp-duration"
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  placeholder="Indefinite"
+                  value={durationHours}
+                  onChange={(e) => setDurationHours(e.target.value)}
+                  disabled={isSaving}
+                  className="h-8"
+                />
+              </div>
+              <Button
+                onClick={handleSetLimits}
+                disabled={isSaving || (!downloadMbps && !uploadMbps)}
+                size="sm"
+                className="h-8"
+                aria-label="Apply temporary bandwidth limits"
+              >
+                {isSaving && <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />}
+                Set Limits
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Override normal bandwidth limits temporarily. Leave duration empty for indefinite (until cleared). Leave a speed field empty to use normal limits for that direction.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Login Dialog for non-admin Clear action */}

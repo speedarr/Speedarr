@@ -618,189 +618,410 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   return (
     <div>
       <div className="flex flex-wrap gap-2 justify-end mb-4">
-            {stackChart && clientOrder.length > 1 && (
-              <>
-                <Select
-                  value={clientOrder[0]}
-                  onValueChange={(value) => {
-                    setClientOrder(prev => [value, ...prev.filter(c => c !== value)]);
-                  }}
-                >
-                  <SelectTrigger className="w-[230px]" aria-label="Select stack order">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientOrder.map((id) => (
-                      <SelectItem key={id} value={id}>
-                        {getSeriesInfo(id).name} first (bottom)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <div className="border-l border-border h-6 self-center" />
-              </>
-            )}
-
+        {stackChart && clientOrder.length > 1 && (
+          <>
             <Select
-              value={timeRange.label}
+              value={clientOrder[0]}
               onValueChange={(value) => {
-                const selected = timeRanges.find((r) => r.label === value);
-                if (selected) setTimeRange(selected);
+                setClientOrder(prev => [value, ...prev.filter(c => c !== value)]);
               }}
             >
-              <SelectTrigger className="w-[160px]" aria-label="Select time range for chart data">
-                <SelectValue placeholder="Time Range" />
+              <SelectTrigger className="w-[230px]" aria-label="Select stack order">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {timeRanges.map((range) => (
-                  <SelectItem key={range.label} value={range.label}>
-                    {range.label}
+                {clientOrder.map((id) => (
+                  <SelectItem key={id} value={id}>
+                    {getSeriesInfo(id).name} first (bottom)
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            <Select
-              value={dataInterval.toString()}
-              onValueChange={(value) => {
-                setDataInterval(value === 'raw' ? 'raw' : parseFloat(value) as DataInterval);
-              }}
-            >
-              <SelectTrigger className="w-[140px]" aria-label="Select data aggregation interval">
-                <SelectValue placeholder="Interval" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="raw">Raw Data</SelectItem>
-                <SelectItem value="0.25">15 sec</SelectItem>
-                <SelectItem value="0.5">30 sec</SelectItem>
-                <SelectItem value="1">1 min</SelectItem>
-                <SelectItem value="5">5 min</SelectItem>
-                <SelectItem value="10">10 min</SelectItem>
-                <SelectItem value="15">15 min</SelectItem>
-                <SelectItem value="30">30 min</SelectItem>
-                <SelectItem value="60">1 hour</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setStackChart(!stackChart)}
-              className="gap-2"
-              title={stackChart ? 'Switch to overlapping view' : 'Switch to stacked view'}
-              aria-label={stackChart ? 'Currently showing stacked view, click to switch to overlapping' : 'Currently showing overlapping view, click to switch to stacked'}
-              aria-pressed={stackChart}
-            >
-              {stackChart ? <Layers className="h-4 w-4" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
-              {stackChart ? 'Stacked' : 'Overlapping'}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setFlipped(!flipped)}
-              className="gap-2"
-              title={flipped ? 'Uploads on top — click to put downloads on top' : 'Downloads on top — click to put uploads on top'}
-              aria-label={flipped ? 'Currently showing uploads on top, click to flip' : 'Currently showing downloads on top, click to flip'}
-              aria-pressed={flipped}
-            >
-              <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
-              {flipped ? 'UL on Top' : 'DL on Top'}
-            </Button>
-            {hasMultipleServers && (
-              <Button
-                variant={showPerServer ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setShowPerServer(!showPerServer)}
-                className="gap-2"
-                title={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
-                aria-label={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
-                aria-pressed={showPerServer}
-              >
-                <Server className="h-4 w-4" aria-hidden="true" />
-                Per Server
-              </Button>
-            )}
-            {isZoomed && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={resetZoom}
-                className="gap-2"
-                title="Reset zoom to full time range"
-                aria-label="Reset zoom"
-              >
-                <ZoomOut className="h-4 w-4" aria-hidden="true" />
-                Reset Zoom
-              </Button>
-            )}
-      </div>
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+            <div className="border-l border-border h-6 self-center" />
+          </>
         )}
 
-        {isInitialLoad ? (
-          <div className="flex justify-center items-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : data.length === 0 ? (
-          <Alert>
-            <AlertDescription>No bandwidth data available for the selected time range.</AlertDescription>
+        <Select
+          value={timeRange.label}
+          onValueChange={(value) => {
+            const selected = timeRanges.find((r) => r.label === value);
+            if (selected) setTimeRange(selected);
+          }}
+        >
+          <SelectTrigger className="w-[160px]" aria-label="Select time range for chart data">
+            <SelectValue placeholder="Time Range" />
+          </SelectTrigger>
+          <SelectContent>
+            {timeRanges.map((range) => (
+              <SelectItem key={range.label} value={range.label}>
+                {range.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={dataInterval.toString()}
+          onValueChange={(value) => {
+            setDataInterval(value === 'raw' ? 'raw' : parseFloat(value) as DataInterval);
+          }}
+        >
+          <SelectTrigger className="w-[140px]" aria-label="Select data aggregation interval">
+            <SelectValue placeholder="Interval" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="raw">Raw Data</SelectItem>
+            <SelectItem value="0.25">15 sec</SelectItem>
+            <SelectItem value="0.5">30 sec</SelectItem>
+            <SelectItem value="1">1 min</SelectItem>
+            <SelectItem value="5">5 min</SelectItem>
+            <SelectItem value="10">10 min</SelectItem>
+            <SelectItem value="15">15 min</SelectItem>
+            <SelectItem value="30">30 min</SelectItem>
+            <SelectItem value="60">1 hour</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setStackChart(!stackChart)}
+          className="gap-2"
+          title={stackChart ? 'Switch to overlapping view' : 'Switch to stacked view'}
+          aria-label={stackChart ? 'Currently showing stacked view, click to switch to overlapping' : 'Currently showing overlapping view, click to switch to stacked'}
+          aria-pressed={stackChart}
+        >
+          {stackChart ? <Layers className="h-4 w-4" aria-hidden="true" /> : <BarChart3 className="h-4 w-4" aria-hidden="true" />}
+          {stackChart ? 'Stacked' : 'Overlapping'}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFlipped(!flipped)}
+          className="gap-2"
+          title={flipped ? 'Uploads on top — click to put downloads on top' : 'Downloads on top — click to put uploads on top'}
+          aria-label={flipped ? 'Currently showing uploads on top, click to flip' : 'Currently showing downloads on top, click to flip'}
+          aria-pressed={flipped}
+        >
+          <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+          {flipped ? 'UL on Top' : 'DL on Top'}
+        </Button>
+        {hasMultipleServers && (
+          <Button
+            variant={showPerServer ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowPerServer(!showPerServer)}
+            className="gap-2"
+            title={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
+            aria-label={showPerServer ? 'Hide per-server stream breakdown' : 'Show per-server stream breakdown'}
+            aria-pressed={showPerServer}
+          >
+            <Server className="h-4 w-4" aria-hidden="true" />
+            Per Server
+          </Button>
+        )}
+        {isZoomed && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetZoom}
+            className="gap-2"
+            title="Reset zoom to full time range"
+            aria-label="Reset zoom"
+          >
+            <ZoomOut className="h-4 w-4" aria-hidden="true" />
+            Reset Zoom
+          </Button>
+        )}
+      </div>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {isInitialLoad ? (
+        <div className="flex justify-center items-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : data.length === 0 ? (
+        <Alert>
+          <AlertDescription>No bandwidth data available for the selected time range.</AlertDescription>
+        </Alert>
+      ) : (
+        <>
+        {allMetricsHidden && (
+          <Alert className="mb-4">
+            <AlertDescription>All metrics are hidden. Click on a legend item below to show data.</AlertDescription>
           </Alert>
-        ) : (
-          <>
-          {allMetricsHidden && (
-            <Alert className="mb-4">
-              <AlertDescription>All metrics are hidden. Click on a legend item below to show data.</AlertDescription>
-            </Alert>
-          )}
-          <div style={{ touchAction: isSelecting ? 'none' : 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}>
-          <ResponsiveContainer width="100%" height={700}>
-              <ComposedChart
-                key={`chart-${flipped}`}
-                data={data}
-                margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
-                onMouseDown={zoomMouseDown}
-                onMouseMove={zoomMouseMove}
-                onMouseUp={zoomMouseUp}
-                onDoubleClick={zoomDoubleClick}
-                style={{ cursor: isSelecting ? 'col-resize' : 'crosshair' }}
+        )}
+        <div style={{ touchAction: isSelecting ? 'none' : 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}>
+        <ResponsiveContainer width="100%" height={700}>
+            <ComposedChart
+              key={`chart-${flipped}`}
+              data={data}
+              margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
+              onMouseDown={zoomMouseDown}
+              onMouseMove={zoomMouseMove}
+              onMouseUp={zoomMouseUp}
+              onDoubleClick={zoomDoubleClick}
+              style={{ cursor: isSelecting ? 'col-resize' : 'crosshair' }}
+            >
+              <defs key={`chart-defs-${flipped}`}>
+                {/* Per-client-id download gradients */}
+                {series.map((s) => {
+                  const color = getSeriesInfo(s.id).color;
+                  return (
+                    <linearGradient key={dlGradientId(s.id)} id={dlGradientId(s.id)} x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
+                      <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={color} stopOpacity={0.3}/>
+                    </linearGradient>
+                  );
+                })}
+                {/* Per-client-id upload gradients (only upload-capable series) */}
+                {series.filter((s) => s.supportsUpload).map((s) => {
+                  const color = getSeriesInfo(s.id).color;
+                  return (
+                    <linearGradient key={ulGradientId(s.id)} id={ulGradientId(s.id)} x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                      <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={color} stopOpacity={0.3}/>
+                    </linearGradient>
+                  );
+                })}
+                {/* WAN streams gradient - always shown */}
+                <linearGradient id="wanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                  <stop offset="5%" stopColor="#ff7300" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#ff7300" stopOpacity={0.3}/>
+                </linearGradient>
+                {/* LAN streams gradient - always shown */}
+                <linearGradient id="lanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.3}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+              <XAxis
+                dataKey="timestamp"
+                tickFormatter={formatXAxis}
+                angle={-45}
+                textAnchor="end"
+                height={60}
+                stroke="#888"
+              />
+              <YAxis
+                yAxisId="left"
+                label={{
+                  value: 'Speed (Mbps)',
+                  angle: -90,
+                  position: 'insideLeft',
+                  style: { fill: '#888', textAnchor: 'middle' }
+                }}
+                tickFormatter={formatYAxis}
+                stroke="#888"
+                domain={yDomain}
+                allowDataOverflow={yDomain[0] !== 'auto'}
+              />
+              <Tooltip
+                active={isSelecting ? false : undefined}
+                formatter={formatTooltip}
+                labelFormatter={(label) => {
+                  const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
+                  return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
+                }}
+                contentStyle={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                  border: '1px solid #666',
+                  borderRadius: '4px'
+                }}
+              />
+              <Legend
+                content={<CustomLegend visibleSeries={visibleSeries} onToggle={(dataKey) => {
+                  setVisibleSeries(prev => ({
+                    ...prev,
+                    [dataKey]: !prev[dataKey]
+                  }));
+                }} />}
+              />
+              <ReferenceLine
+                yAxisId="left"
+                y={0}
+                stroke="#999"
+                strokeWidth={2}
+              />
+              {isSelecting && selectionStart !== null && selectionEnd !== null && (
+                <ReferenceArea
+                  yAxisId="left"
+                  x1={new Date(Math.min(selectionStart, selectionEnd)).toISOString().replace('Z', '')}
+                  x2={new Date(Math.max(selectionStart, selectionEnd)).toISOString().replace('Z', '')}
+                  fill="#3b82f6"
+                  fillOpacity={0.15}
+                  stroke="#3b82f6"
+                  strokeOpacity={0.4}
+                />
+              )}
+              {/* Per-client-id download limit lines */}
+              {series.map((s) => {
+                const info = getSeriesInfo(s.id);
+                return (
+                  <Line
+                    key={`${s.id}_download_limit_line`}
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey={`${s.id}_download_limit_line`}
+                    stroke={info.color}
+                    strokeDasharray="5 5"
+                    strokeWidth={2}
+                    dot={false}
+                    name={`${info.name} DL Limit`}
+                    isAnimationActive={true}
+                    animationDuration={300}
+                    animationEasing="ease-in-out"
+                    connectNulls={true}
+                    hide={!visibleSeries[`${s.id}_download_limit_line`]}
+                  />
+                );
+              })}
+              {/* Per-client-id upload limit lines (upload-capable series only) */}
+              {series.filter((s) => s.supportsUpload).map((s) => {
+                const info = getSeriesInfo(s.id);
+                return (
+                  <Line
+                    key={`${s.id}_upload_limit_line`}
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey={`${s.id}_upload_limit_line`}
+                    stroke={info.color}
+                    strokeDasharray="5 5"
+                    strokeWidth={2}
+                    dot={false}
+                    name={`${info.name} UL Limit`}
+                    isAnimationActive={true}
+                    animationDuration={300}
+                    animationEasing="ease-in-out"
+                    connectNulls={true}
+                    hide={!visibleSeries[`${s.id}_upload_limit_line`]}
+                  />
+                );
+              })}
+              {/* SNMP Actual Bandwidth Lines - only shown when SNMP is enabled */}
+              {snmpEnabled && (
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="snmp_download"
+                  stroke="#8b5cf6"
+                  strokeDasharray="5 5"
+                  strokeWidth={3}
+                  dot={false}
+                  name="WAN Download (SNMP)"
+                  isAnimationActive={true}
+                  animationDuration={300}
+                  animationEasing="ease-in-out"
+                  connectNulls={true}
+                  hide={!visibleSeries.snmp_download}
+                />
+              )}
+              {snmpEnabled && (
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="snmp_upload"
+                  stroke="#8b5cf6"
+                  strokeDasharray="5 5"
+                  strokeWidth={3}
+                  dot={false}
+                  name="WAN Upload (SNMP)"
+                  isAnimationActive={true}
+                  animationDuration={300}
+                  animationEasing="ease-in-out"
+                  connectNulls={true}
+                  hide={!visibleSeries.snmp_upload}
+                />
+              )}
+              {/* Download Areas (stacked positive) - order controlled by clientOrder */}
+              {clientOrder.map((id) => {
+                const info = getSeriesInfo(id);
+                return (
+                  <Area
+                    key={`${id}_download`}
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey={`${id}_download`}
+                    stackId={stackChart ? "download" : undefined}
+                    stroke={info.color}
+                    fill={`url(#${dlGradientId(id)})`}
+                    name={`${info.name} Download`}
+                    isAnimationActive={true}
+                    animationDuration={300}
+                    animationEasing="ease-in-out"
+                    hide={!visibleSeries[`${id}_download`]}
+                  />
+                );
+              })}
+              {/* Upload Areas (stacked negative) - WAN streams first, LAN never stacks, then clients */}
+              <Area
+                yAxisId="left"
+                type="monotone"
+                dataKey="wan_streams"
+                stackId={stackChart ? "upload" : undefined}
+                stroke="#ff7300"
+                fill="url(#wanStreams)"
+                name="WAN Streams Bandwidth"
+                isAnimationActive={true}
+                animationDuration={300}
+                animationEasing="ease-in-out"
+                hide={!visibleSeries.wan_streams}
+              />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="lan_streams"
+                stroke="#10b981"
+                strokeDasharray="5 5"
+                strokeWidth={3}
+                dot={false}
+                name="LAN Streams Bandwidth"
+                isAnimationActive={true}
+                animationDuration={300}
+                animationEasing="ease-in-out"
+                connectNulls={true}
+                hide={!visibleSeries.lan_streams}
+              />
+              {clientOrder.map((id) => {
+                if (!seriesSupportsUpload(id)) return null;
+                const info = getSeriesInfo(id);
+                return (
+                  <Area
+                    key={`${id}_upload`}
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey={`${id}_upload`}
+                    stackId={stackChart ? "upload" : undefined}
+                    stroke={info.color}
+                    fill={`url(#${ulGradientId(id)})`}
+                    name={`${info.name} Upload`}
+                    isAnimationActive={true}
+                    animationDuration={300}
+                    animationEasing="ease-in-out"
+                    hide={!visibleSeries[`${id}_upload`]}
+                  />
+                );
+              })}
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        {showPerServer && hasMultipleServers && (
+          <div className="mt-6">
+            <p className="text-sm font-medium text-muted-foreground mb-2">
+              Stream bandwidth by media server (Mbps)
+            </p>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart
+                data={perServerPoints}
+                margin={{ top: 4, right: 10, left: 10, bottom: 20 }}
               >
-                <defs key={`chart-defs-${flipped}`}>
-                  {/* Per-client-id download gradients */}
-                  {series.map((s) => {
-                    const color = getSeriesInfo(s.id).color;
-                    return (
-                      <linearGradient key={dlGradientId(s.id)} id={dlGradientId(s.id)} x1="0" y1={flipped ? "1" : "0"} x2="0" y2={flipped ? "0" : "1"}>
-                        <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor={color} stopOpacity={0.3}/>
-                      </linearGradient>
-                    );
-                  })}
-                  {/* Per-client-id upload gradients (only upload-capable series) */}
-                  {series.filter((s) => s.supportsUpload).map((s) => {
-                    const color = getSeriesInfo(s.id).color;
-                    return (
-                      <linearGradient key={ulGradientId(s.id)} id={ulGradientId(s.id)} x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
-                        <stop offset="5%" stopColor={color} stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor={color} stopOpacity={0.3}/>
-                      </linearGradient>
-                    );
-                  })}
-                  {/* WAN streams gradient - always shown */}
-                  <linearGradient id="wanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
-                    <stop offset="5%" stopColor="#ff7300" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#ff7300" stopOpacity={0.3}/>
-                  </linearGradient>
-                  {/* LAN streams gradient - always shown */}
-                  <linearGradient id="lanStreams" x1="0" y1={flipped ? "0" : "1"} x2="0" y2={flipped ? "1" : "0"}>
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.3}/>
-                  </linearGradient>
-                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#444" />
                 <XAxis
                   dataKey="timestamp"
@@ -811,21 +1032,17 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   stroke="#888"
                 />
                 <YAxis
-                  yAxisId="left"
+                  tickFormatter={(v) => `${Number(v).toFixed(0)}`}
+                  stroke="#888"
                   label={{
-                    value: 'Speed (Mbps)',
+                    value: 'Mbps',
                     angle: -90,
                     position: 'insideLeft',
-                    style: { fill: '#888', textAnchor: 'middle' }
+                    style: { fill: '#888', textAnchor: 'middle' },
                   }}
-                  tickFormatter={formatYAxis}
-                  stroke="#888"
-                  domain={yDomain}
-                  allowDataOverflow={yDomain[0] !== 'auto'}
                 />
                 <Tooltip
-                  active={isSelecting ? false : undefined}
-                  formatter={formatTooltip}
+                  formatter={(value: number, name: string) => [`${Number(value).toFixed(2)} Mbps`, name]}
                   labelFormatter={(label) => {
                     const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
                     return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
@@ -833,248 +1050,31 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
                   contentStyle={{
                     backgroundColor: 'rgba(0, 0, 0, 0.9)',
                     border: '1px solid #666',
-                    borderRadius: '4px'
+                    borderRadius: '4px',
                   }}
                 />
-                <Legend
-                  content={<CustomLegend visibleSeries={visibleSeries} onToggle={(dataKey) => {
-                    setVisibleSeries(prev => ({
-                      ...prev,
-                      [dataKey]: !prev[dataKey]
-                    }));
-                  }} />}
-                />
-                <ReferenceLine
-                  yAxisId="left"
-                  y={0}
-                  stroke="#999"
-                  strokeWidth={2}
-                />
-                {isSelecting && selectionStart !== null && selectionEnd !== null && (
-                  <ReferenceArea
-                    yAxisId="left"
-                    x1={new Date(Math.min(selectionStart, selectionEnd)).toISOString().replace('Z', '')}
-                    x2={new Date(Math.max(selectionStart, selectionEnd)).toISOString().replace('Z', '')}
-                    fill="#3b82f6"
-                    fillOpacity={0.15}
-                    stroke="#3b82f6"
-                    strokeOpacity={0.4}
-                  />
-                )}
-                {/* Per-client-id download limit lines */}
-                {series.map((s) => {
-                  const info = getSeriesInfo(s.id);
-                  return (
-                    <Line
-                      key={`${s.id}_download_limit_line`}
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey={`${s.id}_download_limit_line`}
-                      stroke={info.color}
-                      strokeDasharray="5 5"
-                      strokeWidth={2}
-                      dot={false}
-                      name={`${info.name} DL Limit`}
-                      isAnimationActive={true}
-                      animationDuration={300}
-                      animationEasing="ease-in-out"
-                      connectNulls={true}
-                      hide={!visibleSeries[`${s.id}_download_limit_line`]}
-                    />
-                  );
-                })}
-                {/* Per-client-id upload limit lines (upload-capable series only) */}
-                {series.filter((s) => s.supportsUpload).map((s) => {
-                  const info = getSeriesInfo(s.id);
-                  return (
-                    <Line
-                      key={`${s.id}_upload_limit_line`}
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey={`${s.id}_upload_limit_line`}
-                      stroke={info.color}
-                      strokeDasharray="5 5"
-                      strokeWidth={2}
-                      dot={false}
-                      name={`${info.name} UL Limit`}
-                      isAnimationActive={true}
-                      animationDuration={300}
-                      animationEasing="ease-in-out"
-                      connectNulls={true}
-                      hide={!visibleSeries[`${s.id}_upload_limit_line`]}
-                    />
-                  );
-                })}
-                {/* SNMP Actual Bandwidth Lines - only shown when SNMP is enabled */}
-                {snmpEnabled && (
+                <Legend />
+                {perServerSeries.map((serverId, idx) => (
                   <Line
-                    yAxisId="left"
+                    key={serverId}
                     type="monotone"
-                    dataKey="snmp_download"
-                    stroke="#8b5cf6"
-                    strokeDasharray="5 5"
-                    strokeWidth={3}
+                    dataKey={serverId}
+                    name={mediaServerNames[serverId] ?? serverId}
+                    stroke={PER_SERVER_COLORS[idx % PER_SERVER_COLORS.length]}
+                    strokeWidth={2}
                     dot={false}
-                    name="WAN Download (SNMP)"
                     isAnimationActive={true}
                     animationDuration={300}
                     animationEasing="ease-in-out"
                     connectNulls={true}
-                    hide={!visibleSeries.snmp_download}
                   />
-                )}
-                {snmpEnabled && (
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="snmp_upload"
-                    stroke="#8b5cf6"
-                    strokeDasharray="5 5"
-                    strokeWidth={3}
-                    dot={false}
-                    name="WAN Upload (SNMP)"
-                    isAnimationActive={true}
-                    animationDuration={300}
-                    animationEasing="ease-in-out"
-                    connectNulls={true}
-                    hide={!visibleSeries.snmp_upload}
-                  />
-                )}
-                {/* Download Areas (stacked positive) - order controlled by clientOrder */}
-                {clientOrder.map((id) => {
-                  const info = getSeriesInfo(id);
-                  return (
-                    <Area
-                      key={`${id}_download`}
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey={`${id}_download`}
-                      stackId={stackChart ? "download" : undefined}
-                      stroke={info.color}
-                      fill={`url(#${dlGradientId(id)})`}
-                      name={`${info.name} Download`}
-                      isAnimationActive={true}
-                      animationDuration={300}
-                      animationEasing="ease-in-out"
-                      hide={!visibleSeries[`${id}_download`]}
-                    />
-                  );
-                })}
-                {/* Upload Areas (stacked negative) - WAN streams first, LAN never stacks, then clients */}
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="wan_streams"
-                  stackId={stackChart ? "upload" : undefined}
-                  stroke="#ff7300"
-                  fill="url(#wanStreams)"
-                  name="WAN Streams Bandwidth"
-                  isAnimationActive={true}
-                  animationDuration={300}
-                  animationEasing="ease-in-out"
-                  hide={!visibleSeries.wan_streams}
-                />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="lan_streams"
-                  stroke="#10b981"
-                  strokeDasharray="5 5"
-                  strokeWidth={3}
-                  dot={false}
-                  name="LAN Streams Bandwidth"
-                  isAnimationActive={true}
-                  animationDuration={300}
-                  animationEasing="ease-in-out"
-                  connectNulls={true}
-                  hide={!visibleSeries.lan_streams}
-                />
-                {clientOrder.map((id) => {
-                  if (!seriesSupportsUpload(id)) return null;
-                  const info = getSeriesInfo(id);
-                  return (
-                    <Area
-                      key={`${id}_upload`}
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey={`${id}_upload`}
-                      stackId={stackChart ? "upload" : undefined}
-                      stroke={info.color}
-                      fill={`url(#${ulGradientId(id)})`}
-                      name={`${info.name} Upload`}
-                      isAnimationActive={true}
-                      animationDuration={300}
-                      animationEasing="ease-in-out"
-                      hide={!visibleSeries[`${id}_upload`]}
-                    />
-                  );
-                })}
-              </ComposedChart>
+                ))}
+              </LineChart>
             </ResponsiveContainer>
           </div>
-          {showPerServer && hasMultipleServers && (
-            <div className="mt-6">
-              <p className="text-sm font-medium text-muted-foreground mb-2">
-                Stream bandwidth by media server (Mbps)
-              </p>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart
-                  data={perServerPoints}
-                  margin={{ top: 4, right: 10, left: 10, bottom: 20 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                  <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={formatXAxis}
-                    angle={-45}
-                    textAnchor="end"
-                    height={60}
-                    stroke="#888"
-                  />
-                  <YAxis
-                    tickFormatter={(v) => `${Number(v).toFixed(0)}`}
-                    stroke="#888"
-                    label={{
-                      value: 'Mbps',
-                      angle: -90,
-                      position: 'insideLeft',
-                      style: { fill: '#888', textAnchor: 'middle' },
-                    }}
-                  />
-                  <Tooltip
-                    formatter={(value: number, name: string) => [`${Number(value).toFixed(2)} Mbps`, name]}
-                    labelFormatter={(label) => {
-                      const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
-                      return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
-                    }}
-                    contentStyle={{
-                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                      border: '1px solid #666',
-                      borderRadius: '4px',
-                    }}
-                  />
-                  <Legend />
-                  {perServerSeries.map((serverId, idx) => (
-                    <Line
-                      key={serverId}
-                      type="monotone"
-                      dataKey={serverId}
-                      name={mediaServerNames[serverId] ?? serverId}
-                      stroke={PER_SERVER_COLORS[idx % PER_SERVER_COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={true}
-                      animationDuration={300}
-                      animationEasing="ease-in-out"
-                      connectNulls={true}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          </>
         )}
+        </>
+      )}
     </div>
   );
 };

@@ -143,85 +143,85 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
   return (
     <div>
       {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-        {isInitialLoad ? (
-          <div className="flex justify-center items-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : data.length === 0 ? (
-          <Alert>
-            <AlertDescription>No stream count data available for the selected time range.</AlertDescription>
-          </Alert>
-        ) : (
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart
-              data={data}
-              margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-              <XAxis
-                dataKey="timestamp"
-                tickFormatter={formatXAxis}
-                angle={-45}
-                textAnchor="end"
-                height={60}
-                stroke="#888"
-              />
-              <YAxis
-                label={{
-                  value: 'Active Streams',
-                  angle: -90,
-                  position: 'insideLeft',
-                  style: { fill: '#888', textAnchor: 'middle' }
-                }}
-                stroke="#888"
-                allowDecimals={false}
-              />
-              <Tooltip
-                labelFormatter={(label) => {
-                  const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
-                  return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
-                }}
-                formatter={(value: number, name: string) => [value, name]}
-                contentStyle={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                  border: '1px solid #666',
-                  borderRadius: '4px'
-                }}
-              />
-              <Legend onClick={handleLegendClick} />
-              <Line
-                type="monotone"
-                dataKey="wan_streams"
-                stroke="#ff7300"
-                strokeWidth={2}
-                dot={{ fill: '#ff7300', r: 3 }}
-                name="WAN Streams"
-                isAnimationActive={true}
-                animationDuration={300}
-                animationEasing="ease-in-out"
-                hide={!visibleSeries.wan_streams}
-              />
-              <Line
-                type="monotone"
-                dataKey="lan_streams"
-                stroke="#10b981"
-                strokeWidth={2}
-                dot={{ fill: '#10b981', r: 3 }}
-                name="LAN Streams"
-                isAnimationActive={true}
-                animationDuration={300}
-                animationEasing="ease-in-out"
-                hide={!visibleSeries.lan_streams}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+      {isInitialLoad ? (
+        <div className="flex justify-center items-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : data.length === 0 ? (
+        <Alert>
+          <AlertDescription>No stream count data available for the selected time range.</AlertDescription>
+        </Alert>
+      ) : (
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart
+            data={data}
+            margin={{ top: 10, right: 10, left: 10, bottom: 20 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+            <XAxis
+              dataKey="timestamp"
+              tickFormatter={formatXAxis}
+              angle={-45}
+              textAnchor="end"
+              height={60}
+              stroke="#888"
+            />
+            <YAxis
+              label={{
+                value: 'Active Streams',
+                angle: -90,
+                position: 'insideLeft',
+                style: { fill: '#888', textAnchor: 'middle' }
+              }}
+              stroke="#888"
+              allowDecimals={false}
+            />
+            <Tooltip
+              labelFormatter={(label) => {
+                const utcLabel = String(label).endsWith('Z') ? label : label + 'Z';
+                return formatInTimeZone(new Date(utcLabel), Intl.DateTimeFormat().resolvedOptions().timeZone, 'PPpp');
+              }}
+              formatter={(value: number, name: string) => [value, name]}
+              contentStyle={{
+                backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                border: '1px solid #666',
+                borderRadius: '4px'
+              }}
+            />
+            <Legend onClick={handleLegendClick} />
+            <Line
+              type="monotone"
+              dataKey="wan_streams"
+              stroke="#ff7300"
+              strokeWidth={2}
+              dot={{ fill: '#ff7300', r: 3 }}
+              name="WAN Streams"
+              isAnimationActive={true}
+              animationDuration={300}
+              animationEasing="ease-in-out"
+              hide={!visibleSeries.wan_streams}
+            />
+            <Line
+              type="monotone"
+              dataKey="lan_streams"
+              stroke="#10b981"
+              strokeWidth={2}
+              dot={{ fill: '#10b981', r: 3 }}
+              name="LAN Streams"
+              isAnimationActive={true}
+              animationDuration={300}
+              animationEasing="ease-in-out"
+              hide={!visibleSeries.lan_streams}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
     );
 };
