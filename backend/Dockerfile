@@ -6,7 +6,7 @@ ARG SPEEDARR_COMMIT=unknown
 ARG SPEEDARR_BRANCH=unknown
 
 # Stage 1: Build React Frontend
-FROM node:20.11-alpine3.19 AS frontend-builder
+FROM node:24.21.0-alpine3.24 AS frontend-builder
 
 # Re-declare ARGs for this stage
 ARG SPEEDARR_VERSION
@@ -24,7 +24,8 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 
 # Install dependencies from the committed lockfile for reproducible builds
-RUN npm ci
+# Retries cover the arm64 leg of Develop Build, which runs npm ci under QEMU and has failed with ECONNRESET
+RUN npm ci --fetch-retries=5 --fetch-retry-maxtimeout=120000
 
 # Copy frontend source
 COPY frontend/ ./
