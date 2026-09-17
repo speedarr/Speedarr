@@ -50,16 +50,15 @@ ENV SPEEDARR_BRANCH=${SPEEDARR_BRANCH}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
     supervisor \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy Python requirements and install
+# Copy Python requirements and install (wheels only: every pin ships a wheel for amd64 and arm64)
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
 
 # Copy backend application
 COPY backend/app/ ./app/
