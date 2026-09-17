@@ -1,9 +1,9 @@
 """
 Throttle decision model.
 """
-from datetime import datetime, date
+from datetime import date
 from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, Date, JSON, ForeignKey
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class ThrottleDecision(Base):
@@ -12,7 +12,7 @@ class ThrottleDecision(Base):
     __tablename__ = "throttle_decisions"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=utcnow, index=True)
 
     # Decision
     decision_type = Column(String(20), nullable=False, index=True)  # throttle, restore, adjust

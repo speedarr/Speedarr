@@ -1,9 +1,9 @@
 """
 Notification model.
 """
-from datetime import datetime, date
+from datetime import date
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Date, JSON
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class Notification(Base):
@@ -12,7 +12,7 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=utcnow, index=True)
 
     event_type = Column(String(50), nullable=False, index=True)
     channel = Column(String(50), nullable=False)  # discord, webhook

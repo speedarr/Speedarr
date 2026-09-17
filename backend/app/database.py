@@ -29,6 +29,7 @@ If you experience "database is locked" errors under load:
 3. Consider PostgreSQL for production deployments
 """
 import sqlite3
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
@@ -56,6 +57,17 @@ AsyncSessionLocal = async_sessionmaker(
 
 # Base class for models
 Base = declarative_base()
+
+
+def utcnow() -> datetime:
+    """Naive UTC 'now' for DateTime column defaults.
+
+    Replaces datetime.utcnow() (deprecated since Python 3.12). Stays naive on
+    purpose: the SQLite DateTime type stores no offset and reads rows back as
+    naive datetimes, so a naive default keeps freshly flushed objects and loaded
+    rows comparable. Callers that need an aware value use datetime.now(timezone.utc).
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # Enable SQLite foreign key constraints and WAL mode

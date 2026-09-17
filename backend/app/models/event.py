@@ -1,9 +1,9 @@
 """
 System event model.
 """
-from datetime import datetime, date
+from datetime import date
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Date, JSON
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class SystemEvent(Base):
@@ -12,7 +12,7 @@ class SystemEvent(Base):
     __tablename__ = "system_events"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=utcnow, index=True)
 
     event_type = Column(String(50), nullable=False, index=True)  # error, warning, info
     category = Column(String(50), nullable=True)  # plex, qbittorrent, snmp, etc.

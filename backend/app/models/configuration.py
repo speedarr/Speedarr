@@ -1,10 +1,9 @@
 """
 Configuration storage model.
 """
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class Configuration(Base):
@@ -17,7 +16,7 @@ class Configuration(Base):
     value = Column(Text, nullable=False)
     value_type = Column(String(20), nullable=False)  # string, integer, float, boolean, json
     description = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
 
@@ -31,5 +30,5 @@ class ConfigurationHistory(Base):
     old_value = Column(Text, nullable=True)
     new_value = Column(Text, nullable=False)
     value_type = Column(String(20), nullable=False)
-    changed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    changed_at = Column(DateTime, default=utcnow, nullable=False, index=True)
     changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
