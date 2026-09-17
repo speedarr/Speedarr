@@ -28,13 +28,12 @@ If you experience "database is locked" errors under load:
 2. Reduce polling frequency in settings
 3. Consider PostgreSQL for production deployments
 """
-import sqlite3
 from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from typing import Optional
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 from sqlalchemy import event, text
-from sqlalchemy.engine import Engine
 from app.config import settings
 from app.constants import SQLITE_BUSY_TIMEOUT_MS
 
@@ -70,23 +69,25 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-# Enable SQLite foreign key constraints and WAL mode
-@event.listens_for(Engine, "connect")
+# Enable SQLite foreign key constraints and WAL mode on every new connection.
+# Registered on the async engine's sync_engine (the pattern SQLAlchemy documents for
+# aiosqlite). The handler receives SQLAlchemy's AsyncAdapt_aiosqlite_connection, not a
+# sqlite3.Connection, so it must not be gated on the DBAPI class (issue #88).
+@event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_conn, connection_record):
     """
-    Enable SQLite-specific optimizations when using SQLite.
+    Enable SQLite-specific optimizations.
     - PRAGMA foreign_keys=ON: Enable foreign key constraints (disabled by default in SQLite)
     - PRAGMA journal_mode=WAL: Use Write-Ahead Logging for better concurrency
     - PRAGMA busy_timeout=5000: Wait up to 5s for locks to release (prevents "database is locked" errors)
     - PRAGMA synchronous=NORMAL: Balance between safety and performance for WAL mode
     """
-    if isinstance(dbapi_conn, sqlite3.Connection):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.close()
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.close()
 
 
 async def get_db() -> AsyncSession:
@@ -116,6 +117,42 @@ async def init_db():
 
     # Run migrations for any new columns
     await run_migrations()
+
+    # Report the effective mode once; WAL silently fails to take on some filesystems (issue #88)
+    log_sqlite_mode(await sqlite_mode())
+
+
+_SYNCHRONOUS_NAMES = {0: "off", 1: "normal", 2: "full", 3: "extra"}
+
+
+async def sqlite_mode(target: Optional[AsyncEngine] = None) -> dict:
+    """Effective journal_mode / foreign_keys / synchronous of a fresh connection (app engine by default)."""
+    if target is None:
+        target = engine
+    async with target.connect() as conn:
+        return {
+            pragma: (await conn.execute(text(f"PRAGMA {pragma}"))).scalar()
+            for pragma in ("journal_mode", "foreign_keys", "synchronous")
+        }
+
+
+def log_sqlite_mode(mode: dict) -> None:
+    """Log the effective SQLite settings once at startup; WARNING when WAL did not take.
+
+    SQLite keeps the delete journal on filesystems without shared-memory support
+    (network mounts), and `PRAGMA journal_mode=WAL` reports that silently.
+    """
+    from loguru import logger
+
+    line = (
+        f"SQLite journal_mode={mode['journal_mode']} "
+        f"foreign_keys={'on' if mode['foreign_keys'] else 'off'} "
+        f"synchronous={_SYNCHRONOUS_NAMES.get(mode['synchronous'], mode['synchronous'])}"
+    )
+    if mode["journal_mode"] == "wal":
+        logger.info(line)
+    else:
+        logger.warning(f"{line} (WAL did not take; is /data on a network filesystem?)")
 
 
 async def run_migrations():
@@ -172,18 +209,27 @@ async def run_migrations():
         raise
 
 
-async def checkpoint_wal():
+async def checkpoint_wal(target: Optional[AsyncEngine] = None) -> Optional[tuple]:
     """
     Run a WAL checkpoint to consolidate the write-ahead log.
     Call this periodically (e.g., during retention cleanup) to prevent WAL file growth.
+
+    Returns SQLite's (busy, log_pages, checkpointed) row, or None if the statement failed.
+    TRUNCATE resets the log before reporting, so a successful run is (0, 0, 0);
+    (1, n, m) means readers blocked the reset; (0, -1, -1) means the database is not in WAL mode.
     """
     from loguru import logger
+
+    if target is None:
+        target = engine
     try:
-        async with engine.begin() as conn:
-            await conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
-            logger.debug("WAL checkpoint completed")
+        async with target.begin() as conn:
+            busy, log_pages, checkpointed = (await conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))).one()
+        logger.debug(f"WAL checkpoint: busy={busy} log_pages={log_pages} checkpointed={checkpointed}")
+        return busy, log_pages, checkpointed
     except Exception as e:
         logger.warning(f"WAL checkpoint failed: {e}")
+        return None
 
 
 async def close_db():
