@@ -36,7 +36,7 @@ RUN npm test
 RUN npm run build
 
 # Stage 2: Python Backend + Serve Frontend
-FROM python:3.11.7-slim-bookworm AS base
+FROM python:3.14.7-slim-bookworm AS base
 
 # Re-declare ARGs for this stage
 ARG SPEEDARR_VERSION
