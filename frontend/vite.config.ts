@@ -32,5 +32,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // The arm64 leg of the image build runs this suite under QEMU, roughly 70x slower than
+    // native (91 s for a 1.2 s run). The slowest tests take ~120 ms natively, which is over
+    // vitest's default 5 s there, so give each test 30 s; a hung test still fails, just later.
+    testTimeout: 30_000,
   },
 })
