@@ -24,10 +24,11 @@
 
 ## Main Features
 
-- Real-time dashboard with bandwidth charts, active stream monitoring, and stream history
+- Real-time dashboard with bandwidth charts, active stream monitoring, and stream history, with panels you can reorder and minimise
 - Direct Plex API polling for stream detection
 - Support for **qBittorrent**, **SABnzbd**, **NZBGet**, **Transmission**, and **Deluge**
 - Separate upload and download management with per-client allocation
+- Demand-aware allocation — unused share moves to the client that is actually using its bandwidth
 - Scheduled bandwidth limits for time-based rules (e.g. different speeds during peak or off-peak)
 - Temporary speed limit overrides with automatic expiration
 - Restoration delays based on media type — episodes restore faster than movies
@@ -54,7 +55,9 @@ Okay now we're talking, Speedarr can help you! Configure the max download bandwi
 
 ### Multiple Clients (All usenet, all torrent or a mix)
 
-Now we're getting into the really cool (in my opinion, and yes I mean mine not Claude). Let's assume a 1000Mbps/100Mbps internet plan. You configure 900Mbps/80Mbps in Speedarr, let's go with qBit and sab and you then set the downloads allocation split of 70/30 for qBit/sab. While the download clients are idle they will evenly split the download bandwidth, Eg 450Mbps/450Mbps, If one download client starts downloading it will get 95% of the configured bandwidth or 855Mbps, this leaves 45Mbps for the other download client to start. Now if a download starts on the other client your configured split above will come into play and one client will get 630Mbps and the other will get 270Mbps. This isn't just limited to 2 clients either, you can have 2 or more and Speedarr will follow the same principles. 
+Now we're getting into the really cool (in my opinion, and yes I mean mine not Claude). Let's assume a 1000Mbps/100Mbps internet plan. You configure 900Mbps/80Mbps in Speedarr, let's go with qBit and sab and you then set the downloads allocation split of 70/30 for qBit/sab. While the download clients are idle they will evenly split the download bandwidth, Eg 450Mbps/450Mbps. If one download client starts downloading it will get 95% of the configured bandwidth or 855Mbps, this leaves 45Mbps for the other download client to start. Now if a download starts on the other client and both clients are pulling everything they're given, your configured split comes into play: 630Mbps and 270Mbps.
+
+Clients rarely both want everything at once though, so Speedarr also watches what each client actually uses (demand-aware allocation, on by default). A client that is using less than two thirds of its share is held to 1.5x what it is using and the rest goes to the client that is saturating its share. If qBit is flat out and sab is only pulling 40Mbps, sab is held to 60Mbps and qBit gets 840Mbps. The moment sab fills its 60Mbps it gets its full 270Mbps back within about 10 to 20 seconds, depending on how fast it ramps; taking unused share back takes about 15 seconds. The same rules apply to upload. You can turn this off in Settings > Bandwidth to hold active clients to their percentages instead. This isn't just limited to 2 clients either, you can have 2 or more and Speedarr will follow the same principles.
 
 ## Quick Start
 

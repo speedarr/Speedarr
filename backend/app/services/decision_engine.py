@@ -7,6 +7,12 @@ from loguru import logger
 from app.config import SpeedarrConfig, TimeBasedScheduleConfig
 from app.constants import HARD_MIN_MBPS
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
+from app.services.demand_allocation import (
+    DemandState,
+    DemandTracker,
+    apply_demand,
+    split_weights,
+)
 
 
 def is_within_schedule(schedule: TimeBasedScheduleConfig) -> bool:
@@ -47,6 +53,9 @@ class DecisionEngine:
 
     # Number of polling intervals before a client is marked as inactive
     INACTIVE_BUFFER_INTERVALS = 6
+    # A client capped at the safety net is promoted once it reaches this fraction of its
+    # cap, so promotion never depends on the client's limiter overshooting (issue #85).
+    PROMOTION_CAP_FRACTION = 0.8
 
     def __init__(self, config: SpeedarrConfig):
         self.config = config
@@ -56,10 +65,152 @@ class DecisionEngine:
         self._inactive_counter: Dict[str, int] = {}
         # Track consecutive intervals each upload client has been below the active threshold
         self._upload_inactive_counter: Dict[str, int] = {}
+        # Demand-aware allocation state (issue #85): one classifier per direction, and the
+        # floored/rounded limit last emitted per client, which is the saturation denominator.
+        self._demand: Dict[str, DemandTracker] = {"download": DemandTracker(), "upload": DemandTracker()}
+        self._last_emitted: Dict[str, Dict[str, float]] = {"download": {}, "upload": {}}
 
     def _floor(self, limit: float, configured_min: float) -> float:
         """Clamp a throttle allocation so it is never 0 (which clients read as 'unlimited')."""
         return max(limit, configured_min, HARD_MIN_MBPS)
+
+    def _safety_net_fraction(self) -> float:
+        """Inactive safety net as a fraction (default 5%). Upload reuses the download value."""
+        return getattr(self.config.bandwidth.download, 'inactive_safety_net_percent', 5) / 100
+
+    def _active_threshold(self, available: float, n_clients: int) -> float:
+        """10% of the per-client standby share, capped at 80% of the safety-net amount (issue #85)."""
+        standby_per_client = available / n_clients if n_clients else 0
+        return min(standby_per_client * 0.10,
+                   available * self._safety_net_fraction() * self.PROMOTION_CAP_FRACTION)
+
+    def _download_percents(self, use_scheduled: bool) -> Dict[str, int]:
+        if use_scheduled and self.config.bandwidth.download.scheduled.client_percents:
+            logger.debug(f"Using scheduled client percentages: {self.config.bandwidth.download.scheduled.client_percents}")
+            return self.config.bandwidth.download.scheduled.client_percents
+        return self.config.bandwidth.download.client_percents or {}
+
+    def _upload_percents(self, use_scheduled: bool) -> Dict[str, int]:
+        if use_scheduled and self.config.bandwidth.upload.scheduled.client_percents:
+            logger.debug(f"Using scheduled upload client percentages: {self.config.bandwidth.upload.scheduled.client_percents}")
+            return self.config.bandwidth.upload.scheduled.client_percents
+        return getattr(self.config.bandwidth.upload, 'upload_client_percents', {}) or {}
+
+    def _target_split(
+        self,
+        clients: List[str],
+        available: float,
+        active: List[str],
+        percents: Dict[str, int],
+        safety_net_fraction: float,
+        direction: str,
+    ) -> Dict[str, float]:
+        """
+        Today's allocation rules as one pure function, shared by download and upload.
+
+        - No active clients: equal split (standby).
+        - Otherwise every inactive client gets the safety net, and the active clients
+          split the rest by their configured percents (all configured or equal).
+          With one active client that is simply "everything but the safety nets".
+        """
+        if not clients:
+            return {}
+        if not active:
+            alloc = {c: available / len(clients) for c in clients}
+            logger.debug(f"{direction} standby mode (equal split) - "
+                         + ", ".join(f"{c}: {v:.1f} Mbps" for c, v in alloc.items()))
+            return alloc
+
+        inactive = [c for c in clients if c not in active]
+        active_pool = 1.0 - safety_net_fraction * len(inactive)
+        alloc = {c: available * safety_net_fraction for c in inactive}
+        weights = split_weights(active, percents)
+        for c in active:
+            alloc[c] = available * active_pool * weights[c]
+
+        if len(active) == 1:
+            logger.debug(
+                f"{direction} dynamic mode: {active[0]} active ({active_pool * 100:.0f}%), "
+                f"others safety net ({safety_net_fraction * 100:.0f}% each)"
+            )
+        else:
+            active_str = ", ".join(f"{c}: {alloc[c]:.1f} Mbps" for c in active)
+            inactive_str = ", ".join(f"{c}: {alloc[c]:.1f} Mbps" for c in inactive) if inactive else "none"
+            # DEBUG, not INFO: this reports the target split, while the controller manager
+            # already logs the limits actually emitted at INFO every poll (issue #85).
+            logger.debug(
+                f"{direction.capitalize()} multiple active ({len(active)}/{len(clients)}) - "
+                f"Active: {active_str} | Inactive: {inactive_str}"
+            )
+        return alloc
+
+    def _demand_adjust(
+        self,
+        direction: str,
+        target: Dict[str, float],
+        active: List[str],
+        stats: Dict[str, Dict[str, Any]],
+        speed_key: str,
+        percents: Dict[str, int],
+        safety_net_amount: float,
+    ) -> Dict[str, float]:
+        """Classify the active clients for this direction and redistribute unused share."""
+        tracker = self._demand[direction]
+        last = self._last_emitted[direction]
+        # Nothing to redistribute when the feature is off or there is a single client:
+        # skip classification entirely, drop any stale state and log nothing (spec 3.2).
+        if not self.config.bandwidth.demand_aware_allocation or len(target) < 2:
+            tracker.prune([])
+            return dict(target)
+        tracker.prune(target.keys())
+        previous = tracker.states()
+
+        states: Dict[str, DemandState] = {}
+        speeds: Dict[str, float] = {}
+        # Saturation is judged against the client's own share, never against share it
+        # borrowed: a client that fills its share but cannot grow past it stays SATURATED
+        # instead of sawtoothing between promotion and demotion (issue #85).
+        denominators: Dict[str, float] = {}
+        for client_id in target:
+            client_stats = stats.get(client_id, {})
+            if client_id not in active or "error" in client_stats:
+                tracker.reset(client_id)
+                continue
+            speed = float(client_stats.get(speed_key, 0) or 0.0)
+            speeds[client_id] = speed
+            last_limit = last.get(client_id)
+            denominator = None if last_limit is None else min(last_limit, target[client_id])
+            denominators[client_id] = 0.0 if denominator is None else denominator
+            states[client_id] = tracker.observe(client_id, speed, denominator)
+
+        adjusted = apply_demand(
+            target, states, speeds, percents, safety_net_amount,
+            self.config.bandwidth.demand_aware_allocation,
+        )
+        self._log_demand(direction, previous, states, speeds, denominators, target, adjusted)
+        return adjusted
+
+    @staticmethod
+    def _log_demand(
+        direction: str,
+        previous: Dict[str, DemandState],
+        states: Dict[str, DemandState],
+        speeds: Dict[str, float],
+        limits: Dict[str, float],
+        target: Dict[str, float],
+        adjusted: Dict[str, float],
+    ) -> None:
+        """Log transitions at INFO; limits holds the denominator each client was judged against."""
+        split = ", ".join(f"{c}: {adjusted[c]:.1f} Mbps" for c in adjusted)
+        transitions = [c for c in states if previous.get(c, DemandState.UNKNOWN) != states[c]]
+        if transitions:
+            described = ", ".join(
+                f"{c} {states[c].value.upper()} ({speeds[c]:.1f} of {limits.get(c, 0.0):.1f} Mbps)"
+                for c in transitions
+            )
+            logger.info(f"Demand-aware {direction}: {described} | {split}")
+        elif any(abs(adjusted[c] - target[c]) > 0.01 for c in target):
+            logger.debug(f"Demand-aware {direction} split: {split}")
 
     def calculate_throttle(
         self,
@@ -177,12 +328,10 @@ class DecisionEngine:
             logger.debug("No download clients configured")
             return decisions
 
-        # Calculate standby bandwidth per client (equal split for idle mode)
-        standby_per_client = available_download / len(all_clients) if all_clients else 0
-
-        # Active threshold: 10% of standby bandwidth
-        # A client is considered "actively downloading" if its speed exceeds this threshold
-        active_threshold = standby_per_client * 0.10
+        # Active threshold: 10% of standby bandwidth, but never above 80% of the safety-net
+        # cap an inactive client is held to (with two clients the two are otherwise equal).
+        safety_net_fraction = self._safety_net_fraction()
+        active_threshold = self._active_threshold(available_download, len(all_clients))
 
         # Identify which clients are actively downloading, with inactive buffer
         # A client is considered active if:
@@ -206,12 +355,19 @@ class DecisionEngine:
                         f"inactive buffer {self._inactive_counter[name]}/{self.INACTIVE_BUFFER_INTERVALS}"
                     )
 
-        # Allocate download bandwidth (independent of streams)
-        download_allocations = self._allocate_download_bandwidth(
-            all_clients,
-            available_download,
-            active_downloading,
-            use_scheduled=download_in_schedule
+        # Allocate download bandwidth (independent of streams), then move unused share
+        dl_percents = self._download_percents(download_in_schedule)
+        download_targets = self._target_split(
+            all_clients, available_download, active_downloading,
+            dl_percents, safety_net_fraction, "download",
+        )
+        download_allocations = self._demand_adjust(
+            "download", download_targets, active_downloading, download_stats,
+            "download_speed", dl_percents,
+            # The effective floor a squeezed client lands on, so _floor below cannot raise it
+            # again after its freed share was handed out and oversubscribe the pool (#85).
+            max(available_download * safety_net_fraction,
+                self.config.bandwidth.download.min_limit_mbps, HARD_MIN_MBPS),
         )
 
         # Calculate upload bandwidth (Plex-aware, qBittorrent only)
@@ -246,131 +402,25 @@ class DecisionEngine:
             # Upload floor only applies to upload-capable clients; others keep 0.
             if download_stats.get(client_name, {}).get("supports_upload", False):
                 upload_limit = self._floor(upload_allocations.get(client_name, 0), ul_min)
+                self._last_emitted["upload"][client_name] = round(upload_limit, 2)
             else:
                 upload_limit = 0
+                self._last_emitted["upload"].pop(client_name, None)
+            self._last_emitted["download"][client_name] = round(download_limit, 2)
             decisions[client_name] = {
                 "action": "throttle",
                 "download_limit": round(download_limit, 2),
                 "upload_limit": round(upload_limit, 2),
                 "reason": reason,
             }
+        for direction_limits in self._last_emitted.values():
+            for stale in [c for c in direction_limits if c not in all_clients]:
+                direction_limits.pop(stale, None)
 
         # Record throttle time
         self._last_throttle_time = {name: datetime.now(timezone.utc) for name in all_clients}
 
         return decisions
-
-    def _allocate_download_bandwidth(
-        self,
-        all_clients: List[str],
-        available_download: float,
-        active_downloading: List[str],
-        use_scheduled: bool = False
-    ) -> Dict[str, float]:
-        """
-        Dynamic allocation: Adjusts based on which clients are actively downloading.
-
-        Rules:
-        - No clients downloading: Use configured standby percentage split
-        - One client downloading: Active gets (100 - safety_net)%, inactive clients share safety_net%
-        - Multiple clients downloading: Inactive clients each get safety_net%, active clients
-          split remaining bandwidth based on configured active percentages
-
-        The safety net ensures inactive clients always get some bandwidth to detect
-        when they become active and need more allocation.
-
-        If use_scheduled=True, uses the scheduled client_percents instead.
-        """
-        if len(all_clients) == 0:
-            return {}
-
-        # Get safety net percentage (default 5%)
-        safety_net_percent = getattr(
-            self.config.bandwidth.download,
-            'inactive_safety_net_percent',
-            5
-        ) / 100
-
-        # Always allocate to all clients
-        allocations = {}
-
-        # Get client percentages from config (use scheduled if in schedule window)
-        if use_scheduled and self.config.bandwidth.download.scheduled.client_percents:
-            client_percents = self.config.bandwidth.download.scheduled.client_percents
-            logger.debug(f"Using scheduled client percentages: {client_percents}")
-        else:
-            client_percents = self.config.bandwidth.download.client_percents or {}
-
-        # Default equal split (guard against empty list)
-        equal_percent = 100.0 / len(all_clients) if all_clients else 0
-
-        if len(active_downloading) == 0:
-            # No clients downloading: Use equal split for standby mode
-            # (client_percents only applies when multiple clients are actively downloading)
-            for client in all_clients:
-                allocations[client] = available_download / len(all_clients)
-
-            alloc_str = ", ".join(f"{c}: {allocations[c]:.1f} Mbps" for c in all_clients)
-            logger.debug(f"Standby mode (equal split) - {alloc_str}")
-
-        elif len(active_downloading) == 1:
-            # Single client downloading: Give most bandwidth to active, safety net to each inactive
-            active_client = active_downloading[0]
-            inactive_clients = [c for c in all_clients if c != active_client]
-
-            # Each inactive client gets the full safety_net_percent
-            total_safety_net = safety_net_percent * len(inactive_clients)
-            active_percent = 1.0 - total_safety_net
-
-            allocations[active_client] = available_download * active_percent
-            for client in inactive_clients:
-                allocations[client] = available_download * safety_net_percent
-
-            logger.debug(
-                f"Dynamic mode: {active_client} downloading ({active_percent*100:.0f}%), "
-                f"others safety net ({safety_net_percent*100:.0f}% each)"
-            )
-
-        else:
-            # Multiple clients downloading: Active clients split based on percentages,
-            # inactive clients get safety net
-            inactive_clients = [c for c in all_clients if c not in active_downloading]
-
-            # Calculate total safety net for inactive clients
-            total_safety_net = safety_net_percent * len(inactive_clients)
-            active_pool = 1.0 - total_safety_net  # Remaining bandwidth for active clients
-
-            # Give inactive clients their safety net
-            for client in inactive_clients:
-                allocations[client] = available_download * safety_net_percent
-
-            # Normalize active percentages for ONLY the active clients
-            if active_downloading:
-                # Check if ALL active clients have explicitly configured percentages
-                # If not, use equal split to avoid mixing configured and default values
-                # Percentages are keyed by unique client id (supports multiple same-type clients)
-                all_configured = all(c in client_percents for c in active_downloading)
-
-                if all_configured:
-                    raw_active = {c: client_percents[c] for c in active_downloading}
-                    total_raw = sum(raw_active.values())
-                    if total_raw == 0:
-                        normalized_active = {c: 1.0 / len(active_downloading) for c in active_downloading}
-                    else:
-                        normalized_active = {c: (v / total_raw) for c, v in raw_active.items()}
-                else:
-                    # Equal split when not all clients have configured percentages
-                    normalized_active = {c: 1.0 / len(active_downloading) for c in active_downloading}
-
-                # Allocate active pool based on normalized percentages
-                for client in active_downloading:
-                    allocations[client] = available_download * active_pool * normalized_active[client]
-
-            active_str = ", ".join(f"{c}: {allocations[c]:.1f} Mbps" for c in active_downloading)
-            inactive_str = ", ".join(f"{c}: {allocations[c]:.1f} Mbps" for c in inactive_clients) if inactive_clients else "none"
-            logger.info(f"Multiple active ({len(active_downloading)}/{len(all_clients)}) - Active: {active_str} | Inactive: {inactive_str}")
-
-        return allocations
 
     def _calculate_upload_limits(
         self,
@@ -379,71 +429,31 @@ class DecisionEngine:
         use_scheduled: bool = False
     ) -> Dict[str, float]:
         """
-        Calculate upload limits for download clients (Plex-aware).
+        Upload limits for upload-capable clients (torrents). Usenet clients get 0.
 
-        Upload bandwidth is affected by Plex streams (server uploads to clients).
-        Torrent clients use upload bandwidth for seeding.
-        Usenet clients don't upload, always get 0.
-
-        Dynamic allocation rules (same as download):
-        - No clients uploading: Equal split for idle mode
-        - One client uploading: Active gets (100 - safety_net*inactive_count)%, inactive get safety_net% each
-        - Multiple clients uploading: Inactive get safety_net% each, active split remaining by percentages
-
-        Args:
-            download_stats: Dict of client stats (keyed by client_id, includes supports_upload field)
-            available_upload: Available upload bandwidth (already calculated with streams, safety margin, and reservation)
-            use_scheduled: Whether to use scheduled percentages
-
-        Returns:
-            Dict mapping client IDs to upload limits (Mbps)
+        Active detection mirrors the download side (10% of standby, six-poll buffer);
+        the split itself is the shared _target_split.
         """
-        upload_limits = {}
-
-        # Get upload-capable clients based on supports_upload field from stats
-        upload_clients = [
-            client_id for client_id, stats in download_stats.items()
-            if stats.get("supports_upload", False)
-        ]
-
-        # Non-upload clients get 0
-        for client_id, stats in download_stats.items():
-            if not stats.get("supports_upload", False):
-                upload_limits[client_id] = 0
-
+        upload_limits: Dict[str, float] = {
+            cid: 0 for cid, s in download_stats.items() if not s.get("supports_upload", False)
+        }
+        upload_clients = [cid for cid, s in download_stats.items() if s.get("supports_upload", False)]
         if not upload_clients:
             return upload_limits
 
-        # Get configured upload percentages (use scheduled if in schedule window)
-        if use_scheduled and self.config.bandwidth.upload.scheduled.client_percents:
-            upload_percents = self.config.bandwidth.upload.scheduled.client_percents
-            logger.debug(f"Using scheduled upload client percentages: {upload_percents}")
-        else:
-            upload_percents = getattr(self.config.bandwidth.upload, 'upload_client_percents', {}) or {}
+        percents = self._upload_percents(use_scheduled)
+        safety_net_fraction = self._safety_net_fraction()
 
-        # Default equal split percentage (guard against empty list)
-        default_percent = 100.0 / len(upload_clients) if upload_clients else 0
+        active_threshold = self._active_threshold(available_upload, len(upload_clients))
 
-        # Calculate standby bandwidth per upload client (equal split for idle mode)
-        standby_per_client = available_upload / len(upload_clients)
-
-        # Active threshold: 10% of standby bandwidth (same as download)
-        active_threshold = standby_per_client * 0.10
-
-        # Identify which clients are actively uploading, with inactive buffer
         active_uploading = []
         for client_id in upload_clients:
-            stats = download_stats.get(client_id, {})
-            current_upload_speed = stats.get("upload_speed", 0)
-
+            current_upload_speed = download_stats.get(client_id, {}).get("upload_speed", 0)
             if current_upload_speed > active_threshold:
-                # Client is actively uploading - reset inactive counter
                 self._upload_inactive_counter[client_id] = 0
                 active_uploading.append(client_id)
             else:
-                # Client is below threshold - increment inactive counter
                 self._upload_inactive_counter[client_id] = self._upload_inactive_counter.get(client_id, 0) + 1
-                # Still considered "active" if within the buffer period
                 if self._upload_inactive_counter[client_id] < self.INACTIVE_BUFFER_INTERVALS:
                     active_uploading.append(client_id)
                     logger.debug(
@@ -451,75 +461,16 @@ class DecisionEngine:
                         f"inactive buffer {self._upload_inactive_counter[client_id]}/{self.INACTIVE_BUFFER_INTERVALS}"
                     )
 
-        # Get safety net percentage (use same value as download, default 5%)
-        safety_net_percent = getattr(
-            self.config.bandwidth.download,
-            'inactive_safety_net_percent',
-            5
-        ) / 100
-
-        if len(active_uploading) == 0:
-            # No clients uploading: Equal split for standby mode
-            for client in upload_clients:
-                upload_limits[client] = available_upload / len(upload_clients)
-
-            alloc_str = ", ".join(f"{c}: {upload_limits[c]:.1f} Mbps" for c in upload_clients)
-            logger.debug(f"Upload standby mode (equal split) - {alloc_str}")
-
-        elif len(active_uploading) == 1:
-            # Single client uploading: Give most bandwidth to active, safety net to each inactive
-            active_client = active_uploading[0]
-            inactive_clients = [c for c in upload_clients if c != active_client]
-
-            # Each inactive client gets the full safety_net_percent
-            total_safety_net = safety_net_percent * len(inactive_clients)
-            active_percent = 1.0 - total_safety_net
-
-            upload_limits[active_client] = available_upload * active_percent
-            for client in inactive_clients:
-                upload_limits[client] = available_upload * safety_net_percent
-
-            logger.debug(
-                f"Upload dynamic mode: {active_client} uploading ({active_percent*100:.0f}%), "
-                f"others safety net ({safety_net_percent*100:.0f}% each)"
-            )
-
-        else:
-            # Multiple clients uploading: Active clients split based on percentages,
-            # inactive clients get safety net
-            inactive_clients = [c for c in upload_clients if c not in active_uploading]
-
-            # Calculate total safety net for inactive clients
-            total_safety_net = safety_net_percent * len(inactive_clients)
-            active_pool = 1.0 - total_safety_net  # Remaining bandwidth for active clients
-
-            # Give inactive clients their safety net
-            for client in inactive_clients:
-                upload_limits[client] = available_upload * safety_net_percent
-
-            # Normalize active percentages for ONLY the active clients
-            # Percentages are keyed by unique client id (supports multiple same-type clients)
-            all_configured = all(c in upload_percents for c in active_uploading)
-
-            if all_configured:
-                raw_active = {c: upload_percents[c] for c in active_uploading}
-                total_raw = sum(raw_active.values())
-                if total_raw == 0:
-                    normalized_active = {c: 1.0 / len(active_uploading) for c in active_uploading}
-                else:
-                    normalized_active = {c: (v / total_raw) for c, v in raw_active.items()}
-            else:
-                # Equal split when not all clients have configured percentages
-                normalized_active = {c: 1.0 / len(active_uploading) for c in active_uploading}
-
-            # Allocate active pool based on normalized percentages
-            for client in active_uploading:
-                upload_limits[client] = available_upload * active_pool * normalized_active[client]
-
-            active_str = ", ".join(f"{c}: {upload_limits[c]:.1f} Mbps" for c in active_uploading)
-            inactive_str = ", ".join(f"{c}: {upload_limits[c]:.1f} Mbps" for c in inactive_clients) if inactive_clients else "none"
-            logger.info(f"Upload multiple active ({len(active_uploading)}/{len(upload_clients)}) - Active: {active_str} | Inactive: {inactive_str}")
-
+        targets = self._target_split(
+            upload_clients, available_upload, active_uploading,
+            percents, safety_net_fraction, "upload",
+        )
+        upload_limits.update(self._demand_adjust(
+            "upload", targets, active_uploading, download_stats,
+            "upload_speed", percents,
+            max(available_upload * safety_net_fraction,
+                self.config.bandwidth.upload.min_limit_mbps, HARD_MIN_MBPS),
+        ))
         return upload_limits
 
     def _apply_snmp_download_constraint(

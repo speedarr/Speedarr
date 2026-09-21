@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ActiveStream, StreamReservation } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -25,9 +24,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Play, Pause, StopCircle, Loader2, AlertCircle, X } from 'lucide-react';
-import { StreamCountChart } from './StreamCountChart';
-import type { TimeRange, DataInterval } from './BandwidthChart';
-import type { ZoomRange } from '@/hooks/useChartZoom';
 import { formatInTimeZone } from 'date-fns-tz';
 
 const SERVER_TYPE_COLORS: Record<string, string> = {
@@ -63,13 +59,12 @@ const getStateBadgeVariant = (state: string): "default" | "secondary" | "destruc
 };
 
 interface ActiveStreamsProps {
-  timeRange: TimeRange;
-  dataInterval: DataInterval;
-  zoomRange?: ZoomRange | null;
   configuredServerCount: number;
+  /** Panel chrome (options menu + collapse chevron) to place at the end of the title row. */
+  controls?: React.ReactNode;
 }
 
-export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInterval, zoomRange, configuredServerCount }) => {
+export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ configuredServerCount, controls }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -136,225 +131,226 @@ export const ActiveStreams: React.FC<ActiveStreamsProps> = ({ timeRange, dataInt
   const showServer =
     configuredServerCount >= 2 || new Set(streams.map((s) => s.server_id).filter(Boolean)).size > 1;
 
+  // Title, badges (once loaded) and the panel controls at the far right, in both branches so the
+  // controls never move.
+  const titleRow = (badges: React.ReactNode = null) => (
+    <div className="flex items-center justify-between gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-lg font-semibold shrink-0">Active Streams</h3>
+        {badges}
+      </div>
+      {controls}
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <>
-        <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />
-        <Card>
-          <CardContent className="flex justify-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </CardContent>
-        </Card>
-      </>
+      <div>
+        {titleRow()}
+        <div className="flex justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </div>
     );
   }
 
   return (
-    <>
-      <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} />
-      <Card>
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <CardTitle>Active Streams</CardTitle>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="text-sm">
-              {streams.length} Active
+    <div>
+      {titleRow(
+        <>
+          <Badge variant="outline" className="text-sm">
+            {streams.length} Active
+          </Badge>
+          {(() => {
+            const wanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? 0 : s.stream_bitrate_mbps), 0);
+            const lanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? s.stream_bitrate_mbps : 0), 0);
+            return (
+              <>
+                {wanBandwidth > 0 && (
+                  <Badge variant="outline" className="text-sm">
+                    WAN: {wanBandwidth.toFixed(1)} Mbps
+                  </Badge>
+                )}
+                {lanBandwidth > 0 && (
+                  <Badge variant="secondary" className="text-sm">
+                    LAN: {lanBandwidth.toFixed(1)} Mbps
+                  </Badge>
+                )}
+              </>
+            );
+          })()}
+          {totalReserved > 0 && (
+            <Badge variant="secondary" className="text-sm">
+              {totalReserved.toFixed(1)} Mbps Holding
             </Badge>
-            {(() => {
-              const wanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? 0 : s.stream_bitrate_mbps), 0);
-              const lanBandwidth = streams.reduce((sum, s) => sum + (s.is_lan ? s.stream_bitrate_mbps : 0), 0);
-              return (
-                <>
-                  {wanBandwidth > 0 && (
-                    <Badge variant="outline" className="text-sm">
-                      WAN: {wanBandwidth.toFixed(1)} Mbps
-                    </Badge>
+          )}
+        </>,
+      )}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {streams.length === 0 && !error && (
+        <Alert>
+          <AlertDescription>No active streams at the moment.</AlertDescription>
+        </Alert>
+      )}
+
+      {streams.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Status</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Title</TableHead>
+                {showServer && <TableHead>Server</TableHead>}
+                <TableHead>Quality</TableHead>
+                <TableHead>Transcode</TableHead>
+                <TableHead className="text-right">Bitrate</TableHead>
+                <TableHead>Network</TableHead>
+                <TableHead>Player</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {streams.map((stream) => (
+                <TableRow key={stream.session_id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {getStateIcon(stream.state)}
+                      <Badge variant={getStateBadgeVariant(stream.state)}>
+                        {stream.state}
+                      </Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell>{stream.user_name}</TableCell>
+                  <TableCell>
+                    <div className="max-w-[300px] truncate text-sm" title={stream.display_title}>
+                      {stream.display_title}
+                    </div>
+                  </TableCell>
+                  {showServer && (
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: SERVER_TYPE_COLORS[stream.server_type ?? ''] ?? '#888888' }}
+                          aria-hidden="true"
+                        />
+                        <span className="text-sm">{stream.server_name || '—'}</span>
+                      </div>
+                    </TableCell>
                   )}
-                  {lanBandwidth > 0 && (
-                    <Badge variant="secondary" className="text-sm">
-                      LAN: {lanBandwidth.toFixed(1)} Mbps
+                  <TableCell>
+                    {stream.quality_profile && (
+                      <Badge variant="outline">{stream.quality_profile}</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {stream.transcode_decision && (
+                      <Badge variant={stream.transcode_decision === 'transcode' ? 'secondary' : 'outline'}>
+                        {stream.transcode_decision}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="font-semibold">
+                      {stream.stream_bitrate_mbps.toFixed(1)} Mbps
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={stream.is_lan ? 'secondary' : 'outline'}>
+                      {stream.is_lan ? 'LAN' : 'WAN'}
                     </Badge>
-                  )}
-                </>
-              );
-            })()}
-            {totalReserved > 0 && (
-              <Badge variant="secondary" className="text-sm">
-                {totalReserved.toFixed(1)} Mbps Holding
-              </Badge>
-            )}
-          </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-muted-foreground" title={stream.platform || undefined}>
+                      {stream.player || 'Unknown'}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
-      </CardHeader>
+      )}
 
-      <CardContent>
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {streams.length === 0 && !error && (
-          <Alert>
-            <AlertDescription>No active streams at the moment.</AlertDescription>
-          </Alert>
-        )}
-
-        {streams.length > 0 && (
+      {reservations.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold mb-3">Bandwidth Holdings</h3>
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Status</TableHead>
                   <TableHead>User</TableHead>
-                  <TableHead>Title</TableHead>
-                  {showServer && <TableHead>Server</TableHead>}
-                  <TableHead>Quality</TableHead>
-                  <TableHead>Transcode</TableHead>
-                  <TableHead className="text-right">Bitrate</TableHead>
-                  <TableHead>Network</TableHead>
                   <TableHead>Player</TableHead>
+                  <TableHead className="text-right">Bandwidth</TableHead>
+                  <TableHead>Expires At</TableHead>
+                  {isAdmin && <TableHead className="w-[80px]"></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {streams.map((stream) => (
-                  <TableRow key={stream.session_id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getStateIcon(stream.state)}
-                        <Badge variant={getStateBadgeVariant(stream.state)}>
-                          {stream.state}
-                        </Badge>
-                      </div>
+                {reservations.map((res, idx) => (
+                  <TableRow key={res.id || idx}>
+                    <TableCell>{res.user_name || 'Unknown'}</TableCell>
+                    <TableCell>{res.player || 'Unknown'}</TableCell>
+                    <TableCell className="text-right">
+                      {res.bandwidth_mbps.toFixed(1)} Mbps
                     </TableCell>
-                    <TableCell>{stream.user_name}</TableCell>
                     <TableCell>
-                      <div className="max-w-[300px] truncate text-sm" title={stream.display_title}>
-                        {stream.display_title}
-                      </div>
+                      {formatInTimeZone(
+                        new Date(res.expires_at.endsWith('Z') ? res.expires_at : res.expires_at + 'Z'),
+                        Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        'dd/MM/yyyy hh:mm:ss a'
+                      )}
                     </TableCell>
-                    {showServer && (
+                    {isAdmin && (
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: SERVER_TYPE_COLORS[stream.server_type ?? ''] ?? '#888888' }}
-                            aria-hidden="true"
-                          />
-                          <span className="text-sm">{stream.server_name || '—'}</span>
-                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setConfirmClearReservation(res)}
+                          disabled={clearingReservation === res.id}
+                          className="h-8 w-8 p-0"
+                        >
+                          {clearingReservation === res.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4" />
+                          )}
+                        </Button>
                       </TableCell>
                     )}
-                    <TableCell>
-                      {stream.quality_profile && (
-                        <Badge variant="outline">{stream.quality_profile}</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {stream.transcode_decision && (
-                        <Badge variant={stream.transcode_decision === 'transcode' ? 'secondary' : 'outline'}>
-                          {stream.transcode_decision}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="font-semibold">
-                        {stream.stream_bitrate_mbps.toFixed(1)} Mbps
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={stream.is_lan ? 'secondary' : 'outline'}>
-                        {stream.is_lan ? 'LAN' : 'WAN'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground" title={stream.platform || undefined}>
-                        {stream.player || 'Unknown'}
-                      </span>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-        )}
+        </div>
+      )}
 
-        {reservations.length > 0 && (
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold mb-3">Bandwidth Holdings</h3>
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Player</TableHead>
-                    <TableHead className="text-right">Bandwidth</TableHead>
-                    <TableHead>Expires At</TableHead>
-                    {isAdmin && <TableHead className="w-[80px]"></TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {reservations.map((res, idx) => (
-                    <TableRow key={res.id || idx}>
-                      <TableCell>{res.user_name || 'Unknown'}</TableCell>
-                      <TableCell>{res.player || 'Unknown'}</TableCell>
-                      <TableCell className="text-right">
-                        {res.bandwidth_mbps.toFixed(1)} Mbps
-                      </TableCell>
-                      <TableCell>
-                        {formatInTimeZone(
-                          new Date(res.expires_at.endsWith('Z') ? res.expires_at : res.expires_at + 'Z'),
-                          Intl.DateTimeFormat().resolvedOptions().timeZone,
-                          'dd/MM/yyyy hh:mm:ss a'
-                        )}
-                      </TableCell>
-                      {isAdmin && (
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setConfirmClearReservation(res)}
-                            disabled={clearingReservation === res.id}
-                            className="h-8 w-8 p-0"
-                          >
-                            {clearingReservation === res.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <X className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )}
-
-        {/* Confirmation Dialog */}
-        <AlertDialog open={!!confirmClearReservation} onOpenChange={() => setConfirmClearReservation(null)}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Clear Bandwidth Reservation?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to release the bandwidth reservation for{' '}
-                <strong>{confirmClearReservation?.user_name || 'Unknown'}</strong>?
-                This will immediately free up {confirmClearReservation?.bandwidth_mbps.toFixed(1)} Mbps.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => confirmClearReservation && handleClearReservation(confirmClearReservation)}>
-                Clear Reservation
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </CardContent>
-    </Card>
-    </>
+      {/* Confirmation Dialog */}
+      <AlertDialog open={!!confirmClearReservation} onOpenChange={() => setConfirmClearReservation(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Bandwidth Reservation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to release the bandwidth reservation for{' '}
+              <strong>{confirmClearReservation?.user_name || 'Unknown'}</strong>?
+              This will immediately free up {confirmClearReservation?.bandwidth_mbps.toFixed(1)} Mbps.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmClearReservation && handleClearReservation(confirmClearReservation)}>
+              Clear Reservation
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 };

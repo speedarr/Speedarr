@@ -15,6 +15,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SplitSlider } from '@/components/ui/split-slider';
+import { SpeedUnitHint } from '@/components/SpeedUnitHint';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -54,6 +55,7 @@ interface TimeBasedSchedule {
 }
 
 interface BandwidthConfig {
+  demand_aware_allocation: boolean;
   download: {
     total_limit: number;
     min_limit_mbps: number;
@@ -137,6 +139,9 @@ export const BandwidthSettings: React.FC = () => {
       }
       if (loadedConfig.upload.min_limit_mbps == null) {
         loadedConfig.upload.min_limit_mbps = 1;
+      }
+      if (loadedConfig.demand_aware_allocation == null) {
+        loadedConfig.demand_aware_allocation = true;
       }
       // Initialize scheduled configs if not present
       if (!loadedConfig.download.scheduled) {
@@ -517,8 +522,9 @@ export const BandwidthSettings: React.FC = () => {
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">
-              Total available download bandwidth in Mbps
+              Total download bandwidth for your clients, in Mbps. <strong className="text-foreground">10-20%</strong> less than your actual line speed is recommended.
             </p>
+            <SpeedUnitHint mbps={config.download.total_limit} />
           </div>
 
           <div className="space-y-2">
@@ -542,6 +548,30 @@ export const BandwidthSettings: React.FC = () => {
               Set 0 to slow clients to a trickle instead of removing the limit.
             </p>
           </div>
+
+          {/* Demand-aware allocation (applies to download and upload) */}
+          {hasMultipleClients && (
+            <div className="flex items-start justify-between gap-4 pt-4 border-t">
+              <div className="space-y-1">
+                <Label htmlFor="demand-aware-allocation" className="text-base font-medium">
+                  Demand-aware allocation
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  When on, a client that isn't using its share lends the unused part to clients that are.
+                  The percentages below decide the split when every client wants more.
+                  When off, active clients are held to their percentages. Applies to download and upload.
+                </p>
+              </div>
+              <Switch
+                id="demand-aware-allocation"
+                checked={config.demand_aware_allocation}
+                onCheckedChange={(checked) =>
+                  setConfig(prev => (prev ? { ...prev, demand_aware_allocation: checked } : prev))
+                }
+                disabled={isSaving}
+              />
+            </div>
+          )}
 
           {/* Client Allocation - 2 clients: Split Slider */}
           {hasMultipleClients && !hasThreeOrMoreClients && (
@@ -802,8 +832,9 @@ export const BandwidthSettings: React.FC = () => {
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">
-              Total available upload bandwidth in Mbps
+              Total upload bandwidth for your clients, in Mbps. <strong className="text-foreground">10-20%</strong> less than your actual line speed is recommended.
             </p>
+            <SpeedUnitHint mbps={config.upload.total_limit} />
           </div>
 
           <div className="space-y-2">

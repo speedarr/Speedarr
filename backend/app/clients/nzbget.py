@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
 from .base import BaseDownloadClient
+from app.utils.bandwidth import bytes_per_sec_to_mbps, mbps_to_kibibytes_per_sec
 
 
 class NZBGetClient(BaseDownloadClient):
@@ -69,7 +70,7 @@ class NZBGetClient(BaseDownloadClient):
                 self._original_limits = speed_limits.copy()
 
             # NZBGet reports speed in bytes/sec
-            download_speed_mbps = status.get("DownloadRate", 0) / 1_048_576 * 8
+            download_speed_mbps = bytes_per_sec_to_mbps(status.get("DownloadRate", 0))
 
             return {
                 "active": status.get("DownloadRate", 0) > 0,
@@ -96,7 +97,7 @@ class NZBGetClient(BaseDownloadClient):
             if limit_bytes == 0:
                 download_limit = 0  # Unlimited
             else:
-                download_limit = limit_bytes / 1_048_576 * 8
+                download_limit = bytes_per_sec_to_mbps(limit_bytes)
 
             return {
                 "download_limit": download_limit,
@@ -110,10 +111,8 @@ class NZBGetClient(BaseDownloadClient):
         """Set speed limits in Mbps."""
         try:
             if download_limit is not None:
-                # Convert Mbps to KB/s (NZBGet uses KB/s where 1 KB = 1024 bytes)
-                # mbps * 1,048,576 / 8 / 1024 = mbps * 128, symmetric with the
-                # binary bytes/s -> Mbps conversion in get_speed_limits
-                limit_kbps = int(download_limit * 128)
+                # NZBGet's "rate" takes KB/s where 1 KB = 1024 bytes
+                limit_kbps = int(mbps_to_kibibytes_per_sec(download_limit))
                 await self._rpc_call("rate", [limit_kbps])
                 logger.debug(f"Set NZBGet download limit: {download_limit:.1f} Mbps ({limit_kbps} KB/s)")
         except Exception as e:

@@ -1,9 +1,8 @@
 """
 Download client model.
 """
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class DownloadClient(Base):
@@ -36,4 +35,4 @@ class DownloadClient(Base):
 
     # Metadata
     version = Column(String(50), nullable=True)
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated = Column(DateTime, default=utcnow, onupdate=utcnow)

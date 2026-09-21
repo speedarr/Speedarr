@@ -58,6 +58,7 @@ interface NotificationsConfig {
   ntfy: NtfyConfig;
   stream_count_threshold: number | null;
   stream_bitrate_threshold: number | null;
+  threshold_cooldown_minutes: number;
 }
 
 export const NotificationsSettings: React.FC = () => {
@@ -399,6 +400,15 @@ export const NotificationsSettings: React.FC = () => {
     });
   };
 
+  const updateThresholdCooldown = (value: string) => {
+    if (!config) return;
+    const numValue = parseInt(value);
+    setConfig({
+      ...config,
+      threshold_cooldown_minutes: isNaN(numValue) || numValue <= 0 ? 0 : Math.min(numValue, 1440),
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -537,6 +547,31 @@ export const NotificationsSettings: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                  <div className="pt-3 border-t space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="threshold-cooldown-discord" className="text-sm text-muted-foreground whitespace-nowrap">
+                        Threshold alert cooldown:
+                      </Label>
+                      <Input
+                        id="threshold-cooldown-discord"
+                        type="number"
+                        min="0"
+                        max="1440"
+                        step="1"
+                        className="w-20 h-8"
+                        value={config.threshold_cooldown_minutes || ''}
+                        onChange={(e) => updateThresholdCooldown(e.target.value)}
+                        placeholder="0"
+                        disabled={isSaving}
+                      />
+                      <span className="text-sm text-muted-foreground">minutes</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Applies only to the two threshold alerts above (stream count and stream bitrate) —
+                      repeat alerts of the same type are suppressed within this window. Stream start/stop,
+                      service-unreachable, and other events always send. 0 = no cooldown.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -685,6 +720,31 @@ export const NotificationsSettings: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                  <div className="pt-3 border-t space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="threshold-cooldown-pushover" className="text-sm text-muted-foreground whitespace-nowrap">
+                        Threshold alert cooldown:
+                      </Label>
+                      <Input
+                        id="threshold-cooldown-pushover"
+                        type="number"
+                        min="0"
+                        max="1440"
+                        step="1"
+                        className="w-20 h-8"
+                        value={config.threshold_cooldown_minutes || ''}
+                        onChange={(e) => updateThresholdCooldown(e.target.value)}
+                        placeholder="0"
+                        disabled={isSaving}
+                      />
+                      <span className="text-sm text-muted-foreground">minutes</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Applies only to the two threshold alerts above (stream count and stream bitrate) —
+                      repeat alerts of the same type are suppressed within this window. Stream start/stop,
+                      service-unreachable, and other events always send. 0 = no cooldown.
+                    </p>
+                  </div>
                 </div>
               </div>
             </>
@@ -822,6 +882,31 @@ export const NotificationsSettings: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                  <div className="pt-3 border-t space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="threshold-cooldown-telegram" className="text-sm text-muted-foreground whitespace-nowrap">
+                        Threshold alert cooldown:
+                      </Label>
+                      <Input
+                        id="threshold-cooldown-telegram"
+                        type="number"
+                        min="0"
+                        max="1440"
+                        step="1"
+                        className="w-20 h-8"
+                        value={config.threshold_cooldown_minutes || ''}
+                        onChange={(e) => updateThresholdCooldown(e.target.value)}
+                        placeholder="0"
+                        disabled={isSaving}
+                      />
+                      <span className="text-sm text-muted-foreground">minutes</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Applies only to the two threshold alerts above (stream count and stream bitrate) —
+                      repeat alerts of the same type are suppressed within this window. Stream start/stop,
+                      service-unreachable, and other events always send. 0 = no cooldown.
+                    </p>
+                  </div>
                 </div>
               </div>
             </>
@@ -957,6 +1042,31 @@ export const NotificationsSettings: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                  <div className="pt-3 border-t space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="threshold-cooldown-gotify" className="text-sm text-muted-foreground whitespace-nowrap">
+                        Threshold alert cooldown:
+                      </Label>
+                      <Input
+                        id="threshold-cooldown-gotify"
+                        type="number"
+                        min="0"
+                        max="1440"
+                        step="1"
+                        className="w-20 h-8"
+                        value={config.threshold_cooldown_minutes || ''}
+                        onChange={(e) => updateThresholdCooldown(e.target.value)}
+                        placeholder="0"
+                        disabled={isSaving}
+                      />
+                      <span className="text-sm text-muted-foreground">minutes</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Applies only to the two threshold alerts above (stream count and stream bitrate) —
+                      repeat alerts of the same type are suppressed within this window. Stream start/stop,
+                      service-unreachable, and other events always send. 0 = no cooldown.
+                    </p>
+                  </div>
                 </div>
               </div>
             </>
@@ -1096,6 +1206,31 @@ export const NotificationsSettings: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                  <div className="pt-3 border-t space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="threshold-cooldown-ntfy" className="text-sm text-muted-foreground whitespace-nowrap">
+                        Threshold alert cooldown:
+                      </Label>
+                      <Input
+                        id="threshold-cooldown-ntfy"
+                        type="number"
+                        min="0"
+                        max="1440"
+                        step="1"
+                        className="w-20 h-8"
+                        value={config.threshold_cooldown_minutes || ''}
+                        onChange={(e) => updateThresholdCooldown(e.target.value)}
+                        placeholder="0"
+                        disabled={isSaving}
+                      />
+                      <span className="text-sm text-muted-foreground">minutes</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Applies only to the two threshold alerts above (stream count and stream bitrate) —
+                      repeat alerts of the same type are suppressed within this window. Stream start/stop,
+                      service-unreachable, and other events always send. 0 = no cooldown.
+                    </p>
+                  </div>
                 </div>
               </div>
             </>

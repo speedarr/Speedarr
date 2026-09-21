@@ -1,10 +1,9 @@
 """
 User and authentication models.
 """
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class User(Base):
@@ -16,7 +15,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="admin")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     last_login = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
 
@@ -33,7 +32,7 @@ class APIToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(64), unique=True, nullable=False, index=True)
     name = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     expires_at = Column(DateTime, nullable=True)
     last_used = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)

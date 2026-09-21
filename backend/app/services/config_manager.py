@@ -607,12 +607,15 @@ class ConfigManager:
         """
         logger.info(f"Reloading services affected by '{section_name}' change")
 
+        # In setup mode main.py sets the service singletons to None (not unset)
+        # until complete-setup builds them, so every branch checks the value
+        # rather than hasattr.
         try:
             if section_name in ("plex", "media_servers"):
                 # Reload all media server adapters (handles both legacy plex saves and new media_servers list)
-                if hasattr(self.app.state, "polling_monitor"):
+                pm = getattr(self.app.state, "polling_monitor", None)
+                if pm is not None:
                     from app.clients.media_server_factory import create_media_server
-                    pm = self.app.state.polling_monitor
                     for server in pm.media_servers.values():
                         await server.close()
                     pm.media_servers = {
@@ -632,46 +635,46 @@ class ConfigManager:
 
             elif section_name in ["qbittorrent", "sabnzbd", "transmission", "nzbget", "deluge"]:
                 # Reload ControllerManager clients
-                if hasattr(self.app.state, "controller_manager"):
-                    controller_manager = self.app.state.controller_manager
+                controller_manager = getattr(self.app.state, "controller_manager", None)
+                if controller_manager is not None:
                     await controller_manager.reload_clients(config)
                     logger.info("Download clients reloaded")
 
             elif section_name == "bandwidth":
                 # Update DecisionEngine config
-                if hasattr(self.app.state, "decision_engine"):
-                    decision_engine = self.app.state.decision_engine
+                decision_engine = getattr(self.app.state, "decision_engine", None)
+                if decision_engine is not None:
                     decision_engine.config = config
                     logger.info("DecisionEngine config updated")
 
             elif section_name == "notifications":
                 # Reload NotificationService (needs full config, not just notifications section)
-                if hasattr(self.app.state, "notification_service"):
-                    notification_service = self.app.state.notification_service
+                notification_service = getattr(self.app.state, "notification_service", None)
+                if notification_service is not None:
                     notification_service.config = config
                     logger.info("NotificationService config updated")
 
             elif section_name == "system":
                 # Update polling frequency - must update polling_monitor's config reference
-                if hasattr(self.app.state, "polling_monitor"):
-                    self.app.state.polling_monitor.config = config
+                polling_monitor = getattr(self.app.state, "polling_monitor", None)
+                if polling_monitor is not None:
+                    polling_monitor.config = config
                     logger.info(f"Polling monitor config updated, new frequency: {config.system.update_frequency}s")
 
             elif section_name == "snmp":
                 # Reload SNMPMonitor
-                if hasattr(self.app.state, "polling_monitor"):
-                    self.app.state.polling_monitor.config = config
+                polling_monitor = getattr(self.app.state, "polling_monitor", None)
+                if polling_monitor is not None:
+                    polling_monitor.config = config
                     from app.services.snmp_monitor import SNMPMonitor
 
                     if config.snmp.enabled:
                         # Create new SNMPMonitor with updated config
-                        self.app.state.polling_monitor.snmp_monitor = SNMPMonitor(
-                            config.snmp
-                        )
+                        polling_monitor.snmp_monitor = SNMPMonitor(config.snmp)
                         logger.info("SNMPMonitor reloaded with updated config")
                     else:
                         # Disable SNMP monitoring
-                        self.app.state.polling_monitor.snmp_monitor = None
+                        polling_monitor.snmp_monitor = None
                         logger.info("SNMPMonitor disabled")
 
         except Exception as e:

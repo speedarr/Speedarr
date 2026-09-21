@@ -6,7 +6,7 @@ ARG SPEEDARR_COMMIT=unknown
 ARG SPEEDARR_BRANCH=unknown
 
 # Stage 1: Build React Frontend
-FROM node:20.11-alpine3.19 AS frontend-builder
+FROM node:24.21.0-alpine3.24 AS frontend-builder
 
 # Re-declare ARGs for this stage
 ARG SPEEDARR_VERSION
@@ -24,16 +24,20 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 
 # Install dependencies from the committed lockfile for reproducible builds
-RUN npm ci
+# Retries cover the arm64 leg of Develop Build, which runs npm ci under QEMU and has failed with ECONNRESET
+RUN npm ci --fetch-retries=5 --fetch-retry-maxtimeout=120000
 
 # Copy frontend source
 COPY frontend/ ./
+
+# Unit tests gate the image the same way tsc does: a red test fails the build
+RUN npm test
 
 # Build frontend
 RUN npm run build
 
 # Stage 2: Python Backend + Serve Frontend
-FROM python:3.11.7-slim-bookworm AS base
+FROM python:3.14.7-slim-bookworm AS base
 
 # Re-declare ARGs for this stage
 ARG SPEEDARR_VERSION
@@ -47,16 +51,15 @@ ENV SPEEDARR_BRANCH=${SPEEDARR_BRANCH}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
     supervisor \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy Python requirements and install
+# Copy Python requirements and install (wheels only: every pin ships a wheel for amd64 and arm64)
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
 
 # Copy backend application
 COPY backend/app/ ./app/

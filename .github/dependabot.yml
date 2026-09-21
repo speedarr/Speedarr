@@ -42,8 +42,7 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
-  # Base images in backend/Dockerfile (node build stage + python runtime) —
-  # previously uncovered; python:3.11.7 and node:20.11 have long-stale pins.
+  # Base images in backend/Dockerfile (node build stage + python runtime).
   - package-ecosystem: "docker"
     directory: "/backend"
     target-branch: "develop"

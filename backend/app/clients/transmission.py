@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
 from .base import BaseDownloadClient
+from app.utils.bandwidth import bytes_per_sec_to_mbps, kilobytes_per_sec_to_mbps, mbps_to_kilobytes_per_sec
 
 
 class TransmissionClient(BaseDownloadClient):
@@ -86,8 +87,8 @@ class TransmissionClient(BaseDownloadClient):
             downloading_count = sum(1 for t in torrents if t.get("status") == 4)
 
             # Transmission reports speeds in bytes/sec
-            download_speed = session.get("downloadSpeed", 0) / 1_048_576 * 8
-            upload_speed = session.get("uploadSpeed", 0) / 1_048_576 * 8
+            download_speed = bytes_per_sec_to_mbps(session.get("downloadSpeed", 0))
+            upload_speed = bytes_per_sec_to_mbps(session.get("uploadSpeed", 0))
 
             # Get speed limits
             speed_limits = await self.get_speed_limits()
@@ -115,7 +116,7 @@ class TransmissionClient(BaseDownloadClient):
         try:
             settings = await self._rpc_call("session-get")
 
-            # Transmission uses KB/s for limits
+            # Transmission uses KB/s (1 KB = 1000 bytes) for limits
             dl_enabled = settings.get("speed-limit-down-enabled", False)
             ul_enabled = settings.get("speed-limit-up-enabled", False)
 
@@ -123,8 +124,8 @@ class TransmissionClient(BaseDownloadClient):
             ul_limit_kbps = settings.get("speed-limit-up", 0) if ul_enabled else 0
 
             return {
-                "download_limit": dl_limit_kbps * 8 / 1000 if dl_limit_kbps > 0 else 0,
-                "upload_limit": ul_limit_kbps * 8 / 1000 if ul_limit_kbps > 0 else 0,
+                "download_limit": kilobytes_per_sec_to_mbps(dl_limit_kbps) if dl_limit_kbps > 0 else 0,
+                "upload_limit": kilobytes_per_sec_to_mbps(ul_limit_kbps) if ul_limit_kbps > 0 else 0,
             }
         except Exception as e:
             logger.error(f"Failed to get Transmission speed limits: {e}")
@@ -136,13 +137,13 @@ class TransmissionClient(BaseDownloadClient):
             arguments = {}
 
             if download_limit is not None:
-                # Convert Mbps to KB/s
-                limit_kbps = int(download_limit * 1000 / 8)
+                # Transmission counts 1 KB as 1000 bytes
+                limit_kbps = int(mbps_to_kilobytes_per_sec(download_limit))
                 arguments["speed-limit-down"] = limit_kbps
                 arguments["speed-limit-down-enabled"] = limit_kbps > 0
 
             if upload_limit is not None:
-                limit_kbps = int(upload_limit * 1000 / 8)
+                limit_kbps = int(mbps_to_kilobytes_per_sec(upload_limit))
                 arguments["speed-limit-up"] = limit_kbps
                 arguments["speed-limit-up-enabled"] = limit_kbps > 0
 

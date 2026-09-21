@@ -63,6 +63,7 @@ from app.services import DecisionEngine, ControllerManager, PollingMonitor, Noti
 from app.services.config_manager import ConfigManager
 from app.api import auth, status, control, streams, bandwidth, settings as settings_api, decisions
 from app.api.auth import require_auth_if_private
+from app.utils.static_files import spa_file_for
 
 class BackgroundTaskMonitor:
     """
@@ -286,7 +287,10 @@ async def lifespan(app: FastAPI):
         # Read failsafe from app.state.config (kept fresh by ConfigManager on saves)
         config = getattr(app.state, 'config', None)
         failsafe = config.failsafe if config else None
-        use_shutdown_speeds = failsafe is not None and (
+        # Toggle off (issue #78) = hands off: never apply shutdown caps while disabled.
+        pm = getattr(app.state, 'polling_monitor', None)
+        throttling_disabled = pm is not None and not pm.is_throttling_enabled()
+        use_shutdown_speeds = failsafe is not None and not throttling_disabled and (
             failsafe.shutdown_download_speed is not None
             or failsafe.shutdown_upload_speed is not None
         )
@@ -427,16 +431,17 @@ if os.path.exists(static_dir):
     # Serve static assets (JS, CSS, images)
     app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
 
+    static_root = Path(static_dir).resolve()
+
     # Catch-all route for React Router - serves index.html for all non-API routes
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        """Serve React SPA for all routes that don't match API endpoints."""
-        # If the path is asking for a file that exists, serve it
-        file_path = os.path.join(static_dir, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        # Otherwise, serve index.html (for client-side routing)
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        """Serve React SPA for all routes that don't match API endpoints.
+
+        Only files inside the static build directory are served; any other path,
+        including one that resolves outside it, gets index.html for client-side routing.
+        """
+        return FileResponse(spa_file_for(static_root, full_path))
 
     logger.info("Frontend static files served from /static")
 

@@ -24,6 +24,7 @@ import { PasswordInput } from './PasswordInput';
 import { TestConnectionButton } from './TestConnectionButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { ClientSpeedUnitNote } from '@/components/SpeedUnitHint';
 
 // Client type definitions
 const CLIENT_TYPES = {
@@ -35,6 +36,7 @@ const CLIENT_TYPES = {
     fields: ['url', 'username', 'password'],
     defaultUrl: 'http://qbittorrent:8080',
     apiKeyLocation: null,
+    speedUnit: 'KiB/s and MiB/s',
   },
   sabnzbd: {
     name: 'SABnzbd',
@@ -44,6 +46,7 @@ const CLIENT_TYPES = {
     fields: ['url', 'api_key'],
     defaultUrl: 'http://sabnzbd:8080',
     apiKeyLocation: 'Config → General → Security → API Key',
+    speedUnit: 'MB/s',
   },
   nzbget: {
     name: 'NZBGet',
@@ -53,6 +56,7 @@ const CLIENT_TYPES = {
     fields: ['url', 'username', 'password'],
     defaultUrl: 'http://nzbget:6789',
     apiKeyLocation: null,
+    speedUnit: 'KB/s and MB/s',
   },
   transmission: {
     name: 'Transmission',
@@ -62,6 +66,7 @@ const CLIENT_TYPES = {
     fields: ['url', 'username', 'password'],
     defaultUrl: 'http://transmission:9091',
     apiKeyLocation: null,
+    speedUnit: 'kB/s and MB/s',
   },
   deluge: {
     name: 'Deluge',
@@ -71,6 +76,7 @@ const CLIENT_TYPES = {
     fields: ['url', 'password'],
     defaultUrl: 'http://deluge:8112',
     apiKeyLocation: null,
+    speedUnit: 'KiB/s and MiB/s',
   },
 };
 
@@ -179,6 +185,9 @@ const DownloadClientCard: React.FC<DownloadClientCardProps> = ({
                 disabled={isSaving || !client.enabled}
                 maxLength={512}
               />
+              {typeInfo?.speedUnit && (
+                <ClientSpeedUnitNote clientName={typeInfo.name} speedUnit={typeInfo.speedUnit} />
+              )}
             </div>
 
             {/* Username/Password fields */}

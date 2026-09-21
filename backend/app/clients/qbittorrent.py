@@ -4,6 +4,7 @@ qBittorrent API client for monitoring and controlling downloads.
 from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
+from app.utils.bandwidth import bytes_per_sec_to_mbps, mbps_to_bytes_per_sec
 
 
 class QBittorrentClient:
@@ -109,8 +110,8 @@ class QBittorrentClient:
 
             return {
                 "active": transfer_info.get("dl_info_speed", 0) > 0 or transfer_info.get("up_info_speed", 0) > 0,
-                "download_speed": transfer_info.get("dl_info_speed", 0) / 1_048_576 * 8,  # bytes/s to Mbps
-                "upload_speed": transfer_info.get("up_info_speed", 0) / 1_048_576 * 8,
+                "download_speed": bytes_per_sec_to_mbps(transfer_info.get("dl_info_speed", 0)),
+                "upload_speed": bytes_per_sec_to_mbps(transfer_info.get("up_info_speed", 0)),
                 "downloading_count": downloading_count,
                 "download_limit": speed_limits.get("download_limit", 0),
                 "upload_limit": speed_limits.get("upload_limit", 0),
@@ -137,8 +138,8 @@ class QBittorrentClient:
 
             # Convert bytes/sec to Mbps (0 means unlimited in qBit)
             return {
-                "download_limit": (dl_limit_bytes / 1_048_576 * 8) if dl_limit_bytes > 0 else 0,
-                "upload_limit": (ul_limit_bytes / 1_048_576 * 8) if ul_limit_bytes > 0 else 0,
+                "download_limit": bytes_per_sec_to_mbps(dl_limit_bytes) if dl_limit_bytes > 0 else 0,
+                "upload_limit": bytes_per_sec_to_mbps(ul_limit_bytes) if ul_limit_bytes > 0 else 0,
             }
         except Exception as e:
             logger.error(f"Failed to get speed limits: {e}")
@@ -149,12 +150,12 @@ class QBittorrentClient:
         try:
             if download_limit is not None:
                 # Convert Mbps to bytes/second
-                limit_bytes = int(download_limit * 1_048_576 / 8)
+                limit_bytes = mbps_to_bytes_per_sec(download_limit)
                 response = await self._request("POST", "/api/v2/transfer/setDownloadLimit", data={"limit": str(limit_bytes)})
                 response.raise_for_status()
 
             if upload_limit is not None:
-                limit_bytes = int(upload_limit * 1_048_576 / 8)
+                limit_bytes = mbps_to_bytes_per_sec(upload_limit)
                 response = await self._request("POST", "/api/v2/transfer/setUploadLimit", data={"limit": str(limit_bytes)})
                 response.raise_for_status()
 
@@ -172,3 +173,11 @@ class QBittorrentClient:
                 upload_limit=self._original_limits["upload_limit"],
             )
             logger.debug("Restored qBittorrent to original limits")
+
+    async def set_unlimited(self):
+        """Remove all speed limits (0 maps to qBittorrent's native unlimited).
+
+        QBittorrentClient does not inherit BaseDownloadClient, so this mirrors
+        that base class's default set_unlimited rather than being inherited.
+        """
+        await self.set_speed_limits(download_limit=0, upload_limit=0)

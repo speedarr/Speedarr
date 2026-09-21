@@ -1,25 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/api/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { BandwidthChart } from '@/components/BandwidthChart';
 import { ActiveStreams } from '@/components/ActiveStreams';
+import { StreamCountChart } from '@/components/StreamCountChart';
 import type { ZoomRange } from '@/hooks/useChartZoom';
 import { TemporaryLimits } from '@/components/TemporaryLimits';
-import { StreamCountDisplay } from '@/components/StreamCountDisplay';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import type { SystemStatus } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ThrottlingBanner } from '@/components/ThrottlingBanner';
+import { BandwidthOverview } from '@/components/BandwidthOverview';
+import { DashboardPanel } from '@/components/DashboardPanel';
+import { useDashboardLayout } from '@/hooks/useDashboardLayout';
+import type { PanelId } from '@/lib/dashboardLayout';
+import {
+  activeStreamsSummary,
+  bandwidthChartSummary,
+  overviewSummary,
+  streamCountSummary,
+  temporaryLimitsSummary,
+} from '@/lib/dashboardSummaries';
+import type { SystemStatus, TemporaryLimitState } from '@/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, AlertTriangle, Clock } from 'lucide-react';
-
-interface TemporaryLimitState {
-  active: boolean;
-  download_mbps: number | null;
-  upload_mbps: number | null;
-  expires_at: string | null;
-  remaining_minutes: number | null;
-  source: string | null;
-  set_by: string | null;
-}
+import { Loader2, AlertCircle } from 'lucide-react';
 
 interface TimeRange {
   label: string;
@@ -46,6 +47,14 @@ const getRecommendedInterval = (hours: number): DataInterval => {
   return 5;                            // 3 days: 5 min
 };
 
+interface PanelSpec {
+  title: string;
+  visible: boolean;
+  summary: string;
+  /** Renders the panel content with the shell's controls to place in its title row. */
+  content: (controls: React.ReactNode) => React.ReactNode;
+}
+
 export const Home: React.FC = () => {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [tempLimits, setTempLimits] = useState<TemporaryLimitState | null>(null);
@@ -54,6 +63,16 @@ export const Home: React.FC = () => {
   const [timeRange, setTimeRange] = useState<TimeRange>(timeRanges[2]); // Default: Last 2 Hours
   const [dataInterval, setDataInterval] = useState<DataInterval>(0.25); // Default: 15 sec (for 2 hour range)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
+
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const { layout, move, toggle, reset, isDefault } = useDashboardLayout();
+
+  // A collapsed bandwidth chart cannot show its Reset Zoom button, so drop the zoom it published.
+  const chartCollapsed = layout.collapsed.includes('bandwidth-chart');
+  useEffect(() => {
+    if (chartCollapsed) setZoomRange(null);
+  }, [chartCollapsed]);
 
   // Wrapper to also update data interval when time range changes
   const handleTimeRangeChange = (newRange: TimeRange) => {
@@ -97,6 +116,58 @@ export const Home: React.FC = () => {
     ? Object.keys(status.media_server_statuses).length
     : 0;
 
+  const panels: Record<PanelId, PanelSpec> = {
+    'overview': {
+      title: 'Overview',
+      visible: status !== null,
+      summary: overviewSummary(status, tempLimits),
+      content: (controls) =>
+        status ? <BandwidthOverview status={status} tempLimits={tempLimits} controls={controls} /> : null,
+    },
+    'temporary-limits': {
+      title: 'Temporary Limits',
+      // Non-admins only see this panel while an override is active (was a guard inside the component).
+      visible: isAdmin || !!tempLimits?.active,
+      summary: temporaryLimitsSummary(tempLimits),
+      content: (controls) => (
+        <TemporaryLimits throttlingDisabled={status ? !status.throttling_enabled : false} controls={controls} />
+      ),
+    },
+    'bandwidth-chart': {
+      title: 'Bandwidth Usage',
+      visible: true,
+      summary: bandwidthChartSummary(status),
+      content: (controls) => (
+        <BandwidthChart
+          timeRange={timeRange}
+          setTimeRange={handleTimeRangeChange}
+          dataInterval={dataInterval}
+          setDataInterval={setDataInterval}
+          timeRanges={timeRanges}
+          onZoomChange={setZoomRange}
+          configuredServerCount={configuredServerCount}
+          controls={controls}
+        />
+      ),
+    },
+    'stream-count': {
+      title: 'Stream Count',
+      visible: true,
+      summary: streamCountSummary(status),
+      content: (controls) => (
+        <StreamCountChart timeRange={timeRange} dataInterval={dataInterval} zoomRange={zoomRange} controls={controls} />
+      ),
+    },
+    'active-streams': {
+      title: 'Active Streams',
+      visible: true,
+      summary: activeStreamsSummary(status),
+      content: (controls) => <ActiveStreams configuredServerCount={configuredServerCount} controls={controls} />,
+    },
+  };
+
+  const visibleIds = layout.order.filter((id) => panels[id].visible);
+
   return (
     <div className="space-y-6">
       {error && (
@@ -106,250 +177,26 @@ export const Home: React.FC = () => {
         </Alert>
       )}
 
-      {/* Bandwidth Overview */}
-      {status && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Download Bandwidth</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
-                {tempLimits?.active && tempLimits.download_mbps !== null ? (
-                  <span className="text-sm text-red-500 dark:text-red-400 flex items-center gap-1">
-                    <Clock className="h-3 w-3" aria-hidden="true" />
-                    <span>Temporary Limit:</span>
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Total Limit:</span>
-                )}
-                <span className={`font-semibold ${tempLimits?.active && tempLimits.download_mbps !== null ? 'text-red-500 dark:text-red-400' : ''}`}>
-                  {tempLimits?.active && tempLimits.download_mbps !== null
-                    ? tempLimits.download_mbps.toFixed(0)
-                    : status.bandwidth.download.total_limit.toFixed(0)} Mbps
-                </span>
-              </div>
-              {status.bandwidth.download.clients?.map((client) => (
-                <div key={client.id} className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground" style={{ color: client.error ? undefined : client.color }}>
-                    {client.error ? (
-                      <span className="text-red-500 dark:text-red-400 flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {client.name}:
-                      </span>
-                    ) : (
-                      <>{client.name}:</>
-                    )}
-                  </span>
-                  {client.error ? (
-                    <span className="text-sm font-semibold text-red-500 dark:text-red-400">Unreachable</span>
-                  ) : (
-                    <span className="font-semibold">
-                      {client.speed.toFixed(0)} / {client.limit.toFixed(0)} Mbps
-                    </span>
-                  )}
-                </div>
-              ))}
-              {(status.bandwidth.download.stream_reserve ?? 0) > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Stream Reserve:</span>
-                  <span className="font-semibold text-orange-500 dark:text-orange-400">
-                    {(status.bandwidth.download.stream_reserve ?? 0).toFixed(1)} Mbps
-                  </span>
-                </div>
-              )}
-              {(status.bandwidth.download.holding_reserve ?? 0) > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Holding Reserve:</span>
-                  <span className="font-semibold text-orange-500 dark:text-orange-400">
-                    {(status.bandwidth.download.holding_reserve ?? 0).toFixed(1)} Mbps
-                  </span>
-                </div>
-              )}
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Available:</span>
-                <span className="font-semibold text-green-600 dark:text-green-400">
-                  {(tempLimits?.active && tempLimits.download_mbps !== null
-                    ? Math.max(0, tempLimits.download_mbps - status.bandwidth.download.current_usage)
-                    : status.bandwidth.download.available
-                  ).toFixed(0)} Mbps
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+      {status && <ThrottlingBanner status={status} onReenabled={fetchStatus} />}
 
-          {/* Stream Count with WAN Usage (when SNMP enabled) */}
-          <Card className="flex items-center">
-            <CardContent className="py-6 px-2 sm:px-4 w-full">
-              {status.snmp_enabled ? (
-                <div className="grid grid-cols-3 items-center justify-items-center">
-                  {/* WAN Download - Left */}
-                  <div className="flex flex-col items-center justify-center">
-                    <p className="text-sm text-muted-foreground mb-1">WAN Download</p>
-                    {status.snmp_status && !status.snmp_status.connected ? (
-                      <>
-                        <AlertTriangle className="h-6 w-6 text-red-500 dark:text-red-400" />
-                        <p className="text-xs text-red-500 dark:text-red-400 mt-1">SNMP Unreachable</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                          {status.bandwidth.download.snmp_speed !== null && status.bandwidth.download.snmp_speed !== undefined
-                            ? `${status.bandwidth.download.snmp_speed.toFixed(0)}`
-                            : '--'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">Mbps</p>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Stream Count - Center */}
-                  <div className="flex flex-col items-center justify-center border-x border-border py-2 w-full">
-                    <StreamCountDisplay status={status} />
-                  </div>
-
-                  {/* WAN Upload - Right */}
-                  <div className="flex flex-col items-center justify-center">
-                    <p className="text-sm text-muted-foreground mb-1">WAN Upload</p>
-                    {status.snmp_status && !status.snmp_status.connected ? (
-                      <>
-                        <AlertTriangle className="h-6 w-6 text-red-500 dark:text-red-400" />
-                        <p className="text-xs text-red-500 dark:text-red-400 mt-1">SNMP Unreachable</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                          {status.bandwidth.upload.snmp_speed !== null && status.bandwidth.upload.snmp_speed !== undefined
-                            ? `${status.bandwidth.upload.snmp_speed.toFixed(0)}`
-                            : '--'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">Mbps</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Stream Count Only (no SNMP) - Centered */
-                <div className="flex flex-col items-center justify-center">
-                  <StreamCountDisplay status={status} />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Upload Bandwidth</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
-                {tempLimits?.active && tempLimits.upload_mbps !== null ? (
-                  <span className="text-sm text-red-500 dark:text-red-400 flex items-center gap-1">
-                    <Clock className="h-3 w-3" aria-hidden="true" />
-                    <span>Temporary Limit:</span>
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Total Limit:</span>
-                )}
-                <span className={`font-semibold ${tempLimits?.active && tempLimits.upload_mbps !== null ? 'text-red-500 dark:text-red-400' : ''}`}>
-                  {tempLimits?.active && tempLimits.upload_mbps !== null
-                    ? tempLimits.upload_mbps.toFixed(0)
-                    : status.bandwidth.upload.total_limit.toFixed(0)} Mbps
-                </span>
-              </div>
-              {status.bandwidth.upload.clients?.map((client) => (
-                <div key={client.id} className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground" style={{ color: client.error ? undefined : client.color }}>
-                    {client.error ? (
-                      <span className="text-red-500 dark:text-red-400 flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {client.name}:
-                      </span>
-                    ) : (
-                      <>{client.name}:</>
-                    )}
-                  </span>
-                  {client.error ? (
-                    <span className="text-sm font-semibold text-red-500 dark:text-red-400">Unreachable</span>
-                  ) : (
-                    <span className="font-semibold">
-                      {client.speed.toFixed(0)} / {client.limit.toFixed(0)} Mbps
-                    </span>
-                  )}
-                </div>
-              ))}
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Stream Reserved:</span>
-                <span className="font-semibold text-orange-500 dark:text-orange-400">
-                  {(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps
-                </span>
-              </div>
-              {(status.bandwidth.upload.reserved_bandwidth ?? 0) > status.bandwidth.upload.total_limit && (
-                <Alert variant="destructive" className="py-2">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Stream reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds upload limit ({status.bandwidth.upload.total_limit.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {tempLimits?.active && tempLimits.upload_mbps !== null &&
-               (status.bandwidth.upload.reserved_bandwidth ?? 0) > tempLimits.upload_mbps && (
-                <Alert variant="destructive" className="py-2">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Stream reserved ({(status.bandwidth.upload.reserved_bandwidth ?? 0).toFixed(0)} Mbps) exceeds temporary upload limit ({tempLimits.upload_mbps.toFixed(0)} Mbps). Upload clients are limited to the configured minimum speed each.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {(status.bandwidth.upload.holding_bandwidth ?? 0) > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Holding:</span>
-                  <span className="font-semibold text-orange-500 dark:text-orange-400">
-                    {(status.bandwidth.upload.holding_bandwidth ?? 0).toFixed(0)} Mbps
-                  </span>
-                </div>
-              )}
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Available:</span>
-                <span className="font-semibold text-green-600 dark:text-green-400">
-                  {(tempLimits?.active && tempLimits.upload_mbps !== null
-                    ? Math.max(0, tempLimits.upload_mbps - status.bandwidth.upload.current_usage)
-                    : status.bandwidth.upload.available
-                  ).toFixed(0)} Mbps
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Temporary Limits */}
-      <ErrorBoundary>
-        <TemporaryLimits />
-      </ErrorBoundary>
-
-      {/* Bandwidth Chart */}
-      <ErrorBoundary>
-        <BandwidthChart
-          timeRange={timeRange}
-          setTimeRange={handleTimeRangeChange}
-          dataInterval={dataInterval}
-          setDataInterval={setDataInterval}
-          timeRanges={timeRanges}
-          onZoomChange={setZoomRange}
-          configuredServerCount={configuredServerCount}
-        />
-      </ErrorBoundary>
-
-      {/* Active Streams */}
-      <ErrorBoundary>
-        <ActiveStreams
-          timeRange={timeRange}
-          dataInterval={dataInterval}
-          zoomRange={zoomRange}
-          configuredServerCount={configuredServerCount}
-        />
-      </ErrorBoundary>
+      {visibleIds.map((id, index) => (
+        <DashboardPanel
+          key={id}
+          id={id}
+          title={panels[id].title}
+          summary={panels[id].summary}
+          collapsed={layout.collapsed.includes(id)}
+          canMoveUp={index > 0}
+          canMoveDown={index < visibleIds.length - 1}
+          isDefaultLayout={isDefault}
+          onMoveUp={() => move(id, 'up', visibleIds)}
+          onMoveDown={() => move(id, 'down', visibleIds)}
+          onResetLayout={reset}
+          onToggleCollapsed={() => toggle(id)}
+        >
+          {panels[id].content}
+        </DashboardPanel>
+      ))}
     </div>
   );
 };

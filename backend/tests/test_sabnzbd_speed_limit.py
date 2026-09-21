@@ -22,8 +22,8 @@ def test_hard_min_trickle_is_non_zero():
 
 
 def test_normal_limit_converts_correctly():
-    assert _captured_value(80.0) == "10000K"
+    assert _captured_value(80.0) == "9766K"  # 80 Mbps = 10,000,000 B/s = 9765.6 KiB/s
 
 
 def test_one_mbps_is_non_zero():
-    assert _captured_value(1.0) == "125K"
+    assert _captured_value(1.0) == "122K"  # 1 Mbps = 125,000 B/s = 122.07 KiB/s

@@ -29,6 +29,7 @@ import type {
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
   VersionCheckResponse,
+  TemporaryLimitState,
 } from '@/types';
 
 class ApiClient {
@@ -274,13 +275,16 @@ class ApiClient {
     return response.data;
   }
 
-  async pauseMonitoring(): Promise<MonitoringControlResponse> {
-    const response = await this.client.post<MonitoringControlResponse>('/control/pause');
+  async pauseMonitoring(durationMinutes?: number | null): Promise<MonitoringControlResponse> {
+    const response = await this.client.post<MonitoringControlResponse>(
+      '/control/pause-monitoring',
+      durationMinutes ? { duration_minutes: durationMinutes } : {}
+    );
     return response.data;
   }
 
   async resumeMonitoring(): Promise<MonitoringControlResponse> {
-    const response = await this.client.post<MonitoringControlResponse>('/control/resume');
+    const response = await this.client.post<MonitoringControlResponse>('/control/resume-monitoring');
     return response.data;
   }
 
@@ -417,15 +421,7 @@ class ApiClient {
   }
 
   // Temporary Limits endpoints
-  async getTemporaryLimits(): Promise<{
-    active: boolean;
-    download_mbps: number | null;
-    upload_mbps: number | null;
-    expires_at: string | null;
-    remaining_minutes: number | null;
-    source: string | null;
-    set_by: string | null;
-  }> {
+  async getTemporaryLimits(): Promise<TemporaryLimitState> {
     return this.deduplicatedGet('/bandwidth/temporary-limits');
   }
 
@@ -434,15 +430,7 @@ class ApiClient {
     upload_mbps?: number | null;
     duration_hours?: number;
     source?: string;
-  }): Promise<{
-    active: boolean;
-    download_mbps: number | null;
-    upload_mbps: number | null;
-    expires_at: string | null;
-    remaining_minutes: number | null;
-    source: string | null;
-    set_by: string | null;
-  }> {
+  }): Promise<TemporaryLimitState> {
     const response = await this.client.post('/bandwidth/temporary-limits', params);
     return response.data;
   }

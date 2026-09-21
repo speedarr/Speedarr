@@ -1,9 +1,8 @@
 """
 SNMP device model.
 """
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from app.database import Base
+from app.database import Base, utcnow
 
 
 class SNMPDevice(Base):
@@ -27,4 +26,4 @@ class SNMPDevice(Base):
     is_connected = Column(Boolean, default=False)
     last_check = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)

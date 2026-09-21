@@ -190,7 +190,9 @@ export interface SystemStatus {
   status: string;
   active_streams: number;
   is_throttled: boolean;
-  monitoring_enabled: boolean;
+  throttling_enabled: boolean;
+  throttling_disabled_until?: string | null;
+  throttling_disabled_by?: string | null;
   setup_required?: boolean;
   snmp_enabled?: boolean;
   media_server_statuses?: Record<string, { connected: boolean; consecutive_failures: number; type: string; name: string }>;
@@ -225,6 +227,17 @@ export interface BootstrapResponse {
   require_login: boolean;
 }
 
+/** GET/POST /api/bandwidth/temporary-limits response. */
+export interface TemporaryLimitState {
+  active: boolean;
+  download_mbps: number | null;
+  upload_mbps: number | null;
+  expires_at: string | null;
+  remaining_minutes: number | null;
+  source: string | null;
+  set_by: string | null;
+}
+
 // Control types
 export interface RestoreSpeedsResponse {
   message: string;
@@ -255,7 +268,10 @@ export interface ManualThrottleResponse {
 
 export interface MonitoringControlResponse {
   message: string;
-  monitoring_enabled: boolean;
+  throttling_enabled: boolean;
+  throttling_disabled_until?: string | null;
+  throttling_disabled_by?: string | null;
+  restore_results?: Record<string, boolean>;
 }
 
 // Settings types

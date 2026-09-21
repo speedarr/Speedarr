@@ -111,7 +111,7 @@ export const AccountSettings: React.FC = () => {
                   disabled={isChangingPassword}
                   required
                   minLength={8}
-                  maxLength={128}
+                  maxLength={72}
                 />
                 <Button
                   type="button"
@@ -134,7 +134,7 @@ export const AccountSettings: React.FC = () => {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isChangingPassword}
                 required
-                maxLength={128}
+                maxLength={72}
               />
             </div>
 

@@ -3,7 +3,7 @@ Configuration management for Speedarr.
 """
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
 import ipaddress
 from pathlib import Path
@@ -195,6 +195,12 @@ class BandwidthConfig(BaseModel):
     download: DownloadBandwidthConfig
     upload: UploadBandwidthConfig
     streams: StreamBandwidthConfig = Field(default_factory=StreamBandwidthConfig)
+    demand_aware_allocation: bool = Field(
+        True,
+        description="Move unused share from active clients that are not using it to active "
+                    "clients that are saturating theirs (download and upload). Off holds active "
+                    "clients to their configured percentages."
+    )
 
 
 class RestorationDelaysConfig(BaseModel):
@@ -291,6 +297,10 @@ class NotificationsConfig(BaseModel):
     stream_bitrate_threshold: Optional[float] = Field(
         None,
         description="Notify when total stream bitrate exceeds this value in Mbps (null to disable)"
+    )
+    threshold_cooldown_minutes: int = Field(
+        0, ge=0, le=1440,
+        description="Minimum minutes between repeated threshold alerts of the same type (0 = no cooldown)"
     )
 
 
@@ -440,11 +450,12 @@ class Settings(BaseSettings):
     # Auth
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        env_nested_delimiter = "__"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        env_nested_delimiter="__",
+    )
 
 
 class SpeedarrConfig(BaseModel):
