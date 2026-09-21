@@ -39,6 +39,13 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    ignore:
+      # tailwind-merge 3 dropped Tailwind CSS v3 support; lift with the Tailwind CSS v4 migration.
+      - dependency-name: "tailwind-merge"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint's peer range excludes TypeScript 7 (8.70.0: ">=4.8.4 <6.1.0"); lift once it admits 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 
