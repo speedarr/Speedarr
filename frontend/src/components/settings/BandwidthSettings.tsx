@@ -19,6 +19,7 @@ import { SpeedUnitHint } from '@/components/SpeedUnitHint';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
+import { nextFailsafeSpeed } from '@/lib/failsafeDefaults';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 
 // Convert "HH:mm" local time to UTC "HH:mm"
@@ -88,7 +89,7 @@ export const BandwidthSettings: React.FC = () => {
   const [uploadScheduleOpen, setUploadScheduleOpen] = useState(false);
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
-  const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<BandwidthConfig>();
+  const { originalConfig, hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<BandwidthConfig>();
   const { registerTab, unregisterTab } = useUnsavedChangesContext();
 
   const isDirty = hasUnsavedChanges(config);
@@ -188,30 +189,37 @@ export const BandwidthSettings: React.FC = () => {
         saveConfig.upload.scheduled.end_time = localTimeToUtc(saveConfig.upload.scheduled.end_time);
       }
 
+      const previousLimits = originalConfig ?? config;
       await apiClient.updateSettingsSection('bandwidth', saveConfig);
       resetOriginal(config);
 
-      // Auto-update failsafe to 10% of bandwidth limits (only if failsafe is enabled)
+      // Failsafe speeds still at their 10% default follow the new limits; customised ones are kept (#96)
       try {
         const failsafeResponse = await apiClient.getSettingsSection('failsafe');
         const currentFailsafe = failsafeResponse.config;
-        const newDownloadFailsafe = Math.round(config.download.total_limit * 0.10 * 10) / 10;
-        const newUploadFailsafe = Math.round(config.upload.total_limit * 0.10 * 10) / 10;
+        const nextDownloadFailsafe = nextFailsafeSpeed(
+          currentFailsafe.shutdown_download_speed,
+          previousLimits.download.total_limit,
+          config.download.total_limit,
+        );
+        const nextUploadFailsafe = nextFailsafeSpeed(
+          currentFailsafe.shutdown_upload_speed,
+          previousLimits.upload.total_limit,
+          config.upload.total_limit,
+        );
+        const downloadMoved = nextDownloadFailsafe !== currentFailsafe.shutdown_download_speed;
+        const uploadMoved = nextUploadFailsafe !== currentFailsafe.shutdown_upload_speed;
 
-        // Only update failsafe speeds if they are currently enabled (not null)
-        const downloadEnabled = currentFailsafe.shutdown_download_speed !== null;
-        const uploadEnabled = currentFailsafe.shutdown_upload_speed !== null;
-
-        if (downloadEnabled || uploadEnabled) {
+        if (downloadMoved || uploadMoved) {
           await apiClient.updateSettingsSection('failsafe', {
             ...currentFailsafe,
-            shutdown_download_speed: downloadEnabled ? newDownloadFailsafe : null,
-            shutdown_upload_speed: uploadEnabled ? newUploadFailsafe : null,
+            shutdown_download_speed: nextDownloadFailsafe,
+            shutdown_upload_speed: nextUploadFailsafe,
           });
 
           const updatedParts = [];
-          if (downloadEnabled) updatedParts.push(`download: ${newDownloadFailsafe} Mbps`);
-          if (uploadEnabled) updatedParts.push(`upload: ${newUploadFailsafe} Mbps`);
+          if (downloadMoved) updatedParts.push(`download: ${nextDownloadFailsafe} Mbps`);
+          if (uploadMoved) updatedParts.push(`upload: ${nextUploadFailsafe} Mbps`);
           setSuccess(`Bandwidth settings saved. Failsafe speeds updated to 10% (${updatedParts.join(', ')}).`);
         } else {
           setSuccess('Bandwidth settings saved successfully');
