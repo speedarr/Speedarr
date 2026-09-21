@@ -46,7 +46,7 @@ jobs:
             type=match,pattern=v(.+),group=1
 
       - name: Build and push the versioned image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: backend/Dockerfile
