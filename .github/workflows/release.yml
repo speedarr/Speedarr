@@ -13,6 +13,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: read
 
     steps:
       - name: Checkout
@@ -43,9 +44,8 @@ jobs:
           images: speedarr/speedarr
           tags: |
             type=match,pattern=v(.+),group=1
-            type=raw,value=latest
 
-      - name: Build and push Docker image
+      - name: Build and push the versioned image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -61,9 +61,63 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Smoke-test the pushed image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker pull "speedarr/speedarr:$VERSION"
+          docker run -d --name smoke -p 9494:9494 "speedarr/speedarr:$VERSION"
+          BODY=""
+          for _ in $(seq 1 30); do
+            BODY=$(curl -sf http://localhost:9494/api/status/health) && break
+            sleep 2
+          done
+          echo "health: $BODY"
+          REPORTED=$(printf '%s' "$BODY" | jq -r '.version // empty')
+          if [ "$REPORTED" != "$VERSION" ]; then
+            echo "::error::Image reports version '$REPORTED', expected '$VERSION'"
+            docker logs smoke
+            exit 1
+          fi
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9494/)
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::GET / returned $STATUS"
+            docker logs smoke
+            exit 1
+          fi
+          docker rm -f smoke
+
+      - name: Move the latest tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: docker buildx imagetools create -t speedarr/speedarr:latest "speedarr/speedarr:$VERSION"
+
+      - name: Release notes from the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" > pulls.json
+          jq '[.[] | select(.merged_at != null and .base.ref == "main")] | first // empty' pulls.json > pr.json
+          : > release-notes.md
+          : > pr-issues.txt
+          if [ -s pr.json ]; then
+            echo "Release notes from PR #$(jq -r .number pr.json)"
+            # The PR body minus standalone "Closes #n" lines; GitHub's generated
+            # "What's Changed" list is appended after it by the release step.
+            jq -r '.body // ""' pr.json \
+              | grep -viE '^[[:space:]]*(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+#[0-9]+[[:space:]]*$' \
+              > release-notes.md || true
+            jq -r '.body // ""' pr.json \
+              | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?):? #[0-9]+' | grep -oE '[0-9]+' | sort -un \
+              > pr-issues.txt || true
+          else
+            echo "No merged PR found for $GITHUB_SHA; using generated notes only"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          body_path: release-notes.md
           generate_release_notes: true
 
       - name: Comment on released issues
@@ -74,8 +128,8 @@ jobs:
           VERSION="${TAG#v}"
           PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
           if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; else RANGE="$TAG"; fi
-          echo "Scanning $RANGE for closed issue references"
-          ISSUES=$(git log "$RANGE" --pretty=%B | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?):? #[0-9]+' | grep -oE '[0-9]+' | sort -un)
+          echo "Scanning $RANGE and the release PR body for closed issue references"
+          ISSUES=$( { git log "$RANGE" --pretty=%B | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?):? #[0-9]+' | grep -oE '[0-9]+'; cat pr-issues.txt; } | sort -un)
           for N in $ISSUES; do
             gh issue comment "$N" --repo "$GITHUB_REPOSITORY" \
               --body "🚀 Fixed in [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) — available as \`speedarr/speedarr:$VERSION\` and \`speedarr/speedarr:latest\`." \
