@@ -66,7 +66,7 @@ Copyable Home Assistant (`rest_command:` YAML) and UnRaid (bash script) snippets
 
 | Setting | Default | What it does |
 |---|---|---|
-| Add Media Server | — | Adds a Plex, Emby (Experimental), or Jellyfin (Experimental) server. |
+| Add Media Server | — | Adds a Plex, Emby or Jellyfin server. |
 | Enabled | — | Whether this server is polled. |
 | Display Name | — | Label shown in the UI. |
 | Server URL | — | Address of the media server. |

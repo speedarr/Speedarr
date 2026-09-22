@@ -23,7 +23,7 @@
 
 ## What it does
 
-- Works with Plex, and with Emby or Jellyfin (both marked experimental, but fully wired up) — point it at as many servers as you like and their streams all land in the same pool
+- Works with Plex, Emby and Jellyfin — point it at as many servers as you like and their streams all land in the same pool
 - Throttles **qBittorrent**, **SABnzbd**, **NZBGet**, **Transmission** and **Deluge**
 - Downloads and uploads are handled separately, each with its own total and its own split between clients — the upload split covers the torrent clients, since usenet has nothing to seed
 - Demand-aware allocation — unused share moves to the client that is actually using its bandwidth

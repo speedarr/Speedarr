@@ -15,17 +15,14 @@ import { TestConnectionButton } from './TestConnectionButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 import { MediaServer } from '@/types';
-import { Badge } from '@/components/ui/badge';
-import { FEEDBACK_URL } from '@/lib/constants';
 
-// Plex, Emby, and Jellyfin are user-selectable. Emby/Jellyfin are experimental.
+// Plex, Emby, and Jellyfin are user-selectable.
 // `help` is a link (Plex) OR plain instruction text (Emby/Jellyfin — no reliable doc URL).
 type ServerTypeInfo = {
   name: string;
   color: string;
   auth: 'token' | 'api_key';
   defaultUrl: string;
-  experimental?: boolean;
   help: { label: string; url: string } | { text: string };
 };
 
@@ -42,7 +39,6 @@ const SERVER_TYPES: Record<'plex' | 'emby' | 'jellyfin', ServerTypeInfo> = {
     color: '#52b54b',
     auth: 'api_key',
     defaultUrl: 'http://192.168.1.100:8096',
-    experimental: true,
     help: { text: 'Create one in Emby: Dashboard → Advanced → API Keys' },
   },
   jellyfin: {
@@ -50,7 +46,6 @@ const SERVER_TYPES: Record<'plex' | 'emby' | 'jellyfin', ServerTypeInfo> = {
     color: '#00A4DC',
     auth: 'api_key',
     defaultUrl: 'http://192.168.1.100:8096',
-    experimental: true,
     help: { text: 'Create one in Jellyfin: Dashboard → Advanced → API Keys' },
   },
 };
@@ -91,7 +86,6 @@ const MediaServerCard: React.FC<{
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-lg leading-none">{server.name}</CardTitle>
-                  {typeInfo?.experimental && <Badge variant="outline">Experimental</Badge>}
                   {connectionStatus === true && <CheckCircle className="h-4 w-4 text-green-500" aria-hidden="true" />}
                   {connectionStatus === false && <XCircle className="h-4 w-4 text-red-500" aria-hidden="true" />}
                 </div>
@@ -139,14 +133,6 @@ const MediaServerCard: React.FC<{
                 />
                 {helpNode}
               </div>
-            )}
-            {typeInfo?.experimental && (
-              <p className="text-sm text-muted-foreground flex items-center gap-1">
-                {typeInfo.name} support is experimental —{' '}
-                <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center">
-                  we'd love your feedback <ExternalLink className="h-3 w-3 ml-1" />
-                </a>
-              </p>
             )}
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
@@ -272,7 +258,7 @@ export const MediaServerSettings: React.FC = () => {
               <SelectContent>
                 {Object.entries(SERVER_TYPES).map(([type, info]) => (
                   <SelectItem key={type} value={type}>
-                    <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />{info.name}{info.experimental ? ' (Experimental)' : ''}</div>
+                    <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />{info.name}</div>
                   </SelectItem>
                 ))}
               </SelectContent>

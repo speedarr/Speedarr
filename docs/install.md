@@ -4,7 +4,7 @@
 
 ## What you need
 
-A media server — Plex, or Emby or Jellyfin (both marked experimental in the app, but fully usable). And at least one download client: qBittorrent, SABnzbd, NZBGet, Transmission, or Deluge.
+A media server: Plex, Emby or Jellyfin. And at least one download client: qBittorrent, SABnzbd, NZBGet, Transmission, or Deluge.
 
 ## Docker
 

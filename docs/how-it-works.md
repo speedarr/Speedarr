@@ -24,7 +24,7 @@ Whether a stream is LAN or WAN is decided per server, in this order:
 
 On top of that, the server's own verdict wins: if Plex flags a session as local — or Emby or Jellyfin report one as local, which they do less often — Speedarr believes it.
 
-You can point Speedarr at as many media servers as you like, in any mix, and their streams all land in the same pool. Emby and Jellyfin wear an "Experimental" badge in the UI. That's a signal about how much I've run them myself, not a limitation — both are fully wired up, and the throttling math treats them exactly like Plex. The one real difference is on the dashboard: the measured-bandwidth figure comes from a Plex Pass endpoint that Emby and Jellyfin have no equivalent for, so their streams show a bitrate but no measured throughput.
+You can point Speedarr at as many media servers as you like, in any mix, and their streams all land in the same pool. Emby and Jellyfin are fully wired up, and the throttling math treats them exactly like Plex. The one real difference is on the dashboard: the measured-bandwidth figure comes from a Plex Pass endpoint that Emby and Jellyfin have no equivalent for, so their streams show a bitrate but no measured throughput.
 
 ## How much a stream reserves
 
