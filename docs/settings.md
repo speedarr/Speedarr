@@ -222,7 +222,7 @@ Shown on the dashboard while throttling is off. Read-only status plus a Re-enabl
 
 The panel also shows Source (where the override came from, e.g. an API integration) and who set it.
 
-**Notes:** Temporary limits are stored but not enforced while throttling is off. They're kept in memory only, so a restart loses them ([#108](https://github.com/speedarr/Speedarr/issues/108)).
+**Notes:** Temporary limits are stored but not enforced while throttling is off. They're saved to the database, so they survive a restart.
 
 ### Panel menu
 

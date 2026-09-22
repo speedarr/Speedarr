@@ -12,7 +12,8 @@ from loguru import logger
 
 from app.api.auth import require_admin
 from app.models import User, BandwidthMetric, BandwidthMetricHourly, BandwidthMetricDaily
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
+from app.services import temporary_limits_state
 from app.utils.errors import ErrorCode, raise_error
 
 router = APIRouter(prefix="/api/bandwidth", tags=["bandwidth"])
@@ -417,16 +418,23 @@ async def set_temporary_limits(
         api_key_name = getattr(request.state, 'api_key_name', None)
         set_by = f"API: {api_key_name}" if api_key_name else current_user.username
 
+        new_limits = {
+            'download_mbps': limits.download_mbps,
+            'upload_mbps': limits.upload_mbps,
+            'expires_at': expires_at,
+            'set_by': set_by,
+            'set_at': datetime.now(timezone.utc),
+            'source': limits.source,
+        }
+
+        # Persist first - memory only updates after a durable write (issue #108).
+        async with AsyncSessionLocal() as db:
+            await temporary_limits_state.save_temporary_limits(db, new_limits)
+            await db.commit()
+
         # Use lock for thread-safe access to temporary limits
         async with polling_monitor._temporary_limits_lock:
-            polling_monitor._temporary_limits = {
-                'download_mbps': limits.download_mbps,
-                'upload_mbps': limits.upload_mbps,
-                'expires_at': expires_at,
-                'set_by': set_by,
-                'set_at': datetime.now(timezone.utc),
-                'source': limits.source,
-            }
+            polling_monitor._temporary_limits = new_limits
 
         remaining = limits.duration_hours * 60 if limits.duration_hours is not None else None
 
@@ -465,6 +473,11 @@ async def clear_temporary_limits(
     """
     try:
         polling_monitor = request.app.state.polling_monitor
+
+        # Persist first - memory only updates after a durable write (issue #108).
+        async with AsyncSessionLocal() as db:
+            await temporary_limits_state.clear_temporary_limits(db)
+            await db.commit()
 
         # Use lock for thread-safe access to temporary limits
         async with polling_monitor._temporary_limits_lock:

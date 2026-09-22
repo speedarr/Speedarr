@@ -102,7 +102,7 @@ Only torrent clients take part in the upload side — qBittorrent, Transmission 
 
 Each direction can have a schedule of its own: a start and an end time, an alternate total, and an alternate split between clients. Times go in as your browser's local time (they are stored as UTC), and a window that crosses midnight is fine. The schedule only takes over while the window is open and its total is above zero, so leaving the total at 0 is the same as leaving the schedule off.
 
-Temporary limits beat schedules, and schedules beat your normal limits. You can set a temporary limit from the dashboard panel or over the API — leave the duration blank and it stays until you clear it, or give it a number of hours (the API takes up to 168, so 7 days). They are only held in memory, so a restart drops them: [#108](https://github.com/speedarr/Speedarr/issues/108). And while throttling is off they are stored but not enforced.
+Temporary limits beat schedules, and schedules beat your normal limits. You can set a temporary limit from the dashboard panel or over the API — leave the duration blank and it stays until you clear it, or give it a number of hours (the API takes up to 168, so 7 days). They're saved to the database, so a restart brings them back and a timed one still expires on schedule. And while throttling is off they are stored but not enforced.
 
 ## Turning throttling off
 

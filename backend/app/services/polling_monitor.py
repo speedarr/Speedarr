@@ -17,6 +17,10 @@ from app.services.throttling_state import (
     load_throttling_state,
     clear_throttling_state,
 )
+from app.services.temporary_limits_state import (
+    load_temporary_limits,
+    clear_temporary_limits,
+)
 from app.utils.bandwidth import calculate_stream_bandwidth, filter_streams_for_bandwidth
 from app.utils.formatting import format_display_title
 
@@ -180,6 +184,7 @@ class PollingMonitor:
     async def start(self):
         """Start the polling monitor with separate download and Plex cycles."""
         await self.load_throttling_state_from_db()
+        await self.load_temporary_limits_from_db()
         self._running = True
         # Pre-fetch each media server's LAN subnets once (Emby/Jellyfin read
         # LocalNetworkSubnets; Plex is a no-op). Never raises.
@@ -463,6 +468,9 @@ class PollingMonitor:
         """
         Get active temporary bandwidth limits if they haven't expired.
 
+        An expired limit is dropped from memory and its persisted row cleared
+        (issue #108), so it doesn't come back on the next restart.
+
         Returns:
             Tuple of (download_mbps, upload_mbps), both None if no active limits
         """
@@ -472,23 +480,49 @@ class PollingMonitor:
 
             expires_at = self._temporary_limits.get('expires_at')
 
-            if expires_at is None:
-                # Indefinite limit — active until explicitly cleared
+            # None means indefinite — active until explicitly cleared
+            if expires_at is None or datetime.now(timezone.utc) <= expires_at:
                 return (
                     self._temporary_limits.get('download_mbps'),
                     self._temporary_limits.get('upload_mbps')
                 )
 
-            if datetime.now(timezone.utc) > expires_at:
-                # Expired - clear and return None
-                logger.info("Temporary bandwidth limits expired, reverting to normal limits")
-                self._temporary_limits = None
-                return None, None
+            # Expired - clear and return None
+            logger.info("Temporary bandwidth limits expired, reverting to normal limits")
+            self._temporary_limits = None
 
-            return (
-                self._temporary_limits.get('download_mbps'),
-                self._temporary_limits.get('upload_mbps')
-            )
+        await self._clear_persisted_temporary_limits()
+        return None, None
+
+    async def load_temporary_limits_from_db(self) -> None:
+        """Restore persisted temporary limits on startup (expired rows load as none)."""
+        if not getattr(self, "_get_db_session", None):
+            return
+        try:
+            async with self._get_db_session() as db:
+                limits = await load_temporary_limits(db)
+            if limits:
+                async with self._temporary_limits_lock:
+                    self._temporary_limits = limits
+                logger.info(
+                    f"Temporary limits restored from database: "
+                    f"download={limits.get('download_mbps')} Mbps, "
+                    f"upload={limits.get('upload_mbps')} Mbps, "
+                    f"expires_at={limits.get('expires_at')}, set_by={limits.get('set_by')}"
+                )
+        except Exception as e:
+            logger.error(f"Failed to load temporary limits: {e}")
+
+    async def _clear_persisted_temporary_limits(self) -> None:
+        """Persist an expiry so the limit doesn't come back on the next restart."""
+        if not getattr(self, "_get_db_session", None):
+            return
+        try:
+            async with self._get_db_session() as db:
+                await clear_temporary_limits(db)
+                await db.commit()
+        except Exception as e:
+            logger.error(f"Failed to persist temporary limit expiry: {e}")
 
     def is_throttling_enabled(self) -> bool:
         """Effective toggle state - an expired disable window counts as enabled."""
