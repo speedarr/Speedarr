@@ -153,7 +153,7 @@ export const HistorySettings: React.FC = () => {
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">
-              Data older than this will be automatically cleaned up (1-90 days, default: 30)
+              Data older than this will be automatically cleaned up (1-90 days, default: 3)
             </p>
           </div>
         </CardContent>
