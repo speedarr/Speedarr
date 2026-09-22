@@ -24,7 +24,7 @@ Whether a stream is LAN or WAN is decided per server, in this order:
 
 On top of that, the server's own verdict wins: if Plex flags a session as local — or Emby or Jellyfin report one as local, which they do less often — Speedarr believes it.
 
-You can point Speedarr at as many media servers as you like, in any mix, and their streams all land in the same pool. Emby and Jellyfin are fully wired up, and the throttling math treats them exactly like Plex. The one real difference is on the dashboard: the measured-bandwidth figure comes from a Plex Pass endpoint that Emby and Jellyfin have no equivalent for, so their streams show a bitrate but no measured throughput.
+You can point Speedarr at as many media servers as you like, in any mix, and their streams all land in the same pool. The throttling math treats Emby and Jellyfin exactly like Plex. The one real difference is on the dashboard: the measured-bandwidth figure comes from a Plex Pass endpoint that Emby and Jellyfin have no equivalent for, so their streams show a bitrate but no measured throughput.
 
 ## How much a stream reserves
 
@@ -49,7 +49,7 @@ In the below screenshot there are 2 plex streams totalling 21Mbps but as you can
 
 ![Plex bandwidth graph](screenshots/plex_bandwidth.png)
 
-## Downloads pay too
+## The download reserve
 
 A stream isn't a one-way conversation. The player is acknowledging every packet it receives, and if your downloads are allowed to fill the line completely, those TCP ACKs and the rest of the control traffic queue up behind them and the stream stalls anyway. So Speedarr also holds a slice of your download limit back while streams are playing. That is the **Download Bandwidth Reserve %**: 20% by default, taken from the stream figure after overhead, and settable anywhere from 0 to 100%.
 
@@ -79,6 +79,8 @@ Okay now we're talking, Speedarr can help you! Configure the max download bandwi
 ### Multiple clients (all usenet, all torrent or a mix)
 
 Now we're getting into the really cool (in my opinion, and yes I mean mine not Claude). Let's assume a 1000Mbps/100Mbps internet plan. You configure 900Mbps/80Mbps in Speedarr, let's go with qBit and sab and you then set the downloads allocation split of 70/30 for qBit/sab. While the download clients are idle they will evenly split the download bandwidth, Eg 450Mbps/450Mbps. If one download client starts downloading it will get 95% of the configured bandwidth or 855Mbps, this leaves 45Mbps for the other download client to start. Now if a download starts on the other client and both clients are pulling everything they're given, your configured split comes into play: 630Mbps and 270Mbps.
+
+That's the split with both clients flat out. When one of them isn't using its share, [demand-aware allocation](#demand-aware-allocation) moves the spare to the one that is.
 
 That 45 Mbps is the **Inactive Safety Net %**, 5% by default and settable from 0 to 20. It exists because a client squeezed to nothing can never show you it wants bandwidth — it needs a little room to start a download so Speedarr can see the traffic and hand it its real share.
 
@@ -112,7 +114,7 @@ You can turn it off indefinitely, for 30 minutes, 1 hour, 2 hours, or a custom p
 
 If you run more than one media server and one of them stops answering, its last-known streams are kept for 300 s (5 min) after its last successful poll and then dropped. That way a server rebooting doesn't immediately hand its streams' bandwidth over to your download clients halfway through an episode.
 
-If none of your media servers answer, Speedarr leaves the limits exactly as they are and keeps them there until one comes back. Nothing is restored automatically. This one catches people out, because the Failsafe tab has a "Media Server Timeout" field that looks like it should govern it and does nothing at all: [#102](https://github.com/speedarr/Speedarr/issues/102). If you want your full speeds back while a server is down, turn throttling off.
+If none of your media servers answer, Speedarr leaves the limits exactly as they are and keeps them there until one comes back. Nothing is restored automatically, and the **Media Server Timeout** field on the Failsafe tab doesn't change that yet ([#102](https://github.com/speedarr/Speedarr/issues/102)). If you want your full speeds back while a server is down, turn throttling off.
 
 An "unreachable" notification goes out after about six failed polls in a row, so roughly 30 s at the default interval. Media servers, download clients and SNMP all work to that count, give or take a poll. You get one when it recovers too.
 
@@ -120,7 +122,7 @@ When Speedarr itself stops — a container restart or an update — it applies t
 
 ## SNMP
 
-Your download clients aren't the only thing on your line. Point Speedarr at your router over SNMP and it subtracts what everything *else* on the WAN link is using from what downloads are allowed, so a game update on a desktop or someone's video call isn't bandwidth that gets handed out twice. It takes care to subtract your managed clients' own traffic from the SNMP total first, so they aren't counted against themselves.
+Your download clients aren't the only thing on your line. Point Speedarr at your router over SNMP and it subtracts what everything *else* on the WAN link is using from what downloads are allowed, so a game update on a desktop or someone's video call isn't bandwidth that gets handed out twice. It takes care to subtract your managed clients' own traffic from the SNMP total first, so they aren't counted against themselves. It only adjusts the download side — upload limits don't take SNMP into account.
 
 You pick one interface, and it's SNMP v2c with a community string only — no v1, no v3. The rate is worked out as an average over a 30 s window rather than by subtracting two readings. Most gateways only refresh their counters every 5 seconds or so, and subtracting two samples that close together aliases against that refresh, sawtoothing the answer between nothing and double the real rate. Shortening the window doesn't fix it either: at 15 s the refresh phase alone still swings it by ±50%. 30 seconds keeps it to a couple of percent.
 

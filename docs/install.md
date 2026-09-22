@@ -76,17 +76,19 @@ The container will be available at **http://[UNRAID-IP]:9494**.
 
 Speedarr always listens on port 9494 inside the container. To use a different port on your host, change the host side of the mapping in `docker-compose.yml`, e.g. `"8080:9494"`.
 
-There used to be a `PORT` environment variable, but it never did anything — supervisord always starts uvicorn with `--port 9494` hardcoded — so it's been removed. Remap the host port in the compose file instead.
-
 ### PUID and PGID
 
-PUID and PGID default to 99:100 — Unraid's `nobody:users`. The entrypoint script remaps the container's `speedarr` user to match whatever you set and takes ownership of `/data`. If you want the files in your data folder to belong to a specific user on your host, set both in the compose file's `environment:` block:
+PUID and PGID default to 99:100, which is Unraid's `nobody:users`, so on Unraid there's nothing to set. On any other Linux host it means the files in your data folder end up owned by a user that isn't you. If you'd rather they belonged to your own account, find your ids with `id -u` and `id -g` and add them to the service in `docker-compose.yml`:
 
 ```yaml
-environment:
-  - PUID=1000
-  - PGID=1000
+services:
+  speedarr:
+    environment:
+      - PUID=1000
+      - PGID=1000
 ```
+
+The entrypoint script remaps the container's `speedarr` user to match and takes ownership of `/data` on every start. Docker Desktop on Windows and macOS handles file ownership itself, so leave both unset there.
 
 ### Local hostnames
 
