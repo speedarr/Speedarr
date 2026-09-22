@@ -261,7 +261,7 @@ export const FailsafeSettings: React.FC = () => {
               className="w-24"
             />
             <p className="text-sm text-muted-foreground">
-              Assume no active streams after this many seconds without a media server response
+              How long a media server's last-known streams stay reserved after it stops answering. After that they count as ended and the bandwidth goes back to your download clients.
             </p>
           </div>
         </div>

@@ -180,13 +180,13 @@ Five cards, each with an Enable toggle, its own credential fields, a Test button
 
 | Setting | Default | What it does |
 |---|---|---|
-| Media Server Timeout (seconds) | 300 | Intended to assume no active streams after this many seconds without a media server response. |
+| Media Server Timeout (seconds) | 300 | How long a media server's last-known streams stay reserved after it stops answering, counted from its last successful poll. After that they count as ended. Form accepts 30 and up. |
 | Download Speed on Shutdown | Off | Toggle + Mbps value, seeded at 10% of the current download total when first turned on. Sets download clients to this speed when Speedarr shuts down; 0 floors to a trickle, never unlimited. |
 | Client Split (download) | Equal split | Per-client percentage split for the shutdown download speed. Hidden with only one client. |
 | Upload Speed on Shutdown | Off | Same pattern as Download Speed on Shutdown, for torrent clients only. |
 | Client Split (upload) | Equal split | Per-client percentage split for the shutdown upload speed. |
 
-**Notes:** Media Server Timeout is never read by the code — it has no effect. Limits hold in place during an outage instead; see [when a server or client goes away](how-it-works.md#when-a-server-or-client-goes-away) ([#102](https://github.com/speedarr/Speedarr/issues/102)). The grace period that actually governs how long a down media server's last-known streams are kept (300 s / 5 min) has no field on this tab at all — it isn't user-configurable. When Speedarr stops while throttling is switched off, the shutdown speeds above are skipped, but clients are still restored to their normal speeds.
+**Notes:** The timeout applies per server, whether one of several is down or all of them are; see [when a server or client goes away](how-it-works.md#when-a-server-or-client-goes-away). When Speedarr stops while throttling is switched off, the shutdown speeds above are skipped, but clients are still restored to their normal speeds.
 
 ## SNMP
 

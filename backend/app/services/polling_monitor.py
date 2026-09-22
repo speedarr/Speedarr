@@ -628,8 +628,9 @@ class PollingMonitor:
         Poll one media server. Never raises.
 
         Returns (reachable_this_cycle, effective_streams). On success, records
-        last_streams. On failure, holds last_streams within the grace period,
-        then drops to []. Tags each stream with the server's LAN policy.
+        last_streams. On failure, holds last_streams for failsafe.plex_timeout
+        (the Media Server Timeout) after the last success, then drops to [].
+        Tags each stream with the server's LAN policy.
         """
         state = self._server_state[server.server_id]
         try:
@@ -651,20 +652,21 @@ class PollingMonitor:
             return True, streams
         except Exception as err:
             state["failures"] += 1
-            grace = self.config.failsafe.server_hold_grace_seconds
+            hold = self.config.failsafe.plex_timeout
             last_success = state["last_success"]
-            within_grace = (
+            within_hold = (
                 last_success is not None
-                and (datetime.now(timezone.utc) - last_success).total_seconds() < grace
+                and (datetime.now(timezone.utc) - last_success).total_seconds() < hold
             )
-            held = state["last_streams"] if within_grace else []
+            held = state["last_streams"] if within_hold else []
             if state["failures"] > self._plex_max_failures and not state["warned"]:
                 logger.error(f"Media server '{server.name}' unreachable for {state['failures']} polls: {err}")
                 state["warned"] = True
                 if self.notification_service:
                     await self.notification_service.notify(
                         "service_unreachable",
-                        f"Media server '{server.name}' is unreachable. Bandwidth limits maintained.",
+                        f"Media server '{server.name}' is unreachable. Its last-known streams stay "
+                        f"reserved for {hold} s after its last successful poll, then count as ended.",
                         {"service": server.name, "server_id": server.server_id,
                          "status": "unreachable", "consecutive_failures": state["failures"]},
                     )
@@ -697,10 +699,14 @@ class PollingMonitor:
             any_reachable = any(reachable for reachable, _ in results)
             merged = [s for _, streams in results for s in streams]
 
-            # TOTAL OUTAGE: no server reachable this cycle -> maintain current
-            # limits (do NOT recompute or restore). Per-server failure counts
-            # live in self._server_state.
-            if self.media_servers and not any_reachable:
+            # TOTAL OUTAGE: nothing special. _poll_one already holds each
+            # server's last-known streams for failsafe.plex_timeout and then
+            # drops them, so the cycle carries on and the limits follow (#102).
+            # The one exception is startup: until some server has answered
+            # there is nothing to hold, and the first successful poll must
+            # still count as the first poll so existing streams aren't
+            # announced as started.
+            if self.media_servers and not any_reachable and self._first_poll:
                 return
 
             new_streams = merged

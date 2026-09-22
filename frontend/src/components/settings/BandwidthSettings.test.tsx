@@ -29,7 +29,6 @@ function renderWithFailsafe(failsafe: { shutdown_download_speed: number | null; 
     ...failsafe,
     shutdown_download_client_percents: {},
     shutdown_upload_client_percents: {},
-    server_hold_grace_seconds: 300,
   };
   api.getSettingsSection.mockImplementation(async (section: string) => ({
     config: JSON.parse(JSON.stringify(sections[section])),

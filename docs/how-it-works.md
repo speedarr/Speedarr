@@ -112,9 +112,7 @@ You can turn it off indefinitely, for 30 minutes, 1 hour, 2 hours, or a custom p
 
 ## When a server or client goes away
 
-If you run more than one media server and one of them stops answering, its last-known streams are kept for 300 s (5 min) after its last successful poll and then dropped. That way a server rebooting doesn't immediately hand its streams' bandwidth over to your download clients halfway through an episode.
-
-If none of your media servers answer, Speedarr leaves the limits exactly as they are and keeps them there until one comes back. Nothing is restored automatically, and the **Media Server Timeout** field on the Failsafe tab doesn't change that yet ([#102](https://github.com/speedarr/Speedarr/issues/102)). If you want your full speeds back while a server is down, turn throttling off.
+If a media server stops answering, its last-known streams stay reserved for the **Media Server Timeout** on the Failsafe tab, 300 s (5 min) by default, counted from its last successful poll. That way a server rebooting doesn't immediately hand its streams' bandwidth over to your download clients halfway through an episode. Once the timeout passes, those streams count as ended — the normal holding time runs, then the bandwidth goes back to your clients. It works the same whether one of several servers is down or all of them are. If you want your full speeds back sooner, turn throttling off.
 
 An "unreachable" notification goes out after about six failed polls in a row, so roughly 30 s at the default interval. Media servers, download clients and SNMP all work to that count, give or take a poll. You get one when it recovers too.
 

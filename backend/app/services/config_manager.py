@@ -158,8 +158,8 @@ def validate_config(config: SpeedarrConfig) -> list[str]:
     # Check failsafe timeout
     if config.failsafe.plex_timeout < 60:
         warnings.append(
-            f"Plex failsafe timeout is very short ({config.failsafe.plex_timeout}s) - "
-            "may cause frequent speed restorations during brief connectivity issues"
+            f"Media server timeout is very short ({config.failsafe.plex_timeout}s) - "
+            "a brief connectivity blip will hand stream bandwidth back to your download clients"
         )
 
     # Check polling frequency
