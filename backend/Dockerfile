@@ -88,7 +88,7 @@ RUN chmod -R a+rX /app
 
 # Container metadata
 LABEL org.opencontainers.image.title="Speedarr"
-LABEL org.opencontainers.image.description="Intelligent bandwidth management for Plex and download clients"
+LABEL org.opencontainers.image.description="Smooth streams first, downloads and seeding with what's left"
 LABEL org.opencontainers.image.source="https://github.com/speedarr/speedarr"
 LABEL org.opencontainers.image.licenses="MIT"
 

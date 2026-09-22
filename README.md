@@ -8,11 +8,11 @@
   <a href="https://hub.docker.com/r/speedarr/speedarr"><img src="https://img.shields.io/docker/pulls/speedarr/speedarr?style=flat-square" alt="Docker Pulls"></a>
 </p>
 
-<h3 align="center">Dynamic bandwidth management for Plex and download clients</h3>
+<h3 align="center">Smooth streams first, downloads and seeding with what's left</h3>
 
 <p align="center">
-  Speedarr watches your Plex, Emby or Jellyfin streams and throttles your download clients so streaming always gets the bandwidth it needs.<br>
-  It manages downloads and uploads, and balances several clients.
+  Speedarr watches your Plex, Emby or Jellyfin server and throttles your download clients, both directions, to fit around what's playing.<br>
+  When the stream ends, the limits come off.
 </p>
 
 ---

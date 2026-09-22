@@ -18,7 +18,7 @@ export const WelcomeStep: React.FC<WizardStepProps> = () => {
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">Welcome to Speedarr</h2>
         <p className="text-muted-foreground max-w-md mx-auto">
-          Intelligent bandwidth management for your media servers. This wizard will help you
+          Smooth streams first, downloads and seeding with what's left. This wizard will help you
           configure the essential settings to get started.
         </p>
       </div>
