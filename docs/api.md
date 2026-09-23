@@ -177,7 +177,7 @@ curl -s -X DELETE "$SPEEDARR_URL/api/bandwidth/temporary-limits" \
   -H "X-API-Key: $API_KEY"
 ```
 
-These are plain scripts calling the temporary-limits endpoint — Speedarr itself doesn't talk to Unraid ([#30](https://github.com/speedarr/Speedarr/issues/30) tracks a native integration).
+These are plain scripts calling the temporary-limits endpoint — Speedarr itself doesn't talk to Unraid. The Unraid API has no reliable live parity signal (the live state only exists host-side in `/proc/mdstat`, see [#30](https://github.com/speedarr/Speedarr/issues/30)), so the scripts are the supported way.
 
 ## Errors
 
