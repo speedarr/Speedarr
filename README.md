@@ -47,6 +47,24 @@ Streams come first and your download clients share out whatever is left. That's 
 
 How much a stream needs is its bitrate plus protocol overhead, and the default overhead is 100% — double. That's from watching my own server for years: two streams adding up to 21 Mbps sat well under that most of the time but spiked to over double it, and reserving double is what kept them playing smoothly. Lower it or raise it if your line doesn't behave like mine.
 
+A couple of hours of that on the dashboard. Orange is what the streams are using, the blue on top of it is what qBittorrent is actually uploading, and the dotted blue line is the upload limit Speedarr has set in qBittorrent:
+
+<p align="center">
+  <img src="docs/screenshots/example_reserving.png" alt="Stream bandwidth against the qBittorrent upload limit over two hours" width="800">
+</p>
+
+The two move in opposite directions. Every time the streams step up the qBit UL limit steps down, and when they fall away it climbs back. The limit is the upload total minus the reservation, and the reservation is bitrate plus overhead, so it sits well above what the streams are actually pulling — that headroom is what keeps them smooth when they spike.
+
+Two download clients sharing the download total, qBittorrent and SABnzbd, with the three stages marked:
+
+<p align="center">
+  <img src="docs/screenshots/example_split.png" alt="Two download clients sharing the download total, with the three stages marked" width="800">
+</p>
+
+1. **One client active.** qBittorrent is the only one downloading, so it gets 95% of the total. The rest is the safety net, kept open so SABnzbd can start.
+2. **Two clients active.** SABnzbd starts a download, shows some traffic inside its safety net and is promoted. With both pulling everything they're given, the configured split takes over.
+3. **Back to one.** SABnzbd finishes. Once it has been quiet for 30 s its share goes back to qBittorrent.
+
 The full walkthroughs with numbers are in [How Speedarr works](docs/how-it-works.md).
 
 ## Quick Start
