@@ -2,12 +2,19 @@
 // and unmounts rendered trees between tests: RTL only does that automatically when the runner
 // exposes a global afterEach, and this project runs vitest without globals.
 import { afterEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 afterEach(() => {
   cleanup();
 });
+
+// The image build runs this suite on linux/arm64 under QEMU, several times slower than native, and
+// the suite's wall time swings by a minute between runs. testing-library's findBy and waitFor give up
+// after 1 s by default, which is what failed Develop Build 35931511300 on a docs-only commit; the
+// per-test timeout in vite.config.ts is 30 s for the same reason. Nothing here waits that long on a
+// native run, so a passing test is no slower and only a failing one takes longer to report.
+configure({ asyncUtilTimeout: 10_000 });
 
 // jsdom's selector engine took seconds and recursed hundreds of frames deep when asked to evaluate
 // the top-layer pseudo-classes that floating-ui probes while positioning a Radix menu (`isTopLayer`
