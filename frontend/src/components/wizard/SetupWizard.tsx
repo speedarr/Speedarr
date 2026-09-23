@@ -31,8 +31,6 @@ const WizardContent: React.FC = () => {
   // Get the appropriate data for the current step
   const getStepData = () => {
     switch (currentStep.id) {
-      case 'speedarr-url':
-        return state.speedarr;
       case 'plex':
         return state.mediaServers;
       case 'download-clients':
@@ -51,9 +49,6 @@ const WizardContent: React.FC = () => {
   // Handle data changes from step components
   const handleDataChange = (data: any) => {
     switch (currentStep.id) {
-      case 'speedarr-url':
-        updateState({ speedarr: data });
-        break;
       case 'plex':
         updateState({ mediaServers: data });
         break;

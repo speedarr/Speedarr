@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router';
 import { WizardContextType, WizardState, ValidationResult, DEFAULT_WIZARD_STATE } from './types';
 import { WIZARD_STEPS } from './wizardConfig';
 import { apiClient } from '@/api/client';
+import { defaultFailsafeSpeed } from '@/lib/failsafeDefaults';
 
 const STORAGE_KEY = 'speedarr_wizard_state';
 
@@ -205,24 +206,13 @@ export const WizardProvider: React.FC<WizardProviderProps> = ({ children }) => {
             total_limit: state.bandwidth.upload.total_limit,
             upload_client_percents: state.bandwidth.upload.upload_client_percents || {},
           },
-          streams: {
-            bandwidth_calculation: 'auto',
-            manual_per_stream: 8,
-            overhead_percent: 100,
-          },
         });
 
-        // Set failsafe speeds to 10% of configured bandwidth
-        const failsafeDownload = Math.round(state.bandwidth.download.total_limit * 0.1 * 10) / 10;
-        const failsafeUpload = Math.round(state.bandwidth.upload.total_limit * 0.1 * 10) / 10;
-
+        // Failsafe shutdown speeds start at the same default the Failsafe tab uses.
+        // FailsafeConfig has only these two speeds and the per-client splits.
         await apiClient.updateSettingsSection('failsafe', {
-          enabled: true,
-          shutdown_download_speed: failsafeDownload,
-          shutdown_upload_speed: failsafeUpload,
-          shutdown_delay: 30,
-          restoration_delay: 60,
-          minimum_holding_time: 120,
+          shutdown_download_speed: defaultFailsafeSpeed(state.bandwidth.download.total_limit),
+          shutdown_upload_speed: defaultFailsafeSpeed(state.bandwidth.upload.total_limit),
         });
       }
 

@@ -18,11 +18,6 @@ export interface DownloadClientConfig {
   supports_upload: boolean;
 }
 
-// Speedarr URL configuration
-export interface SpeedarrConfig {
-  url: string;
-}
-
 // Plex configuration (kept for back-compat; no longer used in wizard state)
 export interface PlexConfig {
   url: string;
@@ -100,7 +95,6 @@ export interface SNMPConfig {
 
 // Complete wizard state containing all configuration data
 export interface WizardState {
-  speedarr: SpeedarrConfig | null;
   mediaServers: MediaServerConfig[];
   downloadClients: DownloadClientConfig[];
   bandwidth: BandwidthConfig | null;
@@ -183,7 +177,6 @@ export interface WizardContextType {
 
 // Default empty wizard state
 export const DEFAULT_WIZARD_STATE: WizardState = {
-  speedarr: null,
   mediaServers: [],
   downloadClients: [],
   bandwidth: null,

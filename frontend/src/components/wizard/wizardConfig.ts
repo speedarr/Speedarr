@@ -85,15 +85,21 @@ export const validateSNMP = async (state: WizardState): Promise<ValidationResult
 
 export const validateNotifications = async (state: WizardState): Promise<ValidationResult> => {
   const errors: string[] = [];
+  const n = state.notifications;
 
-  // Notifications are optional - if not enabled, always valid
-  if (!state.notifications?.discord?.enabled) {
-    return { valid: true, errors: [] };
-  }
+  // Notifications are optional: an agent only needs its fields once it is enabled.
+  const requireFields = (agent: string, fields: Record<string, string | undefined>) => {
+    const empty = Object.entries(fields).filter(([, value]) => !value?.trim()).map(([label]) => label);
+    if (empty.length > 0) {
+      errors.push(`${agent}: ${empty.join(' and ')} ${empty.length > 1 ? 'are' : 'is'} required when ${agent} is enabled`);
+    }
+  };
 
-  if (!state.notifications.discord.webhook_url || state.notifications.discord.webhook_url.trim() === '') {
-    errors.push('Discord webhook URL is required when notifications are enabled');
-  }
+  if (n?.discord?.enabled) requireFields('Discord', { 'webhook URL': n.discord.webhook_url });
+  if (n?.pushover?.enabled) requireFields('Pushover', { 'user key': n.pushover.user_key, 'API token': n.pushover.api_token });
+  if (n?.telegram?.enabled) requireFields('Telegram', { 'bot token': n.telegram.bot_token, 'chat ID': n.telegram.chat_id });
+  if (n?.gotify?.enabled) requireFields('Gotify', { 'server URL': n.gotify.server_url, 'app token': n.gotify.app_token });
+  if (n?.ntfy?.enabled) requireFields('ntfy', { topic: n.ntfy.topic });
 
   return { valid: errors.length === 0, errors };
 };
@@ -160,7 +166,7 @@ export const WIZARD_STEPS: WizardStepConfig[] = [
   {
     id: 'notifications',
     title: 'Notifications',
-    description: 'Optional Discord alerts',
+    description: 'Optional alerts',
     icon: Bell,
     component: NotificationsStep,
     required: false,

@@ -14,6 +14,14 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
 }) => {
   const { goToStep } = useWizard();
   const state = data as WizardState;
+  const n = state.notifications;
+  const enabledAgents = [
+    n?.discord?.enabled && 'Discord',
+    n?.pushover?.enabled && 'Pushover',
+    n?.telegram?.enabled && 'Telegram',
+    n?.gotify?.enabled && 'Gotify',
+    n?.ntfy?.enabled && 'ntfy',
+  ].filter((label): label is string => typeof label === 'string');
 
   const editStep = (stepId: string) => {
     const index = getStepIndex(stepId);
@@ -197,16 +205,14 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
             </Button>
           </div>
           <div className="text-sm">
-            {state.notifications?.discord?.enabled ? (
+            {enabledAgents.length > 0 ? (
               <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Discord</span>
-                  <span className="text-green-600">Enabled</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Webhook</span>
-                  <span>{state.notifications.discord.webhook_url ? 'Configured' : 'Not set'}</span>
-                </div>
+                {enabledAgents.map(label => (
+                  <div key={label} className="flex justify-between">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="text-green-600">Enabled</span>
+                  </div>
+                ))}
               </div>
             ) : (
               <p className="text-muted-foreground">Notifications disabled</p>
