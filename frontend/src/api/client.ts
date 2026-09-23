@@ -20,7 +20,6 @@ import type {
   SettingsSectionResponse,
   SettingsUpdateResponse,
   TestConnectionResponse,
-  ExportYAMLResponse,
   ConfigHistoryResponse,
   DecisionLogsResponse,
   SNMPDiscoverResponse,
@@ -307,11 +306,6 @@ class ApiClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async testConnection(service: string, config: any, useExisting: boolean = false): Promise<TestConnectionResponse> {
     const response = await this.client.post<TestConnectionResponse>(`/settings/test/${service}`, { config, use_existing: useExisting });
-    return response.data;
-  }
-
-  async exportYAML(): Promise<ExportYAMLResponse> {
-    const response = await this.client.get<ExportYAMLResponse>('/settings/export');
     return response.data;
   }
 

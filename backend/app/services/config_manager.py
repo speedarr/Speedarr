@@ -753,19 +753,6 @@ class ConfigManager:
         logger.info("Full config updated successfully")
         return reloaded_config
 
-    async def export_to_yaml(self, db: AsyncSession) -> Dict[str, Any]:
-        """
-        Export current configuration from database to YAML-compatible dict.
-
-        Returns:
-            Nested dictionary suitable for YAML export
-        """
-        config = await self.load_config_from_db(db)
-        if not config:
-            raise ValueError("No configuration found in database")
-
-        return config.model_dump()
-
     def _values_are_different(self, old_value: str, new_value: str) -> bool:
         """Check if two values are actually different (handles numeric comparison)."""
         if old_value is None:

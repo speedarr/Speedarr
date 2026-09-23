@@ -33,9 +33,9 @@ History is kept for 3 days by default, adjustable from 1 to 90 in [Settings › 
 
 The **Log Level** dropdown in Settings › General looks like it should control this, but it's currently wired to nothing — changing it has no effect ([#103](https://github.com/speedarr/Speedarr/issues/103)). `DEBUG` is the only thing that actually changes verbosity.
 
-## Exporting the configuration
+## Backing up
 
-There's an export endpoint, `GET /api/settings/export`, though nothing in the UI calls it yet. It returns your entire live configuration as YAML — and unlike Download Logs, it applies no redaction at all. Every password, API key, token and webhook URL comes back in plain text. Never paste an exported config into an issue or anywhere else public ([#105](https://github.com/speedarr/Speedarr/issues/105)).
+Everything Speedarr knows lives under `/data`: the database, `.encryption_key` and `.jwt_secret`. Back up that directory as a whole, because the database can't be read without its key file. There's no configuration export endpoint.
 
 ## Health endpoints
 

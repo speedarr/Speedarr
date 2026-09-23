@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
-import yaml
 from loguru import logger
 
 from app.database import get_db
@@ -1084,33 +1083,6 @@ async def gather_logs(
         redacted_content = re.sub(pattern, replacement, redacted_content, flags=re.IGNORECASE)
 
     return {"logs": redacted_content}
-
-
-@router.get("/export")
-async def export_config(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """Export current configuration as YAML."""
-    if not hasattr(request.app.state, "config_manager"):
-        request.app.state.config_manager = ConfigManager(request.app)
-
-    config_manager: ConfigManager = request.app.state.config_manager
-
-    try:
-        config_dict = await config_manager.export_to_yaml(db)
-        yaml_content = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
-
-        return {
-            "yaml": yaml_content,
-            "config": config_dict,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to export configuration: {str(e)}",
-        )
 
 
 @router.get("/history", response_model=List[HistoryEntry])

@@ -297,11 +297,6 @@ export interface TestConnectionResponse {
   details?: Record<string, unknown>;
 }
 
-export interface ExportYAMLResponse {
-  yaml: string;
-  timestamp: string;
-}
-
 export interface ConfigHistoryEntry {
   id: number;
   key: string;
