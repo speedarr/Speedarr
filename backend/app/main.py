@@ -58,7 +58,7 @@ def validate_secrets():
     elif not os.access(data_dir, os.W_OK):
         logger.error("/data directory is not writable - auto-generated secrets will be lost on restart!")
 from app.database import init_db, close_db, AsyncSessionLocal
-from app.utils.logger import setup_logger
+from app.utils.logger import setup_logger, set_log_level
 from app.services import DecisionEngine, ControllerManager, PollingMonitor, NotificationService, RetentionService
 from app.services.config_manager import ConfigManager
 from app.api import auth, status, control, streams, bandwidth, settings as settings_api, decisions
@@ -208,6 +208,8 @@ async def lifespan(app: FastAPI):
 
     if config:
         logger.info("Configuration loaded from database")
+        effective_level = set_log_level(config.system.log_level)
+        logger.info(f"Log level {config.system.log_level} (effective {effective_level})")
 
         # Initialize services
         decision_engine = DecisionEngine(config)

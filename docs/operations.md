@@ -11,7 +11,7 @@ Everything Speedarr keeps lives in `/data` inside the container — `./data` on 
 - `speedarr.db` — the SQLite database. While the container is running you'll also see `speedarr.db-wal` and `speedarr.db-shm` next to it (WAL mode is on for every connection); they get folded back into the main file on a clean shutdown or a retention cleanup, but treat all three as one unit.
 - `.jwt_secret` — the JWT signing key, auto-generated on first run if you haven't set `AUTH__SECRET_KEY`.
 - `.encryption_key` — the Fernet key used to encrypt every password, token, API key and webhook URL stored in the database, auto-generated if you haven't set `CONFIG_ENCRYPTION_KEY`.
-- `logs/speedarr.log` — the application log, rotated at 10 MB and kept for 7 days, always at INFO regardless of the `DEBUG` environment variable. This rotation is separate from the [retention](#retention) setting below — it isn't affected by it either way.
+- `logs/speedarr.log` — the application log, rotated at 10 MB and kept for 7 days, written at the **Log Level** set in Settings › General. This rotation is separate from the [retention](#retention) setting below — it isn't affected by it either way.
 
 PUID and PGID default to 99:100 (Unraid's `nobody:users`); see [PUID and PGID](install.md#puid-and-pgid) for how to change the ownership of these files. `AUTH__SECRET_KEY`, `CONFIG_ENCRYPTION_KEY` and `DEBUG` are documented in [environment variables](install.md#environment-variables).
 
@@ -29,9 +29,9 @@ History is kept for 3 days by default, adjustable from 1 to 90 in [Settings › 
 
 ## Logs
 
-**Settings › General › Download Logs** gives you the last 10,000 lines with API keys, tokens and passwords redacted — safe to attach to a GitHub issue. For more detail than that, set `DEBUG=true` in the environment, which turns on verbose console logging (and SQL query logging); it doesn't change what's written to `speedarr.log` on disk, only the container's own console output.
+**Settings › General › Download Logs** gives you the last 10,000 lines with API keys, tokens and passwords redacted — safe to attach to a GitHub issue. For more detail than that, set **Log Level** in Settings › General to Debug. It applies as soon as you save, to both the container's console output and `speedarr.log`.
 
-The **Log Level** dropdown in Settings › General looks like it should control this, but it's currently wired to nothing — changing it has no effect ([#103](https://github.com/speedarr/Speedarr/issues/103)). `DEBUG` is the only thing that actually changes verbosity.
+`DEBUG=true` in the environment forces Debug regardless of the Log Level setting, and also turns on SQL query logging. It needs a container restart to change, so the setting is the one to reach for first.
 
 ## Backing up
 

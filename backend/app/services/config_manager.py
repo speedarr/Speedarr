@@ -20,6 +20,7 @@ from app.config import (
     decrypt_value,
 )
 from app.models.configuration import Configuration, ConfigurationHistory
+from app.utils.logger import set_log_level
 
 logger = logging.getLogger(__name__)
 
@@ -655,6 +656,9 @@ class ConfigManager:
                     logger.info("NotificationService config updated")
 
             elif section_name == "system":
+                # Log level applies immediately to both sinks (#103)
+                effective = set_log_level(config.system.log_level)
+                logger.info(f"Log level {config.system.log_level} (effective {effective})")
                 # Update polling frequency - must update polling_monitor's config reference
                 polling_monitor = getattr(self.app.state, "polling_monitor", None)
                 if polling_monitor is not None:
@@ -743,6 +747,7 @@ class ConfigManager:
 
         # Update app state
         self.app.state.config = reloaded_config
+        set_log_level(reloaded_config.system.log_level)
 
         # Reload download clients (skip during setup mode when controller_manager is None)
         if hasattr(self.app.state, "controller_manager") and self.app.state.controller_manager is not None:

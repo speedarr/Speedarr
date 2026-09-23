@@ -110,7 +110,7 @@ All of these are optional — Speedarr runs fine with none of them set.
 |---|---|---|
 | `AUTH__SECRET_KEY` | JWT signing key for authentication | Auto-generated and saved to `/data/.jwt_secret` if unset |
 | `CONFIG_ENCRYPTION_KEY` | Fernet key used to encrypt stored secrets (passwords, tokens, API keys, webhook URLs) at rest | Auto-generated and saved to `/data/.encryption_key` if unset |
-| `DEBUG` | `true` turns on DEBUG-level console logs and SQL query logging | `false` |
+| `DEBUG` | `true` forces Debug-level logging regardless of the Log Level setting, and turns on SQL query logging | `false` |
 
 The generated keys live in your data folder alongside the database, so make sure they're covered by whatever you use for [backups](operations.md#backups).
 

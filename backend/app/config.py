@@ -327,10 +327,24 @@ class FailsafeConfig(BaseModel):
     )
 
 
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
 class SystemConfig(BaseModel):
     """System configuration."""
     update_frequency: int = Field(5, ge=5, description="Polling interval in seconds (minimum 5)")
-    log_level: str = "INFO"
+    log_level: str = Field(
+        "INFO",
+        description="Logging verbosity for the console and speedarr.log: DEBUG, INFO, WARNING, ERROR or CRITICAL. DEBUG=true in the environment forces DEBUG.",
+    )
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalise_log_level(cls, value):
+        name = str(value).upper()
+        if name not in LOG_LEVELS:
+            raise ValueError(f"log_level must be one of {', '.join(LOG_LEVELS)}")
+        return name
     speedarr_url: str = Field("", description="Base URL of Speedarr instance for webhooks (empty = auto-detect from browser)")
     require_login: bool = Field(
         False,
