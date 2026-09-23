@@ -8,7 +8,7 @@ The goal of Speedarr is to help you achieve the following:
 
 ## The idea
 
-Streams come first, and whatever is left over is shared out between your download clients. That applies in both directions: a stream going out of your house costs you upload, and it costs you a little download too (more on that below), and both get carved out before any client is given a number.
+Streams come first, and whatever is left over is shared out between your download clients. That applies in both directions: a stream going out of your house costs you upload, and it costs you a little download too (more on that below), and both get carved out before any client is given a number. Speedarr never touches the streams themselves. It sets the speed limits in your download clients through their own APIs, the same limits you'd otherwise set by hand, and keeps changing them as streams start and stop.
 
 Speedarr works this out by polling. One loop asks your media servers what is playing, another asks your download clients what they are doing, and both run every 5 seconds by default. 5 seconds is also the floor — it's quick enough that a new stream has its bandwidth carved out within a poll or two, and anything faster is just hammering your server's API for no real gain. If you'd rather it was gentler you can take the interval up to 300 seconds in Settings › General, at the cost of Speedarr taking that much longer to notice a stream starting.
 

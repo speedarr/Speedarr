@@ -11,8 +11,8 @@
 <h3 align="center">Smooth streams first, downloads and seeding with what's left</h3>
 
 <p align="center">
-  Speedarr watches your Plex, Emby or Jellyfin server and throttles your download clients, both directions, to fit around what's playing.<br>
-  When the stream ends, the limits come off.
+  Speedarr watches what's playing on your Plex, Emby or Jellyfin server, reserves the bandwidth those streams need and gives your download clients the rest, uploads and downloads alike.<br>
+  It never touches the streams, only your clients' speed limits, and when the streams stop the limits come off.
 </p>
 
 ---
@@ -44,9 +44,9 @@
 
 ## How does it work?
 
-Streams come first and your download clients share out whatever is left. That's true in both directions: a stream leaving your house costs you upload, and it costs you a slice of download too, because the player is acknowledging every packet it gets and those ACKs come back in over your download link, where they need room past your downloads. Speedarr polls your media servers and your clients every 5 seconds, works out what the streams need, and hands each client a limit.
+Streams come first and your download clients share out whatever is left. That's true in both directions: a stream leaving your house costs you upload, and it costs you a slice of download too, because the player is acknowledging every packet it gets and those ACKs come back in over your download link, where they need room past your downloads. Speedarr polls your media servers and your clients every 5 seconds, works out what the streams need, and hands each client a limit. That's the whole trick: it isn't QoS and it never sits in the path of your traffic. It sets the speed limits in your clients through their own APIs, the same ones you'd set by hand, and keeps changing them as streams start and stop.
 
-How much a stream needs is its bitrate plus protocol overhead, and the default overhead is 100% — double. That's from watching my own server for years: two streams adding up to 21 Mbps sat well under that most of the time but spiked to over double it, and reserving double is what stopped the buffering. Lower it or raise it if your line doesn't behave like mine.
+How much a stream needs is its bitrate plus protocol overhead, and the default overhead is 100% — double. That's from watching my own server for years: two streams adding up to 21 Mbps sat well under that most of the time but spiked to over double it, and reserving double is what kept them playing smoothly. Lower it or raise it if your line doesn't behave like mine.
 
 The full walkthroughs with numbers are in [How Speedarr works](docs/how-it-works.md).
 
