@@ -323,7 +323,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Speedarr",
-    description="Intelligent bandwidth management for Plex and download clients",
+    description="Smooth streams first, downloads and seeding with what's left",
     version=__version__,
     lifespan=lifespan
 )
