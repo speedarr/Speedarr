@@ -25,6 +25,7 @@ export const validateMediaServers = async (state: WizardState): Promise<Validati
   }
 
   state.mediaServers.forEach((s, i) => {
+    if (!s.name?.trim()) errors.push(`Server ${i + 1}: display name is required`);
     if (!s.url?.trim()) errors.push(`Server ${i + 1}: URL is required`);
     const secret = s.type === 'plex' ? s.token : s.api_key;
     if (!secret?.trim()) errors.push(`Server ${i + 1}: ${s.type === 'plex' ? 'token' : 'API key'} is required`);
@@ -45,6 +46,10 @@ export const validateDownloadClients = async (state: WizardState): Promise<Valid
   if (enabledClients.length === 0) {
     errors.push('At least one download client must be enabled');
   }
+
+  state.downloadClients.forEach((c, i) => {
+    if (!c.name?.trim()) errors.push(`Client ${i + 1}: display name is required`);
+  });
 
   return { valid: errors.length === 0, errors };
 };

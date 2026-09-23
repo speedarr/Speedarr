@@ -14,6 +14,7 @@ import { Loader2, CheckCircle, XCircle, Plus, Trash2 } from 'lucide-react';
 import { PasswordInput } from '@/components/settings/PasswordInput';
 import { apiClient } from '@/api/client';
 import { WizardStepProps, MediaServerConfig } from '../types';
+import { nextDefaultName } from '@/lib/defaultNames';
 
 // Plex, Emby, and Jellyfin are user-selectable.
 type WizardServerTypeInfo = {
@@ -36,11 +37,12 @@ export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange,
   useEffect(() => { onDataChange(servers); }, [servers, onDataChange]);
 
   const add = (type: keyof typeof TYPES) => {
-    const count = servers.filter(s => s.type === type).length;
     setServers(prev => [...prev, {
       id: `${type}_${Date.now()}`,
       type,
-      name: count > 0 ? `${TYPES[type].name} ${count + 1}` : TYPES[type].name,
+      // "Plex", then "Plex 2": the next number not already in use, so removing and
+      // re-adding never produces a duplicate (#109)
+      name: nextDefaultName(TYPES[type].name, prev.map(s => s.name)),
       enabled: true,
       url: TYPES[type].defaultUrl,
       token: '',
@@ -115,6 +117,7 @@ export const MediaServerStep: React.FC<WizardStepProps> = ({ data, onDataChange,
                 <Input
                   value={s.name}
                   onChange={(e) => upd(s.id, 'name', e.target.value)}
+                  aria-label="Display name"
                   className="max-w-[200px]"
                   maxLength={100}
                   disabled={isLoading}

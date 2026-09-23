@@ -134,8 +134,8 @@ Open Speedarr in your browser. The first screen asks you to create an admin acco
 The wizard has seven steps:
 
 1. **Welcome** — an intro screen, nothing to fill in.
-2. **Media Servers** (required) — add one or more media servers. Each needs a Server URL and either an X-Plex-Token (Plex) or an API Key (Emby/Jellyfin). Test Connection checks each one. LAN stream handling isn't set here — that's Settings-only.
-3. **Download Client** (required) — add at least one download client. Each needs a Server URL and the auth that client type wants: Username + Password for qBittorrent, NZBGet, and Transmission; an API Key for SABnzbd; a Password only for Deluge. Each card shows that client's own speed units next to Speedarr's Mbps. Display names aren't editable here — also Settings-only.
+2. **Media Servers** (required) — add one or more media servers. Each needs a Server URL and either an X-Plex-Token (Plex) or an API Key (Emby/Jellyfin). Test Connection checks each one. Each card has a Display Name, prefilled with the server type and numbered for a second one of the same type (Plex, Plex 2). LAN stream handling isn't set here — that's Settings-only.
+3. **Download Client** (required) — add at least one download client. Each needs a Server URL and the auth that client type wants: Username + Password for qBittorrent, NZBGet, and Transmission; an API Key for SABnzbd; a Password only for Deluge. Each card shows that client's own speed units next to Speedarr's Mbps, and has a Display Name too, prefilled with the client type and numbered for a second one of the same type (qBittorrent, qBittorrent 2).
 4. **Bandwidth** (required) — enter your total download and upload limits, in Mbps, 10–20% under your real line speed. If you added two or more clients, you'll also set how to split bandwidth between them. Protocol overhead and the download reserve percentage aren't set here — Settings-only.
 5. **SNMP** (optional) — skip it if you don't use it.
 6. **Notifications** (optional) — skip it if you don't want alerts yet.
@@ -166,7 +166,6 @@ Config → General → Security → API Key.
 Once setup's done, everything else lives on the Settings page:
 
 - Whether LAN streams count toward bandwidth, and which networks count as LAN — [Settings → Services](settings.md#services)
-- Client display names — [Settings → Services](settings.md#services)
 - Protocol overhead and the download reserve percentage — [Settings → Bandwidth](settings.md#bandwidth)
 - How long bandwidth is held after a stream ends — [Settings → Holding Times](settings.md#holding-times)
 - Shutdown speeds, for when Speedarr's own process stops — [Settings → Failsafe](settings.md#failsafe)

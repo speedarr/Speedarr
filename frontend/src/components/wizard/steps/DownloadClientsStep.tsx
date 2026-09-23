@@ -20,6 +20,7 @@ import { PasswordInput } from '@/components/settings/PasswordInput';
 import { ClientSpeedUnitNote } from '@/components/SpeedUnitHint';
 import { apiClient } from '@/api/client';
 import { WizardStepProps, DownloadClientConfig } from '../types';
+import { nextDefaultName } from '@/lib/defaultNames';
 
 // Client type definitions
 const CLIENT_TYPES = {
@@ -90,10 +91,11 @@ export const DownloadClientsStep: React.FC<WizardStepProps> = ({
 
   const addClient = (type: ClientType) => {
     const typeInfo = CLIENT_TYPES[type];
-    const newClient: DownloadClientConfig = {
+    setClients(prev => [...prev, {
       id: `${type}_${Date.now()}`,
       type,
-      name: typeInfo.name,
+      // "qBittorrent", then "qBittorrent 2": the next number not already in use (#109)
+      name: nextDefaultName(typeInfo.name, prev.map(c => c.name)),
       enabled: true,
       url: typeInfo.defaultUrl,
       username: '',
@@ -101,16 +103,15 @@ export const DownloadClientsStep: React.FC<WizardStepProps> = ({
       api_key: '',
       color: typeInfo.color,
       supports_upload: typeInfo.supportsUpload,
-    };
-    setClients(prev => [...prev, newClient]);
+    }]);
   };
 
   const updateClient = (clientId: string, field: keyof DownloadClientConfig, value: any) => {
     setClients(prev => prev.map(c =>
       c.id === clientId ? { ...c, [field]: value } : c
     ));
-    // Clear test result when config changes
-    setTestResults(prev => ({ ...prev, [clientId]: null }));
+    // Clear the test result when connection settings change; a rename doesn't affect the connection
+    if (field !== 'name') setTestResults(prev => ({ ...prev, [clientId]: null }));
   };
 
   const removeClient = (clientId: string) => {
@@ -204,7 +205,15 @@ export const DownloadClientsStep: React.FC<WizardStepProps> = ({
                     className="w-3 h-3 rounded-full"
                     style={{ backgroundColor: client.color }}
                   />
-                  <span className="font-medium">{typeInfo.name}</span>
+                  <span className="text-sm font-medium text-muted-foreground">{typeInfo.name}</span>
+                  <Input
+                    value={client.name}
+                    onChange={(e) => updateClient(client.id, 'name', e.target.value)}
+                    aria-label="Display name"
+                    className="max-w-[200px]"
+                    maxLength={100}
+                    disabled={isLoading}
+                  />
                   {testResult === true && (
                     <span className="flex items-center">
                       <CheckCircle className="h-4 w-4 text-green-500" aria-hidden="true" />
