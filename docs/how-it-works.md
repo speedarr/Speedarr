@@ -92,6 +92,16 @@ A client counts as active while it has real traffic, and for up to 30 s after it
 
 Clients rarely both want everything at once though, so Speedarr also watches what each client actually uses (demand-aware allocation, on by default). A client that sits under 90% of the limit it was given for three polls in a row — 15 s at the default interval — is treated as slack and held to 1.5x what it is using, never below the safety net, and the rest goes to the client that is saturating its share. A client at or above 90% of its limit for two polls, 10 s, counts as saturated. If qBit is flat out and sab is only pulling 40Mbps, sab is held to 60Mbps and qBit gets 840Mbps. The moment sab fills its 60Mbps it gets its full 270Mbps back within about 10 to 20 seconds, depending on how fast it ramps; taking unused share back takes about 15 seconds. Nothing moves unless something is actually saturating, so a quiet evening leaves the split exactly as you configured it. The same rules apply to upload. You can turn this off in Settings > Bandwidth to hold active clients to their percentages instead. This isn't just limited to 2 clients either, you can have 2 or more and Speedarr will follow the same principles.
 
+Here's that qBit and sab example poll by poll, qBit flat out and sab pulling 40 Mbps:
+
+| Poll (5 s each) | What happens | qBit | sab |
+|---|---|---|---|
+| 0–2 | qBit is at 630 of 630, sab at 40 of 270; qBit counts as saturated after two polls | 630 | 270 |
+| 3 | sab counts as slack after three polls and is held to 40 × 1.5 = 60 | 840 | 60 |
+| steady | nothing changes while usage doesn't; sab's cap tracks its usage | 840 | 60 |
+| sab starts a download | sab fills its 60 cap, so its cap follows its usage up to 90 | 810 | 90 |
+| next poll | sab has filled its cap twice, so it gets its full share back | 630 | 270 |
+
 The setting only appears once you have two or more clients, because with one there's nowhere for a share to move to.
 
 ## Uploads
