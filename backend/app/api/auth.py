@@ -355,7 +355,7 @@ async def list_api_keys(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all API keys for the current user. Tokens are masked."""
+    """List all API keys for the current user, including the full tokens."""
     result = await db.execute(
         select(APIToken)
         .where(APIToken.user_id == current_user.id)

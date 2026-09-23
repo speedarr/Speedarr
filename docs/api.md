@@ -14,7 +14,7 @@ Interactive documentation is built in and needs no login: **`/docs`** (Swagger U
 
 Speedarr supports two ways to authenticate:
 
-- **API key** — created in [Settings › Integrations](settings.md#integrations), with a name and an optional expiry. Send it as the `X-API-Key` header. A key carries the same privileges as the admin account — there's no read-only or scoped key type. Revoking a key takes effect immediately: the next request with it is rejected. The full key is shown once when you generate it, and — currently — again to any admin session that opens the key list ([#104](https://github.com/speedarr/Speedarr/issues/104)).
+- **API key** — created in [Settings › Integrations](settings.md#integrations), with a name and an optional expiry. Send it as the `X-API-Key` header. A key carries the same privileges as the admin account — there's no read-only or scoped key type. Revoking a key takes effect immediately: the next request with it is rejected. The full key is shown when you generate it, and any admin session can copy it again from the key list.
 - **Browser session** — `POST /api/auth/login` with `{username, password}` returns a JWT. Send it as `Authorization: Bearer <token>` on later requests. Sessions last 24 hours.
 
 Only `POST /api/auth/login` is rate-limited: 5 attempts per 60 seconds, then a 5-minute block per client IP. No other endpoint is rate-limited.

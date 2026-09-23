@@ -54,7 +54,7 @@ Read-only: Version, Commit, Branch, an update check ("Up to date" / a newer buil
 | Generate | — | Creates the key and shows it once in a dialog. It is not shown again. |
 | Revoke | — | Immediately disables an active key. |
 
-**Notes:** The copy button on each row in the key list hands out the full key again, so anyone with an admin session can read every active key, not just a newly generated one ([#104](https://github.com/speedarr/Speedarr/issues/104)).
+**Notes:** The copy button on each row copies the full key, so any admin session can read every active key, not just a newly generated one. Keys stay readable on purpose: a key carries the same privileges as the admin account that can read it, so hiding it would gain nothing.
 
 ### Integration Guide
 
