@@ -11,8 +11,7 @@
 <h3 align="center">Smooth streams first, downloads and seeding with what's left</h3>
 
 <p align="center">
-  Speedarr watches what's playing on your Plex, Emby or Jellyfin server, reserves the bandwidth those streams need and gives your download clients the rest, uploads and downloads alike.<br>
-  It never touches the streams, only your clients' speed limits, and when the streams stop the limits come off.
+  Speedarr works out what your Plex, Emby or Jellyfin streams need, sets that aside with some headroom, and gives your download clients whatever's left.
 </p>
 
 ---
