@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PasswordInput } from './PasswordInput';
 import { apiClient } from '@/api/client';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -16,7 +17,6 @@ interface DiscordConfig {
   enabled: boolean;
   webhook_url: string;
   events: string[];
-  rate_limit: number;
 }
 
 interface PushoverConfig {
@@ -645,6 +645,28 @@ export const NotificationsSettings: React.FC = () => {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="pushover-priority">Priority</Label>
+                <Select
+                  value={String(Math.min(config.pushover.priority ?? 0, 1))}
+                  onValueChange={(value) => updatePushoverConfig('priority', Number(value))}
+                  disabled={isSaving}
+                >
+                  <SelectTrigger id="pushover-priority" aria-label="Pushover priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="-2">Lowest</SelectItem>
+                    <SelectItem value="-1">Low</SelectItem>
+                    <SelectItem value="0">Normal</SelectItem>
+                    <SelectItem value="1">High</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  Lowest and Low arrive silently; High bypasses quiet hours. Emergency isn't offered because it repeats until acknowledged.
+                </p>
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   onClick={handleTestPushover}
@@ -967,6 +989,23 @@ export const NotificationsSettings: React.FC = () => {
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="gotify-priority">Priority</Label>
+                <Input
+                  id="gotify-priority"
+                  aria-label="Gotify priority"
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={config.gotify.priority ?? 5}
+                  onChange={(e) => updateGotifyConfig('priority', Math.min(10, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                  disabled={isSaving}
+                />
+                <p className="text-sm text-muted-foreground">
+                  0 to 10. The Gotify apps treat 8 and above as a high-priority alert.
+                </p>
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   onClick={handleTestGotify}
@@ -1129,6 +1168,26 @@ export const NotificationsSettings: React.FC = () => {
                 <p className="text-sm text-muted-foreground">
                   Subscribe to this topic in the ntfy app
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ntfy-priority">Priority</Label>
+                <Select
+                  value={String(config.ntfy.priority ?? 3)}
+                  onValueChange={(value) => updateNtfyConfig('priority', Number(value))}
+                  disabled={isSaving}
+                >
+                  <SelectTrigger id="ntfy-priority" aria-label="ntfy priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Min</SelectItem>
+                    <SelectItem value="2">Low</SelectItem>
+                    <SelectItem value="3">Default</SelectItem>
+                    <SelectItem value="4">High</SelectItem>
+                    <SelectItem value="5">Max</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex gap-2">

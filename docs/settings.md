@@ -155,10 +155,10 @@ Five cards, each with an Enable toggle, its own credential fields, a Test button
 | Card | Fields |
 |---|---|
 | Webhook (Discord, Slack and compatible) | Webhook URL, Test Webhook |
-| Pushover | User Key, API Token |
+| Pushover | User Key, API Token, Priority |
 | Telegram | Bot Token, Chat ID |
-| Gotify | Server URL, Application Token |
-| ntfy | Server URL (default `https://ntfy.sh`), Topic |
+| Gotify | Server URL, Application Token, Priority |
+| ntfy | Server URL (default `https://ntfy.sh`), Topic, Priority |
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -166,7 +166,7 @@ Five cards, each with an Enable toggle, its own credential fields, a Test button
 | Threshold (Stream Bitrate Exceeded) | — | Bitrate (Mbps) that triggers the alert. |
 | Threshold alert cooldown (minutes) | 0 | Suppresses repeat threshold alerts of the same type within this window. Form accepts 0–1440; 0 means no cooldown. |
 
-**Notes:** The two thresholds and the cooldown are single global values, even though every card shows them — setting one on any card changes it for all five. The cooldown applies only to the two threshold alerts; stream start/stop and service-unreachable events always send. The webhook is tested on save, and a failed test blocks the save. Priority (Pushover, Gotify, ntfy), the webhook rate limit (Discord/Slack), and named generic webhooks all exist in the config but have no UI control ([#106](https://github.com/speedarr/Speedarr/issues/106)).
+**Notes:** The two thresholds and the cooldown are single global values, even though every card shows them — setting one on any card changes it for all five. The cooldown applies only to the two threshold alerts; stream start/stop and service-unreachable events always send. The webhook is tested on save, and a failed test blocks the save. Priority sets how loudly the receiving app announces a message: Pushover from Lowest to High (Emergency, which repeats until acknowledged, isn't offered), Gotify 0 to 10, ntfy from Min to Max.
 
 ## History
 

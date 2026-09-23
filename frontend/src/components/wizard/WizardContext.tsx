@@ -230,7 +230,6 @@ export const WizardProvider: React.FC<WizardProviderProps> = ({ children }) => {
             enabled: notifications?.discord?.enabled || false,
             webhook_url: notifications?.discord?.webhook_url || '',
             events: notifications?.discord?.events || defaultEvents,
-            rate_limit: 60,
           },
           pushover: {
             enabled: notifications?.pushover?.enabled || false,

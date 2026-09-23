@@ -222,7 +222,6 @@ class DiscordNotificationConfig(BaseModel):
         "stream_started", "stream_ended", "stream_count_exceeded",
         "stream_bitrate_exceeded", "service_unreachable"
     ])
-    rate_limit: int = Field(60, description="Seconds between same event type")
 
 
 class PushoverNotificationConfig(BaseModel):
@@ -272,16 +271,6 @@ class NtfyNotificationConfig(BaseModel):
     ])
 
 
-class WebhookNotificationConfig(BaseModel):
-    """Generic webhook notification configuration."""
-    name: str
-    url: str
-    method: str = "POST"
-    headers: Dict[str, str] = Field(default_factory=dict)
-    events: List[str] = Field(default_factory=list)
-    format: str = "json"
-
-
 class NotificationsConfig(BaseModel):
     """Notifications configuration."""
     discord: DiscordNotificationConfig = Field(default_factory=DiscordNotificationConfig)
@@ -289,7 +278,6 @@ class NotificationsConfig(BaseModel):
     telegram: TelegramNotificationConfig = Field(default_factory=TelegramNotificationConfig)
     gotify: GotifyNotificationConfig = Field(default_factory=GotifyNotificationConfig)
     ntfy: NtfyNotificationConfig = Field(default_factory=NtfyNotificationConfig)
-    webhooks: List[WebhookNotificationConfig] = Field(default_factory=list)
     stream_count_threshold: Optional[int] = Field(
         None,
         description="Notify when active streams exceed this count (null to disable)"

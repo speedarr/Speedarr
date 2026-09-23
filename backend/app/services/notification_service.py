@@ -16,7 +16,7 @@ BACKOFF_MULTIPLIER = 2.0
 
 class NotificationService:
     """
-    Handles sending notifications to Discord and custom webhooks.
+    Sends notifications to Discord-style webhooks, Pushover, Telegram, Gotify and ntfy.
     """
 
     def __init__(self, config: SpeedarrConfig):
@@ -179,14 +179,6 @@ class NotificationService:
         else:
             logger.debug(f"ntfy: service disabled")
 
-        # Send to custom webhooks
-        for webhook_config in self.config.notifications.webhooks:
-            if event_type in webhook_config.events:
-                logger.info(f"Sending webhook notification to {webhook_config.name}: {event_type}")
-                await self._send_webhook(webhook_config, event_type, message, data)
-            else:
-                logger.debug(f"Webhook {webhook_config.name}: event '{event_type}' not in enabled events {webhook_config.events}")
-
     async def _send_discord(self, event_type: str, message: str, data: Optional[Dict[str, Any]]):
         """Send notification to Discord."""
         if not self.config.notifications.discord.webhook_url:
@@ -207,30 +199,6 @@ class NotificationService:
             service_name="Discord",
             json=payload,
             expected_statuses=[200, 204]  # Discord returns 204 on success
-        )
-
-    async def _send_webhook(
-        self,
-        webhook_config,
-        event_type: str,
-        message: str,
-        data: Optional[Dict[str, Any]]
-    ):
-        """Send notification to custom webhook."""
-        payload = {
-            "event": event_type,
-            "message": message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "data": data or {}
-        }
-
-        await self._request_with_retry(
-            method=webhook_config.method,
-            url=webhook_config.url,
-            service_name=f"Webhook ({webhook_config.name})",
-            json=payload if webhook_config.format == "json" else None,
-            data=payload if webhook_config.format != "json" else None,
-            headers=webhook_config.headers
         )
 
     async def _send_pushover(self, event_type: str, message: str, data: Optional[Dict[str, Any]]):
