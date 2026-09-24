@@ -5,6 +5,7 @@ Handles configuration updates, database storage, and service reloads.
 """
 import logging
 from typing import Dict, Any, Optional
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
 
@@ -24,6 +25,7 @@ from app.config import (
     transform_secrets,
     encrypt_value,
     decrypt_value,
+    section_model,
     SECRETS_SCHEMA_VERSION,
     REDACTED,
 )
@@ -45,6 +47,23 @@ PERCENT_KEY_PREFIXES = [
 
 # Internal row that records which registry version encrypt_stored_secrets has been run for.
 SECRETS_MARKER_KEY = "_secrets_encrypted"
+
+
+def _deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Overlay incoming on base: dicts merge at every level, scalars and lists replace."""
+    out = dict(base)
+    for key, value in incoming.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _set_nested(target: Dict[str, Any], parts, value) -> None:
+    for part in parts[:-1]:
+        target = target.setdefault(part, {})
+    target[parts[-1]] = value
 
 
 def resolve_percent_key(key, clients):
@@ -346,21 +365,41 @@ class ConfigManager:
         user_id: Optional[int] = None,
     ) -> SpeedarrConfig:
         """
-        Update a configuration section.
+        Update a configuration section (audit T2-1).
 
-        Args:
-            section_name: Name of config section (e.g., "plex", "bandwidth")
-            config_data: New configuration data for the section
-            db: Database session
-            user_id: User making the change (for audit trail)
-
-        Returns:
-            Updated SpeedarrConfig
+        Validates the merged section as its Pydantic model BEFORE any row is written, writes only
+        the incoming keys the model knows (with the validated values), and commits only after the
+        whole configuration reloads; a failure rolls back so nothing durable is left behind.
 
         Raises:
-            ValueError: If validation fails
+            ValueError: unknown or list section; validation failure, with every failing field as
+                        "<section>.<field>: <message>"; or reload failure.
         """
         logger.info(f"Updating config section: {section_name} by user {user_id}")
+
+        model_cls, is_list = section_model(section_name)
+        if section_name.startswith("_") or (model_cls is None and not is_list):
+            raise ValueError(f"Unknown section '{section_name}'")
+        if is_list:
+            endpoint = section_name.replace("_", "-")
+            raise ValueError(f"Section '{section_name}' is managed by PUT /api/settings/{endpoint}")
+
+        # Merge the payload onto the current section; a masked placeholder means "the stored value".
+        current = await self._current_section(section_name, db)
+        merged = _deep_merge(current, config_data)
+        incoming_flat = flatten_dict({section_name: config_data})
+        current_flat = flatten_dict({section_name: current})
+        for key, value in incoming_flat.items():
+            if value == REDACTED and is_sensitive_key(key):
+                _set_nested(merged, key.split(".")[1:], current_flat.get(key))
+
+        try:
+            validated = model_cls(**merged)
+        except ValidationError as e:
+            detail = "; ".join(
+                f"{section_name}.{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()
+            )
+            raise ValueError(detail) from None
 
         # Clean up legacy keys + per-client percent rows for bandwidth section so removed/
         # renamed client ids don't resurrect on reload (update_section never deletes absent keys)
@@ -373,19 +412,17 @@ class ConfigManager:
         if section_name == "failsafe":
             await self.cleanup_failsafe_percent_keys(db, user_id)
 
-        # Flatten the section data
-        flat_data = flatten_dict({section_name: config_data})
+        # Write only what was sent and what the model knows, with the validated values.
+        valid_flat = flatten_dict({section_name: validated.model_dump()})
+        for key, value in incoming_flat.items():
+            if value == REDACTED and is_sensitive_key(key):
+                continue  # keep the stored secret: nothing to write, no history row
+            if key not in valid_flat:
+                logger.debug(f"Ignoring unknown config key: {key}")
+                continue
+            await self._update_key(key, valid_flat[key], db, user_id)
 
-        # Update each key in database
-        for key, value in flat_data.items():
-            await self._update_key(key, value, db, user_id)
-
-        await db.commit()
-
-        # Reload config from database
-        reloaded_config = await self.load_config_from_db(db)
-        if not reloaded_config:
-            raise ValueError("Failed to reload configuration from database")
+        reloaded_config = await self._reload_or_rollback(db)
 
         # Update app state
         self.app.state.config = reloaded_config
@@ -395,6 +432,28 @@ class ConfigManager:
 
         logger.info(f"Config section '{section_name}' updated successfully")
         return reloaded_config
+
+    async def _current_section(self, section_name: str, db: AsyncSession) -> Dict[str, Any]:
+        """The live section as a dict; read from the database in setup mode; {} when unset."""
+        config = getattr(getattr(self.app, "state", None), "config", None)
+        if config is None:
+            config = await self.load_config_from_db(db)
+        section = getattr(config, section_name, None) if config is not None else None
+        return section.model_dump() if section is not None else {}
+
+    async def _reload_or_rollback(self, db: AsyncSession) -> SpeedarrConfig:
+        """Flush pending writes, reload inside the same transaction, commit only on success."""
+        await db.flush()
+        try:
+            reloaded = await self.load_config_from_db(db)
+        except ValueError as e:
+            logger.error(f"Configuration failed to reload after save: {e}")
+            reloaded = None
+        if not reloaded:
+            await db.rollback()
+            raise ValueError("Configuration failed to reload after save; nothing was written")
+        await db.commit()
+        return reloaded
 
     async def _update_key(
         self, key: str, value: Any, db: AsyncSession, user_id: Optional[int]
@@ -799,12 +858,7 @@ class ConfigManager:
         for key, value in flat_config.items():
             await self._update_key(key, value, db, user_id)
 
-        await db.commit()
-
-        # Reload config from database
-        reloaded_config = await self.load_config_from_db(db)
-        if not reloaded_config:
-            raise ValueError("Failed to reload configuration from database")
+        reloaded_config = await self._reload_or_rollback(db)
 
         # Update app state
         self.app.state.config = reloaded_config
