@@ -18,11 +18,19 @@ from app.config import (
     is_sensitive_key,
     encrypt_value,
     decrypt_value,
+    REDACTED,
 )
 from app.models.configuration import Configuration, ConfigurationHistory
 from app.utils.logger import set_log_level
 
 logger = logging.getLogger(__name__)
+
+
+def _legacy_is_sensitive_key(key: str) -> bool:
+    """The pre-registry substring test. Still gates encrypt/decrypt until audit T1-1 moves both
+    gates to the registry and deletes this function; the placeholder skip in _update_key already
+    uses the registry so a masked value posted back for a T1-3 key never overwrites the stored one."""
+    return any(k in key.lower() for k in ("password", "api_key", "secret", "webhook_url", "token"))
 
 
 # Flattened DB prefixes whose trailing segment is a per-client percent key.
@@ -221,7 +229,7 @@ class ConfigManager:
                 value = None
 
             # Decrypt if sensitive
-            if is_sensitive_key(row.key) and row.value_type == "string" and value is not None:
+            if _legacy_is_sensitive_key(row.key) and row.value_type == "string" and value is not None:
                 try:
                     value = decrypt_value(value)
                     # Handle "None" string from old migrations
@@ -303,7 +311,7 @@ class ConfigManager:
             value_str = serialize_value(value, value_type)
 
             # Encrypt sensitive values (but not None/null values)
-            if is_sensitive_key(key) and value_type == "string" and value is not None:
+            if _legacy_is_sensitive_key(key) and value_type == "string" and value is not None:
                 value_str = encrypt_value(value_str)
 
             config_row = Configuration(
@@ -392,7 +400,7 @@ class ConfigManager:
     ):
         """Update a single configuration key."""
         # Skip update if value is the masked placeholder
-        if is_sensitive_key(key) and value == "***REDACTED***":
+        if is_sensitive_key(key) and value == REDACTED:
             logger.debug(f"Skipping update for {key} - masked value detected")
             return
 
@@ -410,7 +418,7 @@ class ConfigManager:
 
 
         # Encrypt sensitive values (but not None values)
-        if is_sensitive_key(key) and value_type == "string" and value is not None:
+        if _legacy_is_sensitive_key(key) and value_type == "string" and value is not None:
             value_str = encrypt_value(value_str)
 
         # Get existing row

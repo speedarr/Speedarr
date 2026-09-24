@@ -23,7 +23,7 @@ Duration, Disable Throttling and Re-enable Now take effect immediately — there
 | Polling Interval (seconds) | 5 | How often Speedarr polls media servers, download clients, and SNMP. Form accepts 5–300. |
 | Log Level | Info | Sets the application's logging verbosity: Debug, Info, Warning, Error, Critical. Applies on save to both the console and `speedarr.log`. |
 | Require login to view dashboard | Off | When on, the dashboard and read APIs require authentication — anyone not logged in is sent to the login screen. |
-| Download Logs | — | Downloads application logs with sensitive data (passwords, API keys) redacted. |
+| Download Logs | — | Downloads application logs with sensitive data (passwords, API keys, tokens and the other secrets Speedarr stores) redacted. |
 
 **Notes:** `DEBUG=true` in the environment forces Debug regardless of Log Level. With Require login off, control calls (throttling, temporary limits, and so on) still always need a session or an API key regardless of this setting — see [what Require login changes](api.md#what-require-login-changes).
 

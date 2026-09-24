@@ -217,7 +217,8 @@ export const NotificationsSettings: React.FC = () => {
     setTelegramTestResult(null);
 
     try {
-      const useExisting = config.telegram.bot_token?.includes('***REDACTED***');
+      const useExisting = config.telegram.bot_token?.includes('***REDACTED***') ||
+                          config.telegram.chat_id?.includes('***REDACTED***');
       const response = await apiClient.testConnection('telegram', {
         bot_token: config.telegram.bot_token,
         chat_id: config.telegram.chat_id,
@@ -269,10 +270,11 @@ export const NotificationsSettings: React.FC = () => {
     setNtfyTestResult(null);
 
     try {
+      const useExisting = config.ntfy.topic?.includes('***REDACTED***') ?? false;
       const response = await apiClient.testConnection('ntfy', {
         server_url: config.ntfy.server_url || 'https://ntfy.sh',
         topic: config.ntfy.topic,
-      }, false);
+      }, useExisting);
       setNtfyTestResult({ success: response.success, message: response.message });
       if (response.success) {
         setTimeout(() => setNtfyTestResult(null), 3000);
@@ -816,11 +818,11 @@ export const NotificationsSettings: React.FC = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="telegram-chat-id">Chat ID</Label>
-                <Input
+                <PasswordInput
                   id="telegram-chat-id"
-                  value={config.telegram.chat_id || ''}
+                  value={config.telegram.chat_id === '***REDACTED***' ? '' : config.telegram.chat_id || ''}
                   onChange={(e) => updateTelegramConfig('chat_id', e.target.value)}
-                  placeholder="Enter chat ID or username"
+                  placeholder={config.telegram.chat_id === '***REDACTED***' ? 'Chat ID is set' : 'Enter chat ID or username'}
                   disabled={isSaving}
                   maxLength={100}
                 />
@@ -1157,11 +1159,11 @@ export const NotificationsSettings: React.FC = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="ntfy-topic">Topic</Label>
-                <Input
+                <PasswordInput
                   id="ntfy-topic"
-                  value={config.ntfy.topic || ''}
+                  value={config.ntfy.topic === '***REDACTED***' ? '' : config.ntfy.topic || ''}
                   onChange={(e) => updateNtfyConfig('topic', e.target.value)}
-                  placeholder="speedarr-notifications"
+                  placeholder={config.ntfy.topic === '***REDACTED***' ? 'Topic is set' : 'speedarr-notifications'}
                   disabled={isSaving}
                   maxLength={100}
                 />

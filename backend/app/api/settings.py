@@ -11,7 +11,7 @@ from app.database import get_db
 from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
-from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig
+from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig, mask_value, REDACTED
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -198,7 +198,7 @@ async def get_section(section_name: str, request: Request, _auth=Depends(require
         }
         if section_name in defaults:
             section_config = defaults[section_name].model_dump()
-            masked_config = _mask_sensitive_values(section_config)
+            masked_config = mask_value(section_name, section_config)
             return SectionResponse(section=section_name, config=masked_config)
         else:
             raise HTTPException(
@@ -224,7 +224,7 @@ async def get_section(section_name: str, request: Request, _auth=Depends(require
     # unconfigured qbittorrent/sabnzbd) or list-typed (media_servers /
     # download_clients, which have dedicated endpoints) yields no dict here —
     # return an empty config rather than crashing the endpoint with a 500.
-    masked_config = _mask_sensitive_values(section_config) if section_config else {}
+    masked_config = mask_value(section_name, section_config) if section_config else {}
 
     return SectionResponse(section=section_name, config=masked_config)
 
@@ -266,7 +266,7 @@ async def update_section(
         )
 
         # Mask sensitive values
-        masked_config = _mask_sensitive_values(section_config)
+        masked_config = mask_value(section_name, section_config)
 
         return SectionResponse(section=section_name, config=masked_config)
 
@@ -725,6 +725,15 @@ async def test_connection(
             server_url = config_data.get("server_url", "https://ntfy.sh")
             topic = config_data.get("topic")
 
+            if test_request.use_existing or topic == REDACTED:
+                saved = app_config.notifications.ntfy if app_config else None
+                if not saved or not saved.topic:
+                    return TestConnectionResponse(success=False, message="No saved ntfy topic")
+                # The saved topic is a credential: post it only to the saved server, never to a
+                # server the caller names (audit T1-2 shape).
+                topic = saved.topic
+                server_url = saved.server_url or "https://ntfy.sh"
+
             if not topic:
                 return TestConnectionResponse(
                     success=False, message="Missing required field: topic"
@@ -1015,11 +1024,9 @@ async def gather_logs(
     """
     Gather application logs with sensitive data redacted.
 
-    Returns recent log content with passwords, API keys, tokens, and webhook URLs
-    replaced with [REDACTED] to allow safe sharing for debugging.
+    Returns recent log content with every stored secret (passwords, API keys, tokens, webhook URLs, the SNMP community string, notification keys, chat IDs and topics) replaced with [REDACTED].
     """
     import os
-    import re
     from pathlib import Path
 
     # Log file locations to check
@@ -1054,35 +1061,9 @@ async def gather_logs(
     except Exception as e:
         return {"logs": f"Error reading log file: {str(e)}"}
 
-    # Patterns to redact sensitive data
-    redaction_patterns = [
-        # API keys and tokens
-        (r'(api_key["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        (r'(api-key["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        (r'(apikey["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        (r'(token["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        (r'(secret["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        # Passwords
-        (r'(password["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        (r'(passwd["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        # Webhook URLs (Discord, Teams, Slack patterns)
-        (r'(https://discord\.com/api/webhooks/)[^\s"\']+', r'\1[REDACTED]'),
-        (r'(https://discordapp\.com/api/webhooks/)[^\s"\']+', r'\1[REDACTED]'),
-        (r'(https://[^/]*\.webhook\.office\.com/)[^\s"\']+', r'\1[REDACTED]'),
-        (r'(https://hooks\.slack\.com/)[^\s"\']+', r'\1[REDACTED]'),
-        # Generic webhook URLs with tokens
-        (r'(webhook_url["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        # Authorization headers
-        (r'(Authorization["\']?\s*[:=]\s*["\']?)[^"\'\s,}\]]+', r'\1[REDACTED]'),
-        (r'(Bearer\s+)[^\s"\']+', r'\1[REDACTED]'),
-    ]
+    from app.utils.redaction import redact_log_text
 
-    # Apply all redaction patterns
-    redacted_content = log_content
-    for pattern, replacement in redaction_patterns:
-        redacted_content = re.sub(pattern, replacement, redacted_content, flags=re.IGNORECASE)
-
-    return {"logs": redacted_content}
+    return {"logs": redact_log_text(log_content)}
 
 
 @router.get("/history", response_model=List[HistoryEntry])
@@ -1272,17 +1253,7 @@ async def get_download_clients(
 
     clients = config.get_all_download_clients()
 
-    # Convert to dict and mask sensitive values
-    clients_data = []
-    for client in clients:
-        client_dict = client.model_dump()
-        # Mask sensitive fields
-        if client_dict.get("password"):
-            client_dict["password"] = "***REDACTED***"
-        if client_dict.get("api_key"):
-            client_dict["api_key"] = "***REDACTED***"
-        clients_data.append(client_dict)
-
+    clients_data = mask_value("download_clients", [c.model_dump() for c in clients])
     return DownloadClientResponse(clients=clients_data)
 
 
@@ -1369,15 +1340,9 @@ async def update_download_clients(
             connection_results = await request.app.state.controller_manager.test_connections()
 
         # Return updated clients (masked) with connection results
-        clients_data = []
-        for client in updated_config.get_all_download_clients():
-            client_dict = client.model_dump()
-            if client_dict.get("password"):
-                client_dict["password"] = "***REDACTED***"
-            if client_dict.get("api_key"):
-                client_dict["api_key"] = "***REDACTED***"
-            clients_data.append(client_dict)
-
+        clients_data = mask_value(
+            "download_clients", [c.model_dump() for c in updated_config.get_all_download_clients()]
+        )
         return DownloadClientResponse(clients=clients_data, connection_results=connection_results)
 
     except ValueError as e:
@@ -1425,23 +1390,6 @@ def _find_existing_client(config: SpeedarrConfig, client_id: Optional[str], clie
     return None
 
 
-def _mask_sensitive_values(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Mask sensitive configuration values in API responses."""
-    masked = config.copy()
-
-    sensitive_keys = ["password", "api_key", "secret", "webhook_url", "token"]
-
-    for key, value in masked.items():
-        if isinstance(value, dict):
-            masked[key] = _mask_sensitive_values(value)
-        elif isinstance(value, str) and any(
-            sensitive in key.lower() for sensitive in sensitive_keys
-        ):
-            masked[key] = "***REDACTED***"
-
-    return masked
-
-
 # Media Servers Management Endpoints
 
 class MediaServerResponse(BaseModel):
@@ -1455,20 +1403,11 @@ class MediaServersUpdateRequest(BaseModel):
     servers: List[Dict[str, Any]]
 
 
-def _mask_media_server(d: Dict[str, Any]) -> Dict[str, Any]:
-    d = dict(d)
-    if d.get("token"):
-        d["token"] = "***REDACTED***"
-    if d.get("api_key"):
-        d["api_key"] = "***REDACTED***"
-    return d
-
-
 @router.get("/media-servers", response_model=MediaServerResponse)
 async def get_media_servers(request: Request, current_user: User = Depends(get_current_user)):
     """Get all media servers (merged, with legacy Plex synthesized)."""
     config: SpeedarrConfig = request.app.state.config
-    servers = [_mask_media_server(s.model_dump()) for s in config.get_all_media_servers()]
+    servers = mask_value("media_servers", [s.model_dump() for s in config.get_all_media_servers()])
     return MediaServerResponse(servers=servers)
 
 
@@ -1531,7 +1470,7 @@ async def update_media_servers(
                 except Exception:
                     connection_results[sid] = False
 
-        servers = [_mask_media_server(s.model_dump()) for s in updated_config.get_all_media_servers()]
+        servers = mask_value("media_servers", [s.model_dump() for s in updated_config.get_all_media_servers()])
         return MediaServerResponse(servers=servers, connection_results=connection_results)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

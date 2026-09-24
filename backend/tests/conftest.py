@@ -1,5 +1,6 @@
 """Shared fixtures for Speedarr backend tests."""
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.config import (
     SpeedarrConfig,
@@ -8,6 +9,7 @@ from app.config import (
     UploadBandwidthConfig,
     StreamBandwidthConfig,
 )
+from app.database import Base
 from app.services.decision_engine import DecisionEngine
 
 
@@ -71,3 +73,15 @@ def make_engine():
     def _make(**kwargs):
         return DecisionEngine(make_config(**kwargs))
     return _make
+
+
+@pytest.fixture
+async def db():
+    """In-memory aiosqlite session with the full schema, shared by the config-storage tests."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as session:
+        yield session
+    await engine.dispose()

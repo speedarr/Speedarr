@@ -12,6 +12,7 @@ interface PasswordInputProps {
   disabled?: boolean;
   className?: string;
   maxLength?: number;
+  id?: string;
 }
 
 export const PasswordInput: React.FC<PasswordInputProps> = ({
@@ -23,12 +24,14 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
   disabled = false,
   className = '',
   maxLength,
+  id,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
     <div className="relative">
       <Input
+        id={id}
         type={showPassword ? 'text' : 'password'}
         value={value}
         onChange={onChange}

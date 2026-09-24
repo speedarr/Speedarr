@@ -4,7 +4,7 @@ Guards two 500 classes:
   1. A populated section (model) must return its config dict (the `return masked`
      regression that broke every visible settings tab).
   2. An unset (Optional=None) or list-typed section must return {} rather than
-     crashing _mask_sensitive_values(None) with AttributeError.
+     crashing mask_value(None) with AttributeError.
 """
 from types import SimpleNamespace
 

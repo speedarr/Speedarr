@@ -11,14 +11,24 @@ from cryptography.fernet import Fernet
 import os
 import logging
 import uuid
+import types
+import typing
 
 logger = logging.getLogger(__name__)
+
+
+# Marker for fields whose values are secrets; the registry at the end of this module is derived from it.
+SENSITIVE = {"sensitive": True}
+# The one placeholder every settings response uses for a secret, and the writer reads as "keep the stored value".
+REDACTED = "***REDACTED***"
+# Bump when a field gains the marker so encrypt_stored_secrets re-runs for that field's existing rows.
+SECRETS_SCHEMA_VERSION = 1
 
 
 class PlexConfig(BaseModel):
     """Plex Media Server configuration."""
     url: str = ""  # http://192.168.1.100:32400
-    token: str = ""  # X-Plex-Token
+    token: str = Field("", json_schema_extra=SENSITIVE)  # X-Plex-Token
     include_lan_streams: bool = Field(
         default=False,
         description="Include LAN streams in bandwidth calculations (WAN-only by default)"
@@ -32,8 +42,8 @@ class MediaServerConfig(BaseModel):
     type: str = Field("plex", description="Server type: plex, emby, jellyfin")
     enabled: bool = True
     url: str = ""
-    token: str = ""        # Plex (X-Plex-Token)
-    api_key: str = ""      # Emby / Jellyfin
+    token: str = Field("", json_schema_extra=SENSITIVE)        # Plex (X-Plex-Token)
+    api_key: str = Field("", json_schema_extra=SENSITIVE)      # Emby / Jellyfin
     include_lan_streams: bool = Field(
         default=False,
         description="Include LAN streams from this server in bandwidth calculations",
@@ -72,14 +82,14 @@ class QBittorrentConfig(BaseModel):
     """qBittorrent service configuration."""
     url: str
     username: str
-    password: str
+    password: str = Field(..., json_schema_extra=SENSITIVE)
     enabled: bool = True
 
 
 class SABnzbdConfig(BaseModel):
     """SABnzbd service configuration."""
     url: str
-    api_key: str
+    api_key: str = Field(..., json_schema_extra=SENSITIVE)
     enabled: bool = True
     max_speed_mbps: float = Field(
         900.0,
@@ -97,8 +107,8 @@ class DownloadClientConfig(BaseModel):
     url: str
     # Auth fields (used by different clients)
     username: Optional[str] = None
-    password: Optional[str] = None
-    api_key: Optional[str] = None
+    password: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
+    api_key: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     # Client-specific settings
     max_speed_mbps: Optional[float] = Field(None, description="Max speed for clients that need it (SABnzbd, NZBGet)")
     # Bandwidth allocation
@@ -112,7 +122,7 @@ class SNMPConfig(BaseModel):
     host: str = ""
     port: int = 161
     version: str = "v2c"  # Only v2c is supported
-    community: str = "public"  # SNMP v2c community string
+    community: str = Field("public", json_schema_extra=SENSITIVE)  # SNMP v2c community string
     interface: str = ""  # Interface name or SNMP index
 
 
@@ -217,7 +227,7 @@ class RestorationConfig(BaseModel):
 class DiscordNotificationConfig(BaseModel):
     """Discord notification configuration."""
     enabled: bool = False
-    webhook_url: Optional[str] = None
+    webhook_url: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
         "stream_bitrate_exceeded", "service_unreachable"
@@ -227,8 +237,8 @@ class DiscordNotificationConfig(BaseModel):
 class PushoverNotificationConfig(BaseModel):
     """Pushover notification configuration."""
     enabled: bool = False
-    user_key: Optional[str] = None
-    api_token: Optional[str] = None
+    user_key: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
+    api_token: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     priority: int = Field(0, ge=-2, le=2, description="Message priority (-2 to 2)")
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
@@ -239,8 +249,8 @@ class PushoverNotificationConfig(BaseModel):
 class TelegramNotificationConfig(BaseModel):
     """Telegram notification configuration."""
     enabled: bool = False
-    bot_token: Optional[str] = None
-    chat_id: Optional[str] = None
+    bot_token: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
+    chat_id: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
         "stream_bitrate_exceeded", "service_unreachable"
@@ -251,7 +261,7 @@ class GotifyNotificationConfig(BaseModel):
     """Gotify notification configuration."""
     enabled: bool = False
     server_url: Optional[str] = None
-    app_token: Optional[str] = None
+    app_token: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     priority: int = Field(5, ge=0, le=10, description="Message priority (0-10)")
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
@@ -263,7 +273,7 @@ class NtfyNotificationConfig(BaseModel):
     """ntfy notification configuration."""
     enabled: bool = False
     server_url: str = Field("https://ntfy.sh", description="ntfy server URL")
-    topic: Optional[str] = None
+    topic: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     priority: int = Field(3, ge=1, le=5, description="Message priority (1-5)")
     events: List[str] = Field(default_factory=lambda: [
         "stream_started", "stream_ended", "stream_count_exceeded",
@@ -715,7 +725,138 @@ def deserialize_value(value_str: str, value_type: str) -> Any:
         return value_str
 
 
+# ---------------------------------------------------------------------------
+# Sensitive-field registry (audit T1-1 / T1-3)
+#
+# The models above mark secret fields with `json_schema_extra=SENSITIVE`. This block derives the
+# set of dotted paths once at import and is the ONLY definition of "sensitive" in the app: the
+# database codec (services/config_manager), the API masks (api/settings) and the log redactor
+# (utils/redaction) all read it. A path is a tuple of segments; "[]" stands for a list element.
+# ---------------------------------------------------------------------------
+
+_UNION_TYPES = tuple(
+    t for t in (getattr(typing, "Union", None), getattr(types, "UnionType", None)) if t is not None
+)
+
+
+def _unwrap_annotation(annotation):
+    """(model_cls, is_list) for BaseModel, Optional[BaseModel] or List[BaseModel]; else (None, False)."""
+    origin = typing.get_origin(annotation)
+    if origin in _UNION_TYPES:
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        return _unwrap_annotation(args[0]) if len(args) == 1 else (None, False)
+    if origin is list:
+        args = typing.get_args(annotation)
+        inner, _ = _unwrap_annotation(args[0]) if args else (None, False)
+        return (inner, True)
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return (annotation, False)
+    return (None, False)
+
+
+def _collect_sensitive_paths(model_cls, prefix=()):
+    paths = set()
+    for name, field in model_cls.model_fields.items():
+        extra = field.json_schema_extra
+        if isinstance(extra, dict) and extra.get("sensitive"):
+            paths.add(prefix + (name,))
+            continue
+        inner, is_list = _unwrap_annotation(field.annotation)
+        if inner is not None:
+            paths |= _collect_sensitive_paths(inner, prefix + ((name, "[]") if is_list else (name,)))
+    return paths
+
+
+SENSITIVE_PATHS = frozenset(_collect_sensitive_paths(SpeedarrConfig))
+SECRET_LEAF_NAMES = frozenset(path[-1] for path in SENSITIVE_PATHS)
+
+
+def path_to_str(path) -> str:
+    """('download_clients', '[]', 'password') -> 'download_clients[].password'."""
+    return ".".join(path).replace(".[]", "[]")
+
+
+def section_model(section_name: str):
+    """(model_cls, is_list) for a top-level SpeedarrConfig field; (None, False) when unknown."""
+    field = SpeedarrConfig.model_fields.get(section_name)
+    return _unwrap_annotation(field.annotation) if field is not None else (None, False)
+
+
+def _segments(key: str) -> tuple:
+    return tuple(key.split("."))
+
+
 def is_sensitive_key(key: str) -> bool:
-    """Check if a configuration key contains sensitive data."""
-    sensitive_keywords = ["password", "api_key", "secret", "webhook_url", "token"]
-    return any(keyword in key.lower() for keyword in sensitive_keywords)
+    """True when this flattened key IS a secret (a scalar row such as notifications.ntfy.topic)."""
+    return _segments(key) in SENSITIVE_PATHS
+
+
+def has_sensitive_leaves(key: str) -> bool:
+    """True when secrets live INSIDE this key's value (a json row such as download_clients)."""
+    segs = _segments(key)
+    return any(len(p) > len(segs) and p[: len(segs)] == segs for p in SENSITIVE_PATHS)
+
+
+def _paths_under(key: str):
+    segs = _segments(key)
+    return [p[len(segs):] for p in SENSITIVE_PATHS if p[: len(segs)] == segs]
+
+
+def _apply_at(value, rest, fn):
+    if not rest:
+        return fn(value) if isinstance(value, str) and value else value
+    seg, tail = rest[0], rest[1:]
+    if seg == "[]":
+        return [_apply_at(item, tail, fn) for item in value] if isinstance(value, list) else value
+    if isinstance(value, dict) and seg in value:
+        out = dict(value)
+        out[seg] = _apply_at(value[seg], tail, fn)
+        return out
+    return value
+
+
+def transform_secrets(key: str, value: Any, fn) -> Any:
+    """Apply fn to every non-empty string secret at or under `key` inside `value`.
+
+    Returns a new structure and never mutates the input. None, empty strings and non-string
+    leaves pass through untouched. For a scalar secret key the value is the string itself.
+    """
+    for rest in _paths_under(key):
+        value = _apply_at(value, rest, fn)
+    return value
+
+
+def protect_value(key: str, value: Any) -> Any:
+    """Secrets -> Fernet tokens (leaf-level inside json rows). Refuses the masked placeholder."""
+    def _encrypt(secret: str) -> str:
+        if secret == REDACTED:
+            raise ValueError(f"Refusing to store the masked placeholder as the value of '{key}'")
+        return encrypt_value(secret)
+    return transform_secrets(key, value, _encrypt)
+
+
+def expose_value(key: str, value: Any) -> Any:
+    """Fernet tokens -> secrets. cryptography.fernet.InvalidToken propagates to the caller."""
+    return transform_secrets(key, value, decrypt_value)
+
+
+def mask_value(key: str, value: Any) -> Any:
+    """Secrets -> REDACTED for API responses. `key` is the section or list name `value` belongs to."""
+    return transform_secrets(key, value, lambda _secret: REDACTED)
+
+
+def mask_stored(key: str, value_str: Optional[str], value_type: str) -> Optional[str]:
+    """mask_value over a serialised database value (configuration_history rows).
+
+    None, empty, the '[DELETED]' marker, the legacy 'None' literal and unparseable json
+    come back unchanged.
+    """
+    if value_str in (None, "", "[DELETED]", "None"):
+        return value_str
+    if value_type == "json":
+        try:
+            parsed = json.loads(value_str)
+        except (ValueError, TypeError):
+            return value_str
+        return json.dumps(mask_value(key, parsed))
+    return mask_value(key, value_str)
