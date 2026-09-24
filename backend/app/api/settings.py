@@ -11,7 +11,7 @@ from app.database import get_db
 from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
-from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig, mask_value, REDACTED
+from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig, mask_value, mask_stored, REDACTED
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -1094,8 +1094,8 @@ async def get_history(
     return [
         HistoryEntry(
             key=entry.key,
-            old_value=entry.old_value,
-            new_value=entry.new_value,
+            old_value=mask_stored(entry.key, entry.old_value, entry.value_type),
+            new_value=mask_stored(entry.key, entry.new_value, entry.value_type),
             value_type=entry.value_type,
             changed_at=entry.changed_at.isoformat(),
             changed_by=entry.changed_by,

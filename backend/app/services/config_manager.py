@@ -16,21 +16,21 @@ from app.config import (
     deserialize_value,
     get_value_type,
     is_sensitive_key,
+    has_sensitive_leaves,
+    protect_value,
+    expose_value,
+    mask_value,
+    mask_stored,
+    transform_secrets,
     encrypt_value,
     decrypt_value,
+    SECRETS_SCHEMA_VERSION,
     REDACTED,
 )
 from app.models.configuration import Configuration, ConfigurationHistory
 from app.utils.logger import set_log_level
 
 logger = logging.getLogger(__name__)
-
-
-def _legacy_is_sensitive_key(key: str) -> bool:
-    """The pre-registry substring test. Still gates encrypt/decrypt until audit T1-1 moves both
-    gates to the registry and deletes this function; the placeholder skip in _update_key already
-    uses the registry so a masked value posted back for a T1-3 key never overwrites the stored one."""
-    return any(k in key.lower() for k in ("password", "api_key", "secret", "webhook_url", "token"))
 
 
 # Flattened DB prefixes whose trailing segment is a per-client percent key.
@@ -42,6 +42,9 @@ PERCENT_KEY_PREFIXES = [
     "failsafe.shutdown_download_client_percents.",
     "failsafe.shutdown_upload_client_percents.",
 ]
+
+# Internal row that records which registry version encrypt_stored_secrets has been run for.
+SECRETS_MARKER_KEY = "_secrets_encrypted"
 
 
 def resolve_percent_key(key, clients):
@@ -228,10 +231,11 @@ class ConfigManager:
             if row.value_type == "string" and value == "None":
                 value = None
 
-            # Decrypt if sensitive
-            if _legacy_is_sensitive_key(row.key) and row.value_type == "string" and value is not None:
+            # Decrypt secrets: scalar secret rows and the secret leaves inside json rows (audit T1-1).
+            # Strict on purpose: an undecryptable leaf fails fast, never loads as cleartext.
+            if value is not None and (is_sensitive_key(row.key) or has_sensitive_leaves(row.key)):
                 try:
-                    value = decrypt_value(value)
+                    value = expose_value(row.key, value)
                     # Handle "None" string from old migrations
                     if value == "None":
                         value = None
@@ -307,12 +311,9 @@ class ConfigManager:
 
         # Store in database
         for key, value in flat_config.items():
-            value_type = get_value_type(value)
-            value_str = serialize_value(value, value_type)
-
-            # Encrypt sensitive values (but not None/null values)
-            if _legacy_is_sensitive_key(key) and value_type == "string" and value is not None:
-                value_str = encrypt_value(value_str)
+            stored = protect_value(key, value)  # secrets -> Fernet tokens, leaf-level inside json rows
+            value_type = get_value_type(stored)
+            value_str = serialize_value(stored, value_type)
 
             config_row = Configuration(
                 key=key,
@@ -413,52 +414,33 @@ class ConfigManager:
                 logger.debug(f"Deleted config key with None value: {key}")
             return
 
-        value_type = get_value_type(value)
-        value_str = serialize_value(value, value_type)
-
-
-        # Encrypt sensitive values (but not None values)
-        if _legacy_is_sensitive_key(key) and value_type == "string" and value is not None:
-            value_str = encrypt_value(value_str)
+        # Secrets -> Fernet tokens, leaf-level inside json rows (audit T1-1). History never holds a
+        # secret in any form: rows for keys with secrets record the masked structures on both sides.
+        stored = protect_value(key, value)
+        value_type = get_value_type(stored)
+        value_str = serialize_value(stored, value_type)
+        secret_row = is_sensitive_key(key) or has_sensitive_leaves(key)
+        history_new = serialize_value(mask_value(key, value), value_type) if secret_row else value_str
 
         # Get existing row
         result = await db.execute(select(Configuration).where(Configuration.key == key))
         existing = result.scalar_one_or_none()
 
         if existing:
-            # Record old value in history
-            history_entry = ConfigurationHistory(
-                key=key,
-                old_value=existing.value,
-                new_value=value_str,
-                value_type=value_type,
-                changed_by=user_id,
-            )
-            db.add(history_entry)
-
-            # Update existing
+            history_old = mask_stored(key, existing.value, existing.value_type) if secret_row else existing.value
+            db.add(ConfigurationHistory(
+                key=key, old_value=history_old, new_value=history_new,
+                value_type=value_type, changed_by=user_id,
+            ))
             existing.value = value_str
             existing.value_type = value_type
             existing.updated_by = user_id
         else:
-            # Create new
-            new_config = Configuration(
-                key=key,
-                value=value_str,
-                value_type=value_type,
-                updated_by=user_id,
-            )
-            db.add(new_config)
-
-            # Record in history
-            history_entry = ConfigurationHistory(
-                key=key,
-                old_value=None,
-                new_value=value_str,
-                value_type=value_type,
-                changed_by=user_id,
-            )
-            db.add(history_entry)
+            db.add(Configuration(key=key, value=value_str, value_type=value_type, updated_by=user_id))
+            db.add(ConfigurationHistory(
+                key=key, old_value=None, new_value=history_new,
+                value_type=value_type, changed_by=user_id,
+            ))
 
     async def cleanup_legacy_bandwidth_keys(self, db: AsyncSession, user_id: Optional[int] = None):
         """
@@ -605,6 +587,77 @@ class ConfigManager:
             await db.commit()
             logger.info("Migrated bandwidth/failsafe percent keys from client type to client id")
         return changed
+
+    async def encrypt_stored_secrets(self, db: AsyncSession) -> bool:
+        """Encrypt secret leaves still stored in clear and scrub secrets out of history (audit T1-1).
+
+        Runs once per SECRETS_SCHEMA_VERSION, gated by the _secrets_encrypted marker row, BEFORE the
+        first config load (the loader is strict and would refuse a cleartext leaf). Idempotent per
+        leaf: a leaf that already decrypts is left byte-identical, an already-scrubbed history
+        value masks to itself, so a run interrupted half-way heals on the next start. With the
+        marker present nothing is touched, so a rotated key can never get rows double-encrypted.
+        Returns True when it ran.
+        """
+        marker = (await db.execute(
+            select(Configuration).where(Configuration.key == SECRETS_MARKER_KEY)
+        )).scalar_one_or_none()
+        if marker is not None:
+            try:
+                if int(marker.value) >= SECRETS_SCHEMA_VERSION:
+                    return False
+            except ValueError:
+                pass  # unreadable marker: run again, it is safe
+
+        def encrypt_if_clear(secret: str) -> str:
+            try:
+                decrypt_value(secret)
+                return secret
+            except Exception:
+                return encrypt_value(secret)
+
+        rows_updated = 0
+        rows = (await db.execute(
+            # autoescape=True: plain startswith("_") treats "_" as a LIKE wildcard (any single
+            # char) and matches every non-empty key, silently returning zero rows once negated.
+            select(Configuration).where(~Configuration.key.startswith("_", autoescape=True))
+        )).scalars().all()
+        for row in rows:
+            if not (is_sensitive_key(row.key) or has_sensitive_leaves(row.key)):
+                continue
+            if row.value_type == "string" and row.value == "None":
+                continue  # legacy literal; the loader maps it to None before exposing
+            try:
+                current = deserialize_value(row.value, row.value_type)
+            except (ValueError, TypeError):
+                continue
+            protected = transform_secrets(row.key, current, encrypt_if_clear)
+            if protected != current:
+                row.value = serialize_value(protected, row.value_type)
+                rows_updated += 1
+
+        history_scrubbed = 0
+        for entry in (await db.execute(select(ConfigurationHistory))).scalars().all():
+            if not (is_sensitive_key(entry.key) or has_sensitive_leaves(entry.key)):
+                continue
+            old_masked = mask_stored(entry.key, entry.old_value, entry.value_type)
+            new_masked = mask_stored(entry.key, entry.new_value, entry.value_type)
+            if old_masked != entry.old_value or new_masked != entry.new_value:
+                entry.old_value, entry.new_value = old_masked, new_masked
+                history_scrubbed += 1
+
+        if marker is None:
+            db.add(Configuration(
+                key=SECRETS_MARKER_KEY, value=str(SECRETS_SCHEMA_VERSION), value_type="integer",
+                description="Stored secrets encrypted through the sensitive-field registry",
+            ))
+        else:
+            marker.value = str(SECRETS_SCHEMA_VERSION)
+        await db.commit()
+        logger.info(
+            f"Encrypted stored secrets: {rows_updated} configuration rows updated, "
+            f"{history_scrubbed} history entries scrubbed (schema v{SECRETS_SCHEMA_VERSION})"
+        )
+        return True
 
     async def _reload_services(self, section_name: str, config: SpeedarrConfig):
         """

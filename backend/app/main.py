@@ -198,6 +198,11 @@ async def lifespan(app: FastAPI):
     config_manager = ConfigManager(app)
     app.state.config_manager = config_manager
 
+    # Encrypt any secret still stored in clear and scrub history (audit T1-1). Must run before the
+    # strict loader reads the rows; a failure here stops startup rather than boot with cleartext.
+    async with AsyncSessionLocal() as db:
+        await config_manager.encrypt_stored_secrets(db)
+
     # Load configuration from database
     async with AsyncSessionLocal() as db:
         config = await config_manager.load_config_from_db(db)
