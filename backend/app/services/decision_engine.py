@@ -1,7 +1,7 @@
 """
 Decision engine for calculating bandwidth throttling decisions.
 """
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 from datetime import datetime, timedelta, time, timezone
 from loguru import logger
 from app.config import SpeedarrConfig, TimeBasedScheduleConfig
@@ -69,6 +69,9 @@ class DecisionEngine:
         # floored/rounded limit last emitted per client, which is the saturation denominator.
         self._demand: Dict[str, DemandTracker] = {"download": DemandTracker(), "upload": DemandTracker()}
         self._last_emitted: Dict[str, Dict[str, float]] = {"download": {}, "upload": {}}
+        # Clients currently held out of the pool because their stats call failed (audit
+        # T3-1); one set for both directions, used only for the transition log lines.
+        self._held: Set[str] = set()
 
     def _floor(self, limit: float, configured_min: float) -> float:
         """Clamp a throttle allocation so it is never 0 (which clients read as 'unlimited')."""
@@ -144,6 +147,50 @@ class DecisionEngine:
             )
         return alloc
 
+    def _hold_outs(
+        self,
+        direction: str,
+        errored: List[str],
+        clients: List[str],
+        available: float,
+        percents: Dict[str, int],
+    ) -> Dict[str, float]:
+        """
+        Amount each errored client holds out of the pool for one direction (audit T3-1).
+
+        A client the controller manager could not read is assumed to still run under the
+        last limit it was given, so that amount stays out of the redistributable pool.
+        With nothing emitted since start, its configured share of the pool stands in
+        (percents over all clients when every client has one, else the equal split).
+        """
+        last = self._last_emitted[direction]
+        weights = split_weights(clients, percents)
+        return {c: last[c] if c in last else available * weights[c] for c in errored}
+
+    def _log_hold_transitions(
+        self,
+        errored: List[str],
+        since_start: List[str],
+        all_clients: List[str],
+        download_stats: Dict[str, Dict[str, Any]],
+        decisions: Dict[str, Dict[str, Any]],
+    ) -> None:
+        """One INFO line when a client starts being held out, one when it answers again (audit T3-1)."""
+        errored_now = set(errored)
+        for c in sorted(errored_now - self._held):
+            d = decisions[c]
+            figures = f"download {d['download_limit']:.1f} Mbps"
+            if download_stats[c].get("supports_upload", False):
+                figures += f", upload {d['upload_limit']:.1f} Mbps"
+            if c in since_start:
+                logger.info(f"{c} unreachable since start: holding its configured share out of the pool ({figures})")
+            else:
+                logger.info(f"{c} unreachable: holding its last limits out of the pool ({figures})")
+        for c in sorted(self._held - errored_now):
+            if c in all_clients:
+                logger.info(f"{c} reachable again: back in the split")
+        self._held = errored_now
+
     def _demand_adjust(
         self,
         direction: str,
@@ -173,6 +220,8 @@ class DecisionEngine:
         denominators: Dict[str, float] = {}
         for client_id in target:
             client_stats = stats.get(client_id, {})
+            # Errored clients never reach here since the split covers reachable clients only (audit
+            # T3-1); the "error" check stays as belt and braces.
             if client_id not in active or "error" in client_stats:
                 tracker.reset(client_id)
                 continue
@@ -307,58 +356,70 @@ class DecisionEngine:
         # Subtract download reserve for TCP ACKs/retransmissions from active and held streams
         available_download = max(0, download_total_limit - total_download_reserve)
 
-        # Apply SNMP constraints if available
-        if snmp_data:
-            available_download = self._apply_snmp_download_constraint(
-                available_download, snmp_data, download_stats
-            )
-
-        # Ensure non-negative download
-        available_download = max(0, available_download)
-
-        # Calculate available upload (streams use upload bandwidth)
-        # Subtract reserved bandwidth (from recently ended streams - keeps upload limits LOW)
-        upload_before_reservation = upload_total_limit - total_stream_bandwidth
-        available_upload = max(0, upload_before_reservation - reserved_bandwidth_mbps)
-
         # Get all available clients (we always apply limits to all clients)
         all_clients = list(download_stats.keys())
 
         if not all_clients:
             logger.debug("No download clients configured")
+            self._held.clear()
             return decisions
+
+        # A client whose stats call failed is "share unknown" (audit T3-1): it is assumed to
+        # still run under the last limit it was given, so that amount is held out of the
+        # pool and only the reachable clients split the rest.
+        errored = [c for c in all_clients if "error" in download_stats[c]]
+        reachable = [c for c in all_clients if c not in errored]
+        since_start = [c for c in errored if c not in self._last_emitted["download"]]
+        dl_percents = self._download_percents(download_in_schedule)
+        download_held = self._hold_outs(
+            "download", errored, all_clients, available_download, dl_percents
+        )
+        held_total = sum(download_held.values())
+
+        # Apply SNMP constraints if available
+        if snmp_data:
+            available_download = self._apply_snmp_download_constraint(
+                available_download, snmp_data, download_stats, held_total
+            )
+
+        # Take the hold-outs off the pool; ensure non-negative download
+        available_download = max(0, available_download - held_total)
 
         # Active threshold: 10% of standby bandwidth, but never above 80% of the safety-net
         # cap an inactive client is held to (with two clients the two are otherwise equal).
         safety_net_fraction = self._safety_net_fraction()
-        active_threshold = self._active_threshold(available_download, len(all_clients))
+        active_threshold = self._active_threshold(available_download, len(reachable))
 
         # Identify which clients are actively downloading, with inactive buffer
         # A client is considered active if:
         #   - Current speed > threshold (resets inactive counter), OR
         #   - It was active recently (inactive counter < buffer threshold)
+        # Errored clients keep their counters moving (their speed reads as 0) so a client
+        # that answers again idle after a long outage is inactive at once, but they never
+        # join the split while held.
         active_downloading = []
         for name, stats in download_stats.items():
             current_speed = stats.get("download_speed", 0)
             if current_speed > active_threshold:
                 # Client is actively downloading - reset inactive counter
                 self._inactive_counter[name] = 0
-                active_downloading.append(name)
+                if name in reachable:
+                    active_downloading.append(name)
             else:
                 # Client is below threshold - increment inactive counter
                 self._inactive_counter[name] = self._inactive_counter.get(name, 0) + 1
                 # Still considered "active" if within the buffer period
-                if self._inactive_counter[name] < self.INACTIVE_BUFFER_INTERVALS:
+                if name in reachable and self._inactive_counter[name] < self.INACTIVE_BUFFER_INTERVALS:
                     active_downloading.append(name)
                     logger.debug(
                         f"{name}: Speed {current_speed:.2f} Mbps < threshold {active_threshold:.2f} Mbps, "
                         f"inactive buffer {self._inactive_counter[name]}/{self.INACTIVE_BUFFER_INTERVALS}"
                     )
 
-        # Allocate download bandwidth (independent of streams), then move unused share
-        dl_percents = self._download_percents(download_in_schedule)
+        # Allocate download bandwidth among the reachable clients (independent of streams),
+        # then move unused share; the errored clients keep their hold-outs.
         download_targets = self._target_split(
-            all_clients, available_download, active_downloading,
+            reachable, available_download, active_downloading,
             dl_percents, safety_net_fraction, "download",
         )
         download_allocations = self._demand_adjust(
@@ -369,6 +430,12 @@ class DecisionEngine:
             max(available_download * safety_net_fraction,
                 self.config.bandwidth.download.min_limit_mbps, HARD_MIN_MBPS),
         )
+        download_allocations.update(download_held)
+
+        # Calculate available upload (streams use upload bandwidth)
+        # Subtract reserved bandwidth (from recently ended streams - keeps upload limits LOW)
+        upload_before_reservation = upload_total_limit - total_stream_bandwidth
+        available_upload = max(0, upload_before_reservation - reserved_bandwidth_mbps)
 
         # Calculate upload bandwidth (Plex-aware, qBittorrent only)
         upload_allocations = self._calculate_upload_limits(
@@ -417,6 +484,8 @@ class DecisionEngine:
             for stale in [c for c in direction_limits if c not in all_clients]:
                 direction_limits.pop(stale, None)
 
+        self._log_hold_transitions(errored, since_start, all_clients, download_stats, decisions)
+
         # Record throttle time
         self._last_throttle_time = {name: datetime.now(timezone.utc) for name in all_clients}
 
@@ -432,7 +501,8 @@ class DecisionEngine:
         Upload limits for upload-capable clients (torrents). Usenet clients get 0.
 
         Active detection mirrors the download side (10% of standby, six-poll buffer);
-        the split itself is the shared _target_split.
+        the split itself is the shared _target_split. Errored clients hold their last
+        upload limit out of the pool (audit T3-1).
         """
         upload_limits: Dict[str, float] = {
             cid: 0 for cid, s in download_stats.items() if not s.get("supports_upload", False)
@@ -444,17 +514,23 @@ class DecisionEngine:
         percents = self._upload_percents(use_scheduled)
         safety_net_fraction = self._safety_net_fraction()
 
-        active_threshold = self._active_threshold(available_upload, len(upload_clients))
+        errored = [c for c in upload_clients if "error" in download_stats[c]]
+        reachable = [c for c in upload_clients if c not in errored]
+        upload_held = self._hold_outs("upload", errored, upload_clients, available_upload, percents)
+        available_upload = max(0, available_upload - sum(upload_held.values()))
+
+        active_threshold = self._active_threshold(available_upload, len(reachable))
 
         active_uploading = []
         for client_id in upload_clients:
             current_upload_speed = download_stats.get(client_id, {}).get("upload_speed", 0)
             if current_upload_speed > active_threshold:
                 self._upload_inactive_counter[client_id] = 0
-                active_uploading.append(client_id)
+                if client_id in reachable:
+                    active_uploading.append(client_id)
             else:
                 self._upload_inactive_counter[client_id] = self._upload_inactive_counter.get(client_id, 0) + 1
-                if self._upload_inactive_counter[client_id] < self.INACTIVE_BUFFER_INTERVALS:
+                if client_id in reachable and self._upload_inactive_counter[client_id] < self.INACTIVE_BUFFER_INTERVALS:
                     active_uploading.append(client_id)
                     logger.debug(
                         f"{client_id}: Upload speed {current_upload_speed:.2f} Mbps < threshold {active_threshold:.2f} Mbps, "
@@ -462,7 +538,7 @@ class DecisionEngine:
                     )
 
         targets = self._target_split(
-            upload_clients, available_upload, active_uploading,
+            reachable, available_upload, active_uploading,
             percents, safety_net_fraction, "upload",
         )
         upload_limits.update(self._demand_adjust(
@@ -471,30 +547,39 @@ class DecisionEngine:
             max(available_upload * safety_net_fraction,
                 self.config.bandwidth.upload.min_limit_mbps, HARD_MIN_MBPS),
         ))
+        upload_limits.update(upload_held)
         return upload_limits
 
     def _apply_snmp_download_constraint(
         self,
         available_download: float,
         snmp_data: Dict[str, float],
-        download_stats: Dict[str, Dict[str, Any]]
+        download_stats: Dict[str, Dict[str, Any]],
+        held_total: float = 0.0,
     ) -> float:
         """Apply SNMP constraints to download bandwidth only.
 
         Subtracts only non-managed (other device) traffic from available bandwidth.
         SNMP reports total WAN download which includes managed client traffic,
         so we subtract managed client speeds to avoid double-counting.
+
+        Clients held out of the pool (audit T3-1) report no speed, so their traffic
+        would otherwise count as "other devices" and be subtracted once here and once
+        again as the hold-out; held_total credits them as using their cap.
         """
         current_download = snmp_data.get("download", 0)
         managed_download = sum(
             stats.get("download_speed", 0) for stats in download_stats.values()
-        )
+        ) + held_total
         other_usage = max(0, current_download - managed_download)
         constrained = max(0, available_download - other_usage)
         if constrained < available_download:
+            managed_str = f"managed clients: {managed_download:.1f}"
+            if held_total:
+                managed_str += f" (incl. {held_total:.1f} held)"
             logger.debug(
                 f"SNMP: Download {available_download:.1f} → {constrained:.1f} Mbps "
-                f"(SNMP total: {current_download:.1f}, managed clients: {managed_download:.1f}, "
+                f"(SNMP total: {current_download:.1f}, {managed_str}, "
                 f"other devices: {other_usage:.1f})"
             )
         return constrained
