@@ -217,12 +217,10 @@ export const NotificationsSettings: React.FC = () => {
     setTelegramTestResult(null);
 
     try {
-      const useExisting = config.telegram.bot_token?.includes('***REDACTED***') ||
-                          config.telegram.chat_id?.includes('***REDACTED***');
       const response = await apiClient.testConnection('telegram', {
         bot_token: config.telegram.bot_token,
         chat_id: config.telegram.chat_id,
-      }, useExisting);
+      }, false);
       setTelegramTestResult({ success: response.success, message: response.message });
       if (response.success) {
         setTimeout(() => setTelegramTestResult(null), 3000);

@@ -98,17 +98,23 @@ describe('NotificationsSettings masked chat id and topic (audit T1-3)', () => {
     expect(payload.telegram.chat_id).toBe('***REDACTED***');
   });
 
-  it('tests ntfy and Telegram against the saved values when they are masked', async () => {
+  it('tests ntfy with "use existing" and Telegram with the placeholders themselves', async () => {
     renderTab();
     await screen.findByLabelText('Topic');
     fireEvent.click(screen.getByRole('button', { name: /test ntfy/i }));
     await waitFor(() => expect(api.testConnection).toHaveBeenCalledWith('ntfy', expect.anything(), true));
     await waitFor(() => expect(screen.getByRole('button', { name: /test telegram/i })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: /test telegram/i }));
-    await waitFor(() => expect(api.testConnection).toHaveBeenCalledWith('telegram', expect.anything(), true));
+    await waitFor(() =>
+      expect(api.testConnection).toHaveBeenCalledWith(
+        'telegram',
+        { bot_token: '***REDACTED***', chat_id: '***REDACTED***' },
+        false,
+      ),
+    );
   });
 
-  it('sends "use existing" for Telegram when only the chat id is masked', async () => {
+  it('tests Telegram with the typed bot token and the masked chat id, never the saved token', async () => {
     api.getSettingsSection.mockResolvedValue({
       config: {
         ...maskedConfig,
@@ -118,6 +124,12 @@ describe('NotificationsSettings masked chat id and topic (audit T1-3)', () => {
     renderTab();
     await screen.findByLabelText('Chat ID');
     fireEvent.click(screen.getByRole('button', { name: /test telegram/i }));
-    await waitFor(() => expect(api.testConnection).toHaveBeenCalledWith('telegram', expect.anything(), true));
+    await waitFor(() =>
+      expect(api.testConnection).toHaveBeenCalledWith(
+        'telegram',
+        { bot_token: '123456:AUDITMARK-fresh-bot-token', chat_id: '***REDACTED***' },
+        false,
+      ),
+    );
   });
 });

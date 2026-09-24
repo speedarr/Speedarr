@@ -1119,6 +1119,14 @@ async def discover_snmp_interfaces(
 
     config_data = test_request.config
 
+    if config_data.get("community") == REDACTED:
+        return {
+            "success": False,
+            "message": "Cannot discover interfaces with the masked community string. Enter the community string and try again.",
+            "interfaces": [],
+            "suggested_wan": None,
+        }
+
     try:
         # Build SNMP config from test data
         try:
@@ -1194,6 +1202,13 @@ async def poll_snmp_speeds(
     """
     from app.services.snmp_monitor import SNMPMonitor
     from app.config import SNMPConfig
+
+    if request.config.get("community") == REDACTED:
+        return {
+            "success": False,
+            "message": "Cannot poll speeds with the masked community string. Enter the community string and try again.",
+            "speeds": {},
+        }
 
     try:
         snmp_config = SNMPConfig(**request.config)
