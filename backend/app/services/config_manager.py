@@ -6,6 +6,7 @@ Handles configuration updates, database storage, and service reloads.
 import logging
 from typing import Dict, Any, Optional
 from pydantic import ValidationError
+from cryptography.fernet import InvalidToken
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
 
@@ -25,6 +26,7 @@ from app.config import (
     transform_secrets,
     encrypt_value,
     decrypt_value,
+    looks_like_fernet_token,
     section_model,
     SECRETS_SCHEMA_VERSION,
     REDACTED,
@@ -653,9 +655,9 @@ class ConfigManager:
         Runs once per SECRETS_SCHEMA_VERSION, gated by the _secrets_encrypted marker row, BEFORE the
         first config load (the loader is strict and would refuse a cleartext leaf). Idempotent per
         leaf: a leaf that already decrypts is left byte-identical, an already-scrubbed history
-        value masks to itself, so a run interrupted half-way heals on the next start. With the
-        marker present nothing is touched, so a rotated key can never get rows double-encrypted.
-        Returns True when it ran.
+        value masks to itself, so a run interrupted half-way heals on the next start. A stored
+        token the current key cannot open aborts the run before the marker is written (rotated or
+        lost key), so rows are never double-encrypted. Returns True when it ran.
         """
         marker = (await db.execute(
             select(Configuration).where(Configuration.key == SECRETS_MARKER_KEY)
@@ -670,39 +672,51 @@ class ConfigManager:
         def encrypt_if_clear(secret: str) -> str:
             try:
                 decrypt_value(secret)
-                return secret
-            except Exception:
+                return secret  # already ours: leave it byte-identical
+            except InvalidToken:
+                if looks_like_fernet_token(secret):
+                    # A token this key cannot open: the key was rotated or lost. Abort before the marker is
+                    # written rather than wrap ciphertext in ciphertext and boot with unusable credentials.
+                    raise ValueError(
+                        "Cannot encrypt stored secrets: an existing value is a Fernet token this "
+                        "CONFIG_ENCRYPTION_KEY cannot open. Restore the key that wrote the database "
+                        "or reset the affected settings, then start again."
+                    )
                 return encrypt_value(secret)
 
-        rows_updated = 0
-        rows = (await db.execute(
-            # autoescape=True: plain startswith("_") treats "_" as a LIKE wildcard (any single
-            # char) and matches every non-empty key, silently returning zero rows once negated.
-            select(Configuration).where(~Configuration.key.startswith("_", autoescape=True))
-        )).scalars().all()
-        for row in rows:
-            if not (is_sensitive_key(row.key) or has_sensitive_leaves(row.key)):
-                continue
-            if row.value_type == "string" and row.value == "None":
-                continue  # legacy literal; the loader maps it to None before exposing
-            try:
-                current = deserialize_value(row.value, row.value_type)
-            except (ValueError, TypeError):
-                continue
-            protected = transform_secrets(row.key, current, encrypt_if_clear)
-            if protected != current:
-                row.value = serialize_value(protected, row.value_type)
-                rows_updated += 1
+        try:
+            rows_updated = 0
+            rows = (await db.execute(
+                # autoescape=True: plain startswith("_") treats "_" as a LIKE wildcard (any single
+                # char) and matches every non-empty key, silently returning zero rows once negated.
+                select(Configuration).where(~Configuration.key.startswith("_", autoescape=True))
+            )).scalars().all()
+            for row in rows:
+                if not (is_sensitive_key(row.key) or has_sensitive_leaves(row.key)):
+                    continue
+                if row.value_type == "string" and row.value == "None":
+                    continue  # legacy literal; the loader maps it to None before exposing
+                try:
+                    current = deserialize_value(row.value, row.value_type)
+                except (ValueError, TypeError):
+                    continue
+                protected = transform_secrets(row.key, current, encrypt_if_clear)
+                if protected != current:
+                    row.value = serialize_value(protected, row.value_type)
+                    rows_updated += 1
 
-        history_scrubbed = 0
-        for entry in (await db.execute(select(ConfigurationHistory))).scalars().all():
-            if not (is_sensitive_key(entry.key) or has_sensitive_leaves(entry.key)):
-                continue
-            old_masked = mask_stored(entry.key, entry.old_value, entry.value_type)
-            new_masked = mask_stored(entry.key, entry.new_value, entry.value_type)
-            if old_masked != entry.old_value or new_masked != entry.new_value:
-                entry.old_value, entry.new_value = old_masked, new_masked
-                history_scrubbed += 1
+            history_scrubbed = 0
+            for entry in (await db.execute(select(ConfigurationHistory))).scalars().all():
+                if not (is_sensitive_key(entry.key) or has_sensitive_leaves(entry.key)):
+                    continue
+                old_masked = mask_stored(entry.key, entry.old_value, entry.value_type)
+                new_masked = mask_stored(entry.key, entry.new_value, entry.value_type)
+                if old_masked != entry.old_value or new_masked != entry.new_value:
+                    entry.old_value, entry.new_value = old_masked, new_masked
+                    history_scrubbed += 1
+        except ValueError:
+            await db.rollback()
+            raise
 
         if marker is None:
             db.add(Configuration(

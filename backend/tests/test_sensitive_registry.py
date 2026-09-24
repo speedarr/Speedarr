@@ -156,3 +156,12 @@ def test_secret_leaf_names_feed_the_redactor():
         "password", "api_key", "token", "community", "user_key", "chat_id", "topic",
         "webhook_url", "api_token", "bot_token", "app_token",
     }
+
+
+def test_looks_like_fernet_token():
+    from app.config import looks_like_fernet_token, encrypt_value
+    assert looks_like_fernet_token(encrypt_value("x"))
+    assert not looks_like_fernet_token("AUDITMARK-plain")
+    assert not looks_like_fernet_token("")
+    assert not looks_like_fernet_token("gAAAAA-not-base64!!")
+    assert not looks_like_fernet_token(None)

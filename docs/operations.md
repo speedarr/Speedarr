@@ -21,7 +21,7 @@ Stop the container, copy the whole data folder somewhere safe, start it again. A
 
 `.encryption_key` matters more than it looks: it's what decrypts every stored password and token, so a database backup without the matching encryption key is not restorable — you'd have a config full of passwords Speedarr can no longer read. `.jwt_secret` is much lower stakes; lose it and everyone's just signed out, nothing else changes.
 
-Speedarr encrypts every stored secret on the first start after an upgrade that widens what counts as one (the log says "Encrypted stored secrets"). A database written by this release cannot be read by an older release; downgrading means running setup again.
+Speedarr encrypts every stored secret on the first start after an upgrade that widens what counts as one. A database written by this release cannot be read by an older release; downgrading means running setup again. If you have changed or lost the encryption key, restore the key that wrote the database before that first start: Speedarr refuses to start rather than re-encrypt values it cannot read.
 
 If you set `AUTH__SECRET_KEY` or `CONFIG_ENCRYPTION_KEY` yourself via the environment rather than letting Speedarr generate them, back those values up instead — the files won't exist.
 

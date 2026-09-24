@@ -8,6 +8,8 @@ import json
 import ipaddress
 from pathlib import Path
 from cryptography.fernet import Fernet
+import base64
+import binascii
 import os
 import logging
 import uuid
@@ -623,6 +625,20 @@ def encrypt_value(value: str) -> str:
 def decrypt_value(encrypted: str) -> str:
     """Decrypt a sensitive configuration value."""
     return _fernet.decrypt(encrypted.encode()).decode()
+
+
+def looks_like_fernet_token(value: str) -> bool:
+    """True for a string with Fernet's shape: urlsafe base64 whose first byte is the 0x80 version marker.
+
+    A cleartext secret does not start with "gAAAAA" in practice; a stored token that has this shape but
+    will not decrypt under the current key means the key was rotated or lost, not that the value is clear.
+    """
+    if not isinstance(value, str) or not value.startswith("gAAAAA"):
+        return False
+    try:
+        return base64.urlsafe_b64decode(value.encode())[:1] == b"\x80"
+    except (binascii.Error, ValueError):
+        return False
 
 
 # Database serialization helpers

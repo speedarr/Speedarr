@@ -173,3 +173,19 @@ def test_startup_runs_the_migration_before_the_first_config_load():
     from app import main
     src = inspect.getsource(main.lifespan)
     assert src.index("encrypt_stored_secrets") < src.index("load_config_from_db")
+
+
+async def test_rotated_key_aborts_the_migration_without_writing(db):
+    # A token written under another key must stop the run cold: no row touched, no marker, the
+    # key-changed message the operator already knows from the loader.
+    from cryptography.fernet import Fernet
+    cm = await _seed_audit_shape(db)
+    foreign = Fernet(Fernet.generate_key()).encrypt(b"AUDITMARK-old").decode()
+    await _put(db, "plex.token", foreign, "string")
+    await db.commit()
+    before, hist = await _rows(db), await _history(db)
+    with pytest.raises(ValueError, match="CONFIG_ENCRYPTION_KEY"):
+        await cm.encrypt_stored_secrets(db)
+    assert await _rows(db) == before
+    assert await _history(db) == hist
+    assert SECRETS_MARKER_KEY not in await _rows(db)
