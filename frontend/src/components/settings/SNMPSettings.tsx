@@ -10,7 +10,7 @@ import { PasswordInput } from './PasswordInput';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 import type { SNMPInterface } from '@/types';
 
 interface SNMPConfig {
@@ -43,24 +43,12 @@ export const SNMPSettings: React.FC = () => {
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<SNMPConfig>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
-
   const isDirty = hasUnsavedChanges(config);
 
-  // Register dirty state with context
-  useEffect(() => {
-    registerTab(
-      'snmp',
-      isDirty,
-      saveButtonRef,
-      async () => { await handleSave(); },
-      () => {
-        const original = discardChanges();
-        if (original) setConfig(original);
-      }
-    );
-    return () => unregisterTab('snmp');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('snmp', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+    const original = discardChanges();
+    if (original) setConfig(original);
+  });
 
   useEffect(() => {
     loadConfig();

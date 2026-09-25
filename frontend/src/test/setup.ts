@@ -31,3 +31,10 @@ Element.prototype.matches = function matches(this: Element, selector: string): b
   if (TOP_LAYER_SELECTORS.has(selector)) return false;
   return nativeMatches.call(this, selector);
 } as typeof Element.prototype.matches;
+
+// jsdom does not implement scrollIntoView; the unsaved-changes banner calls it on a panel's Save
+// button when it opens and when a Save Now fails. A no-op keeps those paths runnable, and a test
+// that cares spies on it (vi.spyOn(Element.prototype, 'scrollIntoView')).
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = () => {};
+}

@@ -16,7 +16,7 @@ import {
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 import type { VersionCheckResponse } from '@/types';
 
 interface SystemConfig {
@@ -38,24 +38,12 @@ export const SystemSettings: React.FC = () => {
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<SystemConfig>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
-
   const isDirty = hasUnsavedChanges(config);
 
-  // Register dirty state with context
-  useEffect(() => {
-    registerTab(
-      'general',
-      isDirty,
-      saveButtonRef,
-      async () => { await handleSave(); },
-      () => {
-        const original = discardChanges();
-        if (original) setConfig(original);
-      }
-    );
-    return () => unregisterTab('general');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('general', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+    const original = discardChanges();
+    if (original) setConfig(original);
+  });
 
   useEffect(() => {
     loadConfig();

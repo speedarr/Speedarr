@@ -20,7 +20,7 @@ import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { nextFailsafeSpeed } from '@/lib/failsafeDefaults';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 
 // Convert "HH:mm" local time to UTC "HH:mm"
 const localTimeToUtc = (localTime: string): string => {
@@ -90,24 +90,12 @@ export const BandwidthSettings: React.FC = () => {
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { originalConfig, hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<BandwidthConfig>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
-
   const isDirty = hasUnsavedChanges(config);
 
-  // Register dirty state with context
-  useEffect(() => {
-    registerTab(
-      'bandwidth',
-      isDirty,
-      saveButtonRef,
-      async () => { await handleSave(); },
-      () => {
-        const original = discardChanges();
-        if (original) setConfig(original);
-      }
-    );
-    return () => unregisterTab('bandwidth');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('bandwidth', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+    const original = discardChanges();
+    if (original) setConfig(original);
+  });
 
   useEffect(() => {
     loadData();

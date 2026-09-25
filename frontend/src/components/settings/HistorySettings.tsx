@@ -8,7 +8,7 @@ import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 
 interface HistoryConfig {
   retention_days: number;
@@ -23,24 +23,13 @@ export const HistorySettings: React.FC = () => {
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<HistoryConfig>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
 
   const isDirty = hasUnsavedChanges(config);
 
-  // Register dirty state with context
-  useEffect(() => {
-    registerTab(
-      'history',
-      isDirty,
-      saveButtonRef,
-      async () => { await handleSave(); },
-      () => {
-        const original = discardChanges();
-        if (original) setConfig(original);
-      }
-    );
-    return () => unregisterTab('history');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('history', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+    const original = discardChanges();
+    if (original) setConfig(original);
+  });
 
   useEffect(() => {
     loadConfig();

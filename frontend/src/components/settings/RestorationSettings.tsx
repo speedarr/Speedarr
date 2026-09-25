@@ -8,7 +8,7 @@ import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 
 interface RestorationConfig {
   delays: {
@@ -26,24 +26,12 @@ export const RestorationSettings: React.FC = () => {
 
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<RestorationConfig>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
-
   const isDirty = hasUnsavedChanges(config);
 
-  // Register dirty state with context
-  useEffect(() => {
-    registerTab(
-      'restoration',
-      isDirty,
-      saveButtonRef,
-      async () => { await handleSave(); },
-      () => {
-        const original = discardChanges();
-        if (original) setConfig(original);
-      }
-    );
-    return () => unregisterTab('restoration');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('restoration', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+    const original = discardChanges();
+    if (original) setConfig(original);
+  });
 
   useEffect(() => {
     loadConfig();

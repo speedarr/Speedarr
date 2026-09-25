@@ -13,7 +13,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { PasswordInput } from './PasswordInput';
 import { TestConnectionButton } from './TestConnectionButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 import { MediaServer } from '@/types';
 
 // Plex, Emby, and Jellyfin are user-selectable.
@@ -193,15 +193,11 @@ export const MediaServerSettings: React.FC = () => {
   const saveButtonRef = useRef<HTMLButtonElement>(null);
 
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<MediaServer[]>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
   const isDirty = hasUnsavedChanges(servers);
 
-  useEffect(() => {
-    registerTab('services-media', isDirty, saveButtonRef,
-      async () => { await handleSave(); },
-      () => { const o = discardChanges(); if (o) setServers(o); });
-    return () => unregisterTab('services-media');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('services-media', isDirty, saveButtonRef,
+    async () => { await handleSave(); },
+    () => { const o = discardChanges(); if (o) setServers(o); });
 
   useEffect(() => { load(); }, []);
   useEffect(() => { if (newlyAddedId && newRef.current) newRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [newlyAddedId]);

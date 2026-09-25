@@ -23,7 +23,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { PasswordInput } from './PasswordInput';
 import { TestConnectionButton } from './TestConnectionButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
+import { useSettingsTab } from '@/hooks/useSettingsTab';
 import { ClientSpeedUnitNote } from '@/components/SpeedUnitHint';
 
 // Client type definitions
@@ -292,24 +292,12 @@ export const DownloadClientsSettings: React.FC = () => {
   const saveButtonRef = useRef<HTMLButtonElement>(null);
 
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<DownloadClient[]>();
-  const { registerTab, unregisterTab } = useUnsavedChangesContext();
-
   const isDirty = hasUnsavedChanges(clients);
 
-  // Register dirty state with context
-  useEffect(() => {
-    registerTab(
-      'services-download',
-      isDirty,
-      saveButtonRef,
-      async () => { await handleSave(); },
-      () => {
-        const original = discardChanges();
-        if (original) setClients(original);
-      }
-    );
-    return () => unregisterTab('services-download');
-  }, [isDirty, registerTab, unregisterTab]);
+  useSettingsTab('services-download', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+    const original = discardChanges();
+    if (original) setClients(original);
+  });
 
   useEffect(() => {
     loadClients();
