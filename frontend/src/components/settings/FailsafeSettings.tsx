@@ -256,7 +256,7 @@ export const FailsafeSettings: React.FC = () => {
               min="30"
               step="1"
               value={config.plex_timeout}
-              onChange={(e) => updateConfig('plex_timeout', parseInt(e.target.value))}
+              onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateConfig('plex_timeout', v); }}
               disabled={isSaving}
               className="w-24"
             />

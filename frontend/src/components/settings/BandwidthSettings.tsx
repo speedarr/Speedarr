@@ -615,7 +615,7 @@ export const BandwidthSettings: React.FC = () => {
                   min="0"
                   max="20"
                   value={config.download.inactive_safety_net_percent}
-                  onChange={(e) => updateDownloadConfig('inactive_safety_net_percent', parseFloat(e.target.value))}
+                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateDownloadConfig('inactive_safety_net_percent', v); }}
                   disabled={isSaving}
                   className="w-24"
                 />
@@ -682,7 +682,7 @@ export const BandwidthSettings: React.FC = () => {
                   min="0"
                   max="20"
                   value={config.download.inactive_safety_net_percent}
-                  onChange={(e) => updateDownloadConfig('inactive_safety_net_percent', parseFloat(e.target.value))}
+                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateDownloadConfig('inactive_safety_net_percent', v); }}
                   disabled={isSaving}
                   className="w-24"
                 />
@@ -1100,7 +1100,7 @@ export const BandwidthSettings: React.FC = () => {
                 min="1"
                 step="0.1"
                 value={config.streams.manual_per_stream}
-                onChange={(e) => updateStreamsConfig('manual_per_stream', parseFloat(e.target.value))}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateStreamsConfig('manual_per_stream', v); }}
                 disabled={isSaving}
               />
               <p className="text-sm text-muted-foreground">
@@ -1118,7 +1118,7 @@ export const BandwidthSettings: React.FC = () => {
                 min="0"
                 max="300"
                 value={config.streams.overhead_percent}
-                onChange={(e) => updateStreamsConfig('overhead_percent', parseFloat(e.target.value))}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateStreamsConfig('overhead_percent', v); }}
                 disabled={isSaving}
                 className="w-24"
               />

@@ -152,7 +152,7 @@ export const RestorationSettings: React.FC = () => {
               min="0"
               step="1"
               value={config.delays.episode_end}
-              onChange={(e) => updateDelay('episode_end', parseInt(e.target.value))}
+              onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateDelay('episode_end', v); }}
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">
@@ -171,7 +171,7 @@ export const RestorationSettings: React.FC = () => {
               min="0"
               step="1"
               value={config.delays.movie_end}
-              onChange={(e) => updateDelay('movie_end', parseInt(e.target.value))}
+              onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateDelay('movie_end', v); }}
               disabled={isSaving}
             />
             <p className="text-sm text-muted-foreground">

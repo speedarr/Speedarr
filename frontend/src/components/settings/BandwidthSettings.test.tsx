@@ -75,3 +75,77 @@ describe('BandwidthSettings save and the failsafe speeds', () => {
     expect(failsafeSaves()[0][1]).toMatchObject({ shutdown_download_speed: 20, shutdown_upload_speed: null });
   });
 });
+
+// Audit F3b-1: four numeric handlers stored parseFloat of the raw value with no guard, so a
+// cleared field held NaN and the save sent null. The Inactive Safety Net input exists in two
+// branches (two clients, three or more), so both are exercised.
+const client = (id: string) => ({ id, type: 'qbittorrent', name: id, enabled: true, color: '#3b82f6', supports_upload: true });
+
+function renderWithMode(mode: 'manual' | 'auto', clients: ReturnType<typeof client>[] = []) {
+  const bandwidth = bandwidthSection();
+  bandwidth.streams.bandwidth_calculation = mode;
+  sections.bandwidth = bandwidth;
+  sections.failsafe = {
+    plex_timeout: 300,
+    shutdown_download_speed: null,
+    shutdown_upload_speed: null,
+    shutdown_download_client_percents: {},
+    shutdown_upload_client_percents: {},
+  };
+  api.getSettingsSection.mockImplementation(async (section: string) => ({
+    config: JSON.parse(JSON.stringify(sections[section])),
+  }));
+  api.getDownloadClients.mockResolvedValue({ clients });
+  api.updateSettingsSection.mockResolvedValue({});
+  render(
+    <UnsavedChangesProvider>
+      <BandwidthSettings />
+    </UnsavedChangesProvider>,
+  );
+}
+
+const savedBandwidth = () => api.updateSettingsSection.mock.calls.find(([section]) => section === 'bandwidth')![1];
+
+async function clearAndSave(label: string, loaded: number) {
+  const input = await screen.findByLabelText(label);
+  fireEvent.change(input, { target: { value: '' } });
+  expect(input).toHaveValue(loaded);
+  fireEvent.click(screen.getByRole('button', { name: 'Save All Bandwidth Settings' }));
+  await waitFor(() => expect(api.updateSettingsSection).toHaveBeenCalled());
+}
+
+describe('BandwidthSettings cleared numeric fields (audit F3b-1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('keeps Bandwidth Per Stream at its last value when cleared, and takes a decimal', async () => {
+    renderWithMode('manual');
+    const input = await screen.findByLabelText('Bandwidth Per Stream (Mbps)');
+    fireEvent.change(input, { target: { value: '1.5' } });
+    expect(input).toHaveValue(1.5);
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(1.5);
+    fireEvent.click(screen.getByRole('button', { name: 'Save All Bandwidth Settings' }));
+    await waitFor(() => expect(api.updateSettingsSection).toHaveBeenCalled());
+    expect(savedBandwidth().streams.manual_per_stream).toBe(1.5);
+  });
+
+  it('keeps Protocol Overhead % at its last value when cleared', async () => {
+    renderWithMode('auto');
+    await clearAndSave('Protocol Overhead %', 100);
+    expect(savedBandwidth().streams.overhead_percent).toBe(100);
+  });
+
+  it('keeps Inactive Safety Net % at its last value when cleared (two clients)', async () => {
+    renderWithMode('auto', [client('a'), client('b')]);
+    await clearAndSave('Inactive Safety Net %', 10);
+    expect(savedBandwidth().download.inactive_safety_net_percent).toBe(10);
+  });
+
+  it('keeps Inactive Safety Net % at its last value when cleared (three clients)', async () => {
+    renderWithMode('auto', [client('a'), client('b'), client('c')]);
+    await clearAndSave('Inactive Safety Net %', 10);
+    expect(savedBandwidth().download.inactive_safety_net_percent).toBe(10);
+  });
+});

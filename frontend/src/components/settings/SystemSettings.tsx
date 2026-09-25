@@ -198,7 +198,7 @@ export const SystemSettings: React.FC = () => {
                 min="5"
                 max="300"
                 value={config.update_frequency}
-                onChange={(e) => updateConfig('update_frequency', parseInt(e.target.value))}
+                onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateConfig('update_frequency', v); }}
                 placeholder="5"
                 disabled={isSaving}
               />

@@ -383,7 +383,7 @@ export const SNMPSettings: React.FC = () => {
                     min="1"
                     max="65535"
                     value={config.port}
-                    onChange={(e) => updateConfig('port', parseInt(e.target.value))}
+                    onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateConfig('port', v); }}
                     disabled={isSaving}
                   />
                   <p className="text-sm text-muted-foreground">
