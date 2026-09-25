@@ -814,6 +814,23 @@ class ConfigManager:
             await db.commit()
         return changed
 
+    def _fan_out_config(self, config: SpeedarrConfig) -> None:
+        """Hand the freshly loaded config to every service that keeps a reference (audit T3-2).
+
+        Runs on every save before any section-specific rebuild, so no service reads a stale copy:
+        the polling monitor reads failsafe, bandwidth.streams and restoration through its own
+        reference, the engine reads restoration and bandwidth, the controller manager and the
+        notification service read theirs. Setup mode leaves the singletons None (not unset).
+        """
+        updated = []
+        for name in ("decision_engine", "controller_manager", "notification_service", "polling_monitor"):
+            service = getattr(self.app.state, name, None)
+            if service is not None:
+                service.config = config
+                updated.append(name)
+        if updated:
+            logger.info(f"Config handed to {', '.join(updated)}")
+
     async def _reload_services(self, section_name: str, config: SpeedarrConfig):
         """
         Reload services affected by config change.
@@ -827,6 +844,7 @@ class ConfigManager:
         # In setup mode main.py sets the service singletons to None (not unset)
         # until complete-setup builds them, so every branch checks the value
         # rather than hasattr.
+        self._fan_out_config(config)
         try:
             if section_name in ("plex", "media_servers"):
                 # Reload all media server adapters (handles both legacy plex saves and new media_servers list)
@@ -857,43 +875,22 @@ class ConfigManager:
                     await controller_manager.reload_clients(config)
                     logger.info("Download clients reloaded")
 
-            elif section_name == "bandwidth":
-                # Update DecisionEngine config
-                decision_engine = getattr(self.app.state, "decision_engine", None)
-                if decision_engine is not None:
-                    decision_engine.config = config
-                    logger.info("DecisionEngine config updated")
-
-            elif section_name == "notifications":
-                # Reload NotificationService (needs full config, not just notifications section)
-                notification_service = getattr(self.app.state, "notification_service", None)
-                if notification_service is not None:
-                    notification_service.config = config
-                    logger.info("NotificationService config updated")
-
             elif section_name == "system":
-                # Log level applies immediately to both sinks (#103)
+                # Log level applies immediately to both sinks (#103); the polling frequency reached
+                # the monitor through _fan_out_config above.
                 effective = set_log_level(config.system.log_level)
                 logger.info(f"Log level {config.system.log_level} (effective {effective})")
-                # Update polling frequency - must update polling_monitor's config reference
-                polling_monitor = getattr(self.app.state, "polling_monitor", None)
-                if polling_monitor is not None:
-                    polling_monitor.config = config
-                    logger.info(f"Polling monitor config updated, new frequency: {config.system.update_frequency}s")
 
             elif section_name == "snmp":
-                # Reload SNMPMonitor
+                # Rebuild or drop the SNMP monitor; the config reference itself was fanned out above
                 polling_monitor = getattr(self.app.state, "polling_monitor", None)
                 if polling_monitor is not None:
-                    polling_monitor.config = config
                     from app.services.snmp_monitor import SNMPMonitor
 
                     if config.snmp.enabled:
-                        # Create new SNMPMonitor with updated config
                         polling_monitor.snmp_monitor = SNMPMonitor(config.snmp)
                         logger.info("SNMPMonitor reloaded with updated config")
                     else:
-                        # Disable SNMP monitoring
                         polling_monitor.snmp_monitor = None
                         logger.info("SNMPMonitor disabled")
 
@@ -958,6 +955,7 @@ class ConfigManager:
 
         # Update app state
         self.app.state.config = reloaded_config
+        self._fan_out_config(reloaded_config)
         set_log_level(reloaded_config.system.log_level)
 
         # Reload download clients (skip during setup mode when controller_manager is None)
