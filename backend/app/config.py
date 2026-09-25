@@ -335,7 +335,7 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 class SystemConfig(BaseModel):
     """System configuration."""
-    update_frequency: int = Field(5, ge=5, description="Polling interval in seconds (minimum 5)")
+    update_frequency: int = Field(5, ge=5, le=300, description="Polling interval in seconds (5-300)")
     log_level: str = Field(
         "INFO",
         description="Logging verbosity for the console and speedarr.log: DEBUG, INFO, WARNING, ERROR or CRITICAL. DEBUG=true in the environment forces DEBUG.",

@@ -20,7 +20,7 @@ Duration, Disable Throttling and Re-enable Now take effect immediately — there
 
 | Setting | Default | What it does |
 |---|---|---|
-| Polling Interval (seconds) | 5 | How often Speedarr polls media servers, download clients, and SNMP. Form accepts 5–300. |
+| Polling Interval (seconds) | 5 | How often Speedarr polls media servers, download clients, and SNMP. Accepts 5–300, enforced server-side; a stored value outside the range is pulled back to the bound when Speedarr starts. |
 | Log Level | Info | Sets the application's logging verbosity: Debug, Info, Warning, Error, Critical. Applies on save to both the console and `speedarr.log`. |
 | Require login to view dashboard | Off | When on, the dashboard and read APIs require authentication — anyone not logged in is sent to the login screen. |
 | Download Logs | — | Downloads application logs with sensitive data (passwords, API keys, tokens and the other secrets Speedarr stores) redacted. |

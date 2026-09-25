@@ -160,3 +160,41 @@ async def test_saving_an_out_of_range_safety_net_is_refused_and_nothing_is_writt
     with pytest.raises(ValueError, match="bandwidth.download.inactive_safety_net_percent"):
         await cm.update_section("bandwidth", {"download": {"inactive_safety_net_percent": 150}}, db)
     assert (await _row(db, "bandwidth.download.inactive_safety_net_percent")).value == "5"
+
+
+# --- polling interval (audit D1-6) -------------------------------------------------------------
+
+@pytest.mark.parametrize("value", [4, 301, 10**12])
+def test_update_frequency_is_bounded_5_to_300(value):
+    with pytest.raises(ValidationError):
+        SystemConfig(update_frequency=value)
+    assert SystemConfig(update_frequency=300).update_frequency == 300
+    assert bounded_scalar_keys()["system.update_frequency"] == (5, 300, False)
+
+
+async def test_clamp_pulls_a_huge_stored_polling_interval_back_to_300(db):
+    cm = _manager()
+    await cm.migrate_yaml_to_db(_base(), db)
+    await _seed(db, "system.update_frequency", 10**12, "integer")      # the audit sweep's value
+    assert await cm.clamp_stored_bounds(db) == 1
+    assert (await _row(db, "system.update_frequency")).value == "300"
+    assert (await cm.load_config_from_db(db)).system.update_frequency == 300
+
+
+async def test_clamp_pulls_a_stored_polling_interval_below_the_floor_up_to_5(db):
+    # Review Focus 1: healing works upward too.
+    cm = _manager()
+    await cm.migrate_yaml_to_db(_base(), db)
+    await _seed(db, "system.update_frequency", 1, "integer")
+    assert await cm.clamp_stored_bounds(db) == 1
+    assert (await cm.load_config_from_db(db)).system.update_frequency == 5
+
+
+async def test_saving_an_oversized_polling_interval_is_refused_and_nothing_is_written(db):
+    cm = _manager()
+    await cm.migrate_yaml_to_db(_base(), db)
+    cm.app.state.config = await cm.load_config_from_db(db)
+    cm._reload_services = AsyncMock()
+    with pytest.raises(ValueError, match="system.update_frequency"):
+        await cm.update_section("system", {"update_frequency": 5000}, db)
+    assert (await _row(db, "system.update_frequency")).value == "5"
