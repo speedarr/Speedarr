@@ -45,7 +45,7 @@ export const SNMPSettings: React.FC = () => {
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<SNMPConfig>();
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('snmp', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('snmp', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -67,8 +67,8 @@ export const SNMPSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     setIsSaving(true);
     setError('');
@@ -79,8 +79,10 @@ export const SNMPSettings: React.FC = () => {
       resetOriginal(config);
       setSuccess('SNMP settings saved successfully');
       setTimeout(() => setSuccess(''), 3000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

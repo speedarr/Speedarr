@@ -33,14 +33,7 @@ const DashboardContent: React.FC = () => {
     setPendingNavigation,
     pendingNavigation,
     isWarningVisible,
-    setNavigateCallback,
   } = useUnsavedChangesContext();
-
-  // Register navigate function with context for save-then-navigate flow
-  useEffect(() => {
-    setNavigateCallback(navigate);
-    return () => setNavigateCallback(null);
-  }, [navigate, setNavigateCallback]);
 
   // Only show Settings for admin users
   const navigationItems: NavigationItem[] = [

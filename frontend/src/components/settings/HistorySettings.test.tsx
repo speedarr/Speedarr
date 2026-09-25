@@ -49,4 +49,17 @@ describe("HistorySettings and the banner's Save Now", () => {
     await waitFor(() => expect(screen.queryByText('You have unsaved changes')).toBeNull());
     expect(input).toHaveValue(42);
   });
+
+  it('keeps the banner and the edit when the write is refused (audit T5-2)', async () => {
+    api.updateSettingsSection.mockRejectedValue(new Error('write refused'));
+    renderTab();
+    const input = await screen.findByLabelText('Retention Period (days)');
+    fireEvent.change(input, { target: { value: '42' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save Now' }));
+    await waitFor(() => expect(api.updateSettingsSection).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('write refused')).toBeInTheDocument();
+    expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
+    expect(input).toHaveValue(42);
+  });
 });

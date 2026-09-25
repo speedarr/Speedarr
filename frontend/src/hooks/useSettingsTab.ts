@@ -14,7 +14,7 @@ export function useSettingsTab(
   tabId: string,
   isDirty: boolean,
   saveButtonRef: RefObject<HTMLButtonElement>,
-  onSave: () => Promise<void>,
+  onSave: () => Promise<boolean>,
   onDiscard: () => void,
 ): void {
   const { registerTab, unregisterTab } = useUnsavedChangesContext();

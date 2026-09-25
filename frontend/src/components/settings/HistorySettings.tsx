@@ -26,7 +26,7 @@ export const HistorySettings: React.FC = () => {
 
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('history', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('history', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -48,13 +48,13 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     // Validate retention period
     if (config.retention_days < 1 || config.retention_days > 90) {
       setError('Retention period must be between 1 and 90 days');
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -66,8 +66,10 @@ export const HistorySettings: React.FC = () => {
       resetOriginal(config);
       setSuccess('History settings saved successfully');
       setTimeout(() => setSuccess(''), 3000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

@@ -294,7 +294,7 @@ export const DownloadClientsSettings: React.FC = () => {
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<DownloadClient[]>();
   const isDirty = hasUnsavedChanges(clients);
 
-  useSettingsTab('services-download', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('services-download', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setClients(original);
   });
@@ -323,7 +323,7 @@ export const DownloadClientsSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     setIsSaving(true);
     setError('');
     setSuccess('');
@@ -360,8 +360,10 @@ export const DownloadClientsSettings: React.FC = () => {
 
       // Reload to get updated data
       await loadClients();
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

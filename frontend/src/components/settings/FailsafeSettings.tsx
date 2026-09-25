@@ -47,7 +47,7 @@ export const FailsafeSettings: React.FC = () => {
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<FailsafeConfig>();
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('failsafe', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('failsafe', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -90,8 +90,8 @@ export const FailsafeSettings: React.FC = () => {
   const getDefaultDownloadSpeed = () => Math.round(bandwidthLimits.download_total * 0.1 * 10) / 10;
   const getDefaultUploadSpeed = () => Math.round(bandwidthLimits.upload_total * 0.1 * 10) / 10;
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     setIsSaving(true);
     setError('');
@@ -102,8 +102,10 @@ export const FailsafeSettings: React.FC = () => {
       resetOriginal(config);
       setSuccess('Failsafe settings saved successfully');
       setTimeout(() => setSuccess(''), 3000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

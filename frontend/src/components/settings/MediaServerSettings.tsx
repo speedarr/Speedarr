@@ -196,7 +196,7 @@ export const MediaServerSettings: React.FC = () => {
   const isDirty = hasUnsavedChanges(servers);
 
   useSettingsTab('services-media', isDirty, saveButtonRef,
-    async () => { await handleSave(); },
+    () => handleSave(),
     () => { const o = discardChanges(); if (o) setServers(o); });
 
   useEffect(() => { load(); }, []);
@@ -212,7 +212,7 @@ export const MediaServerSettings: React.FC = () => {
     finally { setIsLoading(false); }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     setIsSaving(true); setError(''); setSuccess(''); setConnectionResults({});
     try {
       const res = await apiClient.updateMediaServers(servers);
@@ -220,7 +220,8 @@ export const MediaServerSettings: React.FC = () => {
       setSuccess('Media servers saved successfully');
       setTimeout(() => { setSuccess(''); setError(''); }, 5000);
       await load();
-    } catch (e: unknown) { setError(getErrorMessage(e)); }
+      return true;
+    } catch (e: unknown) { setError(getErrorMessage(e)); return false; }
     finally { setIsSaving(false); }
   };
 

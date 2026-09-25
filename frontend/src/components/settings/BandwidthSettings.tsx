@@ -92,7 +92,7 @@ export const BandwidthSettings: React.FC = () => {
   const { originalConfig, hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<BandwidthConfig>();
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('bandwidth', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('bandwidth', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -158,8 +158,8 @@ export const BandwidthSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     setIsSaving(true);
     setError('');
@@ -219,8 +219,10 @@ export const BandwidthSettings: React.FC = () => {
       }
 
       setTimeout(() => setSuccess(''), 5000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

@@ -40,7 +40,7 @@ export const SystemSettings: React.FC = () => {
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<SystemConfig>();
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('general', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('general', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -62,8 +62,8 @@ export const SystemSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     setIsSaving(true);
     setError('');
@@ -74,8 +74,10 @@ export const SystemSettings: React.FC = () => {
       resetOriginal(config);
       setSuccess('System settings saved successfully');
       setTimeout(() => setSuccess(''), 3000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

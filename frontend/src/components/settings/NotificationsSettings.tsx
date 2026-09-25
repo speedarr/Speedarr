@@ -78,7 +78,7 @@ export const NotificationsSettings: React.FC = () => {
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<NotificationsConfig>();
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('notifications', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('notifications', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -100,8 +100,8 @@ export const NotificationsSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     setIsSaving(true);
     setError('');
@@ -122,13 +122,13 @@ export const NotificationsSettings: React.FC = () => {
           setError(`Webhook test failed: ${testResult.message}. Settings not saved.`);
           setSuccess('');
           setIsSaving(false);
-          return; // Don't save if test fails
+          return false; // Don't save if test fails
         }
       } catch (error: unknown) {
         setError(`Webhook test failed: ${getErrorMessage(error)}. Settings not saved.`);
         setSuccess('');
         setIsSaving(false);
-        return;
+        return false;
       }
     }
 
@@ -138,8 +138,10 @@ export const NotificationsSettings: React.FC = () => {
       resetOriginal(config);
       setSuccess('Notifications settings saved successfully');
       setTimeout(() => setSuccess(''), 3000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }

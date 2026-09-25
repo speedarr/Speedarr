@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React, { useRef, useState } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { UnsavedChangesProvider, useUnsavedChangesContext } from './UnsavedChangesContext';
 import { UnsavedChangesWarning } from '@/components/settings/UnsavedChangesWarning';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -25,7 +25,7 @@ const Probe: React.FC<{ tabId: string; initial: number; onSave: Save }> = ({ tab
     return ok;
   };
 
-  useSettingsTab(tabId, isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab(tabId, isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -115,5 +115,97 @@ describe('Save Now reads the live form (audit T5-1)', () => {
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(save).toHaveBeenCalledWith(42);
     await waitFor(() => expect(readout()).toHaveTextContent('dirty:false'));
+  });
+});
+
+describe('Save Now that is refused or fails (audit T5-2)', () => {
+  it('keeps the banner and the destination when the save reports false, and points at the panel', async () => {
+    const save = vi.fn<Save>(async () => false);
+    render(<Harness><Probe tabId="probe" initial={3} onSave={save} /></Harness>);
+    edit('probe', 42);
+    await leaveAndSaveNow();
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(banner()).not.toBeNull();
+    expect(readout()).toHaveTextContent('dirty:true nav:/ tab:none');
+    expect(screen.getByLabelText('probe value')).toHaveValue(42);
+    // once when the banner opened, once more for the failure, both on the probe's Save button
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2));
+    expect(scrollIntoView.mock.contexts[1]).toBe(screen.getByRole('button', { name: 'probe save' }));
+  });
+
+  it('treats a save that rejects as failed', async () => {
+    const save = vi.fn<Save>(async () => { throw new Error('boom'); });
+    render(<Harness><Probe tabId="probe" initial={3} onSave={save} /></Harness>);
+    edit('probe', 42);
+    await leaveAndSaveNow();
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(banner()).not.toBeNull();
+    expect(readout()).toHaveTextContent('dirty:true nav:/ tab:none');
+    expect(screen.getByLabelText('probe value')).toHaveValue(42);
+  });
+
+  it('keeps a pending tab change armed the same way', async () => {
+    const save = vi.fn<Save>(async () => false);
+    render(<Harness><Probe tabId="probe" initial={3} onSave={save} /></Harness>);
+    edit('probe', 42);
+    fireEvent.click(screen.getByRole('button', { name: 'Switch tab' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save Now' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(banner()).not.toBeNull();
+    expect(readout()).toHaveTextContent('dirty:true nav:none tab:bandwidth');
+  });
+
+  it('disables the banner while the save runs, so a double click starts one save', async () => {
+    let finish!: (ok: boolean) => void;
+    const save = vi.fn<Save>(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const { container } = render(<Harness><Probe tabId="probe" initial={3} onSave={save} /></Harness>);
+    edit('probe', 42);
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    const saveNow = await screen.findByRole('button', { name: 'Save Now' });
+    fireEvent.click(saveNow);
+    fireEvent.click(saveNow);
+    await waitFor(() => expect(saveNow).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+    expect(container.querySelector('.animate-spin')).not.toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(true); });
+    await waitFor(() => expect(banner()).toBeNull());
+    expect(readout()).toHaveTextContent('dirty:false nav:/ tab:none');
+  });
+
+  it('the X after a failed Save Now hides the banner, drops the destinations and keeps the edit', async () => {
+    const save = vi.fn<Save>(async () => false);
+    render(<Harness><Probe tabId="probe" initial={3} onSave={save} /></Harness>);
+    edit('probe', 42);
+    await leaveAndSaveNow();
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(banner()).toBeNull();
+    expect(readout()).toHaveTextContent('dirty:true nav:none tab:none');
+    expect(screen.getByLabelText('probe value')).toHaveValue(42);
+  });
+
+  it('a retry that succeeds hides the banner with the destination still armed', async () => {
+    const save = vi.fn<Save>().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<Harness><Probe tabId="probe" initial={3} onSave={save} /></Harness>);
+    edit('probe', 42);
+    await leaveAndSaveNow();
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(banner()).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Now' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(banner()).toBeNull());
+    expect(readout()).toHaveTextContent('dirty:false nav:/ tab:none');
+  });
+
+  it('Discard reverts the panel and hides the banner', async () => {
+    render(<Harness><Probe tabId="probe" initial={3} onSave={async () => true} /></Harness>);
+    edit('probe', 42);
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
+    expect(screen.getByLabelText('probe value')).toHaveValue(3);
+    expect(banner()).toBeNull();
+    await waitFor(() => expect(readout()).toHaveTextContent('dirty:false nav:/ tab:none'));
   });
 });

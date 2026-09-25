@@ -4,16 +4,13 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext';
 
-interface UnsavedChangesWarningProps {
-  isSaving?: boolean;
-}
-
-export const UnsavedChangesWarning: React.FC<UnsavedChangesWarningProps> = ({ isSaving = false }) => {
+export const UnsavedChangesWarning: React.FC = () => {
   const {
     isWarningVisible,
     dismissWarning,
     handleSaveAndProceed,
     handleDiscardAndProceed,
+    isSaving,
   } = useUnsavedChangesContext();
 
   if (!isWarningVisible) return null;
@@ -50,6 +47,7 @@ export const UnsavedChangesWarning: React.FC<UnsavedChangesWarningProps> = ({ is
               size="sm"
               onClick={dismissWarning}
               disabled={isSaving}
+              aria-label="Dismiss"
               className="h-8 w-8 p-0"
             >
               <X className="h-4 w-4" />

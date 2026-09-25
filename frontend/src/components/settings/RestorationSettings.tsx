@@ -28,7 +28,7 @@ export const RestorationSettings: React.FC = () => {
   const { hasUnsavedChanges, resetOriginal, discardChanges } = useUnsavedChanges<RestorationConfig>();
   const isDirty = hasUnsavedChanges(config);
 
-  useSettingsTab('restoration', isDirty, saveButtonRef, async () => { await handleSave(); }, () => {
+  useSettingsTab('restoration', isDirty, saveButtonRef, () => handleSave(), () => {
     const original = discardChanges();
     if (original) setConfig(original);
   });
@@ -50,8 +50,8 @@ export const RestorationSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!config) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!config) return false;
 
     setIsSaving(true);
     setError('');
@@ -62,8 +62,10 @@ export const RestorationSettings: React.FC = () => {
       resetOriginal(config);
       setSuccess('Holding time settings saved successfully');
       setTimeout(() => setSuccess(''), 3000);
+      return true;
     } catch (error: unknown) {
       setError(getErrorMessage(error));
+      return false;
     } finally {
       setIsSaving(false);
     }
