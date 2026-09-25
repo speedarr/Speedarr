@@ -209,3 +209,54 @@ describe('Save Now that is refused or fails (audit T5-2)', () => {
     await waitFor(() => expect(readout()).toHaveTextContent('dirty:false nav:/ tab:none'));
   });
 });
+
+// The Services tab mounts two panels (media servers, download clients); both can be dirty at once.
+describe('Save Now and Discard act on every dirty panel (audit T5-3)', () => {
+  const renderTwo = (saveA: Save, saveB: Save) =>
+    render(
+      <Harness>
+        <Probe tabId="alpha" initial={1} onSave={saveA} />
+        <Probe tabId="beta" initial={2} onSave={saveB} />
+      </Harness>,
+    );
+
+  it('saves both dirty panels and proceeds', async () => {
+    const saveA = vi.fn<Save>(async () => true);
+    const saveB = vi.fn<Save>(async () => true);
+    renderTwo(saveA, saveB);
+    edit('alpha', 11);
+    edit('beta', 22);
+    await leaveAndSaveNow();
+    await waitFor(() => expect(saveB).toHaveBeenCalledWith(22));
+    expect(saveA).toHaveBeenCalledWith(11);
+    await waitFor(() => expect(banner()).toBeNull());
+    expect(readout()).toHaveTextContent('dirty:false nav:/ tab:none');
+  });
+
+  it('attempts both, keeps the banner and points at the panel that failed', async () => {
+    const saveA = vi.fn<Save>(async () => true);
+    const saveB = vi.fn<Save>(async () => false);
+    renderTwo(saveA, saveB);
+    edit('alpha', 11);
+    edit('beta', 22);
+    await leaveAndSaveNow();
+    await waitFor(() => expect(saveB).toHaveBeenCalledTimes(1));
+    expect(saveA).toHaveBeenCalledTimes(1);
+    expect(banner()).not.toBeNull();
+    expect(readout()).toHaveTextContent('dirty:true nav:/ tab:none');
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2));
+    expect(scrollIntoView.mock.contexts[1]).toBe(screen.getByRole('button', { name: 'beta save' }));
+  });
+
+  it('Discard reverts both dirty panels', async () => {
+    renderTwo(async () => true, async () => true);
+    edit('alpha', 11);
+    edit('beta', 22);
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
+    expect(screen.getByLabelText('alpha value')).toHaveValue(1);
+    expect(screen.getByLabelText('beta value')).toHaveValue(2);
+    expect(banner()).toBeNull();
+    await waitFor(() => expect(readout()).toHaveTextContent('dirty:false nav:/ tab:none'));
+  });
+});

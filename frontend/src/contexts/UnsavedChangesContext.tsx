@@ -103,36 +103,39 @@ export const UnsavedChangesProvider: React.FC<UnsavedChangesProviderProps> = ({ 
     setPendingNavigation(null);
   }, []);
 
-  // Save Now. Runs the dirty panel's save and proceeds only when it reports success. Otherwise the
-  // banner stays, the pending destination stays armed and the panel's Save button, with its error
-  // alert, is brought into view (audit T5-2). The navigation itself happens in the Dashboard and
-  // Settings effects once nothing is dirty and the banner is hidden.
+  // Save Now. Runs every dirty panel's save in registration order and proceeds only when all of
+  // them report success (audit T5-3). Otherwise the banner stays, the pending destination stays
+  // armed and the first failing panel's Save button, with its error alert, is brought into view
+  // (audit T5-2). Every dirty panel is attempted even after a failure, so a retry has less left
+  // to save. The navigation itself happens in the Dashboard and Settings effects once nothing is
+  // dirty and the banner is hidden.
   const handleSaveAndProceed = useCallback(async () => {
-    const dirtyTab = Object.values(tabStates).find((state) => state.isDirty);
-    if (!dirtyTab) {
-      setIsWarningVisible(false);
-      return;
-    }
+    const dirtyTabs = Object.values(tabStates).filter((state) => state.isDirty);
     setIsSaving(true);
-    let saved = false;
+    let firstFailed: TabState | null = null;
     try {
-      saved = dirtyTab.onSave ? await dirtyTab.onSave() : false;
-    } catch {
-      saved = false;
+      for (const state of dirtyTabs) {
+        let saved = false;
+        try {
+          saved = state.onSave ? await state.onSave() : false;
+        } catch {
+          saved = false;
+        }
+        if (!saved && !firstFailed) firstFailed = state;
+      }
     } finally {
       setIsSaving(false);
     }
-    if (!saved) {
-      scrollToSave(dirtyTab);
+    if (firstFailed) {
+      scrollToSave(firstFailed);
       return;
     }
     setIsWarningVisible(false);
   }, [tabStates]);
 
   const handleDiscardAndProceed = useCallback(() => {
-    const dirtyTab = Object.values(tabStates).find((state) => state.isDirty);
-    if (dirtyTab?.onDiscard) {
-      dirtyTab.onDiscard();
+    for (const state of Object.values(tabStates)) {
+      if (state.isDirty && state.onDiscard) state.onDiscard();
     }
     setIsWarningVisible(false);
   }, [tabStates]);
