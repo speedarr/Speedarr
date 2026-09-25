@@ -137,7 +137,7 @@ Same shape as Scheduled Download Settings, for the upload side.
 | Protocol Overhead % | 100 | Auto mode only. Extra bandwidth to account for protocol overhead. Form accepts 0–300. |
 | Download Bandwidth Reserve % | 20 | Percentage of stream upload bandwidth reserved from downloads for TCP ACKs and control traffic. Form accepts 0–100; set to 0 to disable. |
 
-**Notes:** Saving new totals moves the Failsafe shutdown speeds along only while they still equal the old 10% default — a manual edit to a shutdown speed stops it from auto-following bandwidth changes ([#96](https://github.com/speedarr/Speedarr/issues/96)). There is no separate upload safety-net field; upload reuses the download value. The ranges above are what the form accepts, not a server-side guarantee — only Protocol Overhead % is clamped server-side. See [sharing between download clients](how-it-works.md#sharing-between-download-clients).
+**Notes:** Saving new totals moves the Failsafe shutdown speeds along only while they still equal the old 10% default — a manual edit to a shutdown speed stops it from auto-following bandwidth changes ([#96](https://github.com/speedarr/Speedarr/issues/96)). There is no separate upload safety-net field; upload reuses the download value. Inactive Safety Net % (0–20), Protocol Overhead % (0–300) and Download Reserve % (0–100) are enforced server-side: a save outside the range is refused, and a stored value outside it is pulled back to the bound with a logged warning when Speedarr starts. See [sharing between download clients](how-it-works.md#sharing-between-download-clients).
 
 ## Holding Times
 

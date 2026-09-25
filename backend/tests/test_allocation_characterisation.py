@@ -218,3 +218,54 @@ def test_upload_capped_client_at_90_percent_of_cap_is_promoted():
     d = run(engine, [stats(upload={"qbittorrent_1": 20, "transmission_1": 2.25})])
     assert ul(d, "qbittorrent_1") == pytest.approx(25.0, abs=0.01)
     assert ul(d, "transmission_1") == pytest.approx(25.0, abs=0.01)
+
+
+# --- safety nets that would exceed the pool (audit B4-1) ----------------------------------------
+
+def test_seven_clients_one_active_at_20_percent_never_exceed_the_pool():
+    engine = engine_with()
+    engine.config.bandwidth.download.inactive_safety_net_percent = 20
+    idle = {f"sabnzbd_{i}": 0 for i in range(1, 7)}
+    d = run(engine, [stats({"qbittorrent_1": 30, **idle})] * 6)
+    # Six idle nets at 20% would be 120% of the pool; they split the pool instead and the
+    # active client gets nothing before its 1 Mbps floor. Sum = pool + that floor.
+    assert sum(dl(d, c) for c in d) == pytest.approx(101.0, abs=0.05)
+    for c in idle:
+        assert dl(d, c) == pytest.approx(100.0 / 6, abs=0.01)
+    assert dl(d, "qbittorrent_1") == pytest.approx(1.0, abs=0.01)
+
+
+def test_upload_seven_clients_one_active_at_20_percent_never_exceed_the_pool():
+    engine = engine_with()
+    engine.config.bandwidth.download.inactive_safety_net_percent = 20   # upload reuses the download value
+    idle = {f"transmission_{i}": 0 for i in range(1, 7)}
+    polls = [stats(download={"qbittorrent_1": 0, **idle}, upload={"qbittorrent_1": 20, **idle})] * 6
+    d = run(engine, polls)
+    assert sum(ul(d, c) for c in d) == pytest.approx(51.0, abs=0.05)
+    assert ul(d, "qbittorrent_1") == pytest.approx(1.0, abs=0.01)
+    for c in idle:
+        assert ul(d, c) == pytest.approx(50.0 / 6, abs=0.01)
+
+
+def test_target_split_scales_nets_that_exceed_the_pool_in_both_directions():
+    engine = engine_with()
+    for direction in ("download", "upload"):
+        # A fraction above one can only come from a database written before the server-side bound.
+        alloc = engine._target_split(["a", "b"], 900.0, ["a"], {}, 1.5, direction)
+        assert alloc["b"] == pytest.approx(900.0)      # the one idle client gets the whole pool
+        assert alloc["a"] == pytest.approx(0.0)        # active gets nothing before the floor
+        assert min(alloc.values()) >= 0
+        assert sum(alloc.values()) == pytest.approx(900.0)
+
+
+def test_target_split_leaves_nets_that_exactly_fill_the_pool_alone():
+    engine = engine_with()
+    alloc = engine._target_split(["a", "b", "c", "d", "e", "f"], 100.0, ["a"], {}, 0.2, "download")
+    assert alloc["b"] == pytest.approx(20.0) and alloc["a"] == pytest.approx(0.0)
+    assert sum(alloc.values()) == pytest.approx(100.0)
+
+
+def test_target_split_is_unchanged_when_the_nets_fit():
+    engine = engine_with()
+    alloc = engine._target_split(["a", "b", "c"], 100.0, ["a"], {}, 0.05, "download")
+    assert alloc == {"b": pytest.approx(5.0), "c": pytest.approx(5.0), "a": pytest.approx(90.0)}

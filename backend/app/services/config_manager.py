@@ -4,8 +4,11 @@ Configuration management service.
 Handles configuration updates, database storage, and service reloads.
 """
 import logging
+import types
+import typing
 from typing import Dict, Any, Optional
-from pydantic import ValidationError
+from annotated_types import Ge, Gt, Le, Lt
+from pydantic import BaseModel, ValidationError
 from cryptography.fernet import InvalidToken
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
@@ -49,6 +52,45 @@ PERCENT_KEY_PREFIXES = [
 
 # Internal row that records which registry version encrypt_stored_secrets has been run for.
 SECRETS_MARKER_KEY = "_secrets_encrypted"
+
+
+def _model_of(annotation):
+    """The BaseModel subclass behind a field annotation (`Model` or `Model | None`), else None."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        for arg in typing.get_args(annotation):
+            if isinstance(arg, type) and issubclass(arg, BaseModel):
+                return arg
+    return None
+
+
+def bounded_scalar_keys(model: type = SpeedarrConfig, prefix: str = "") -> Dict[str, tuple]:
+    """Every scalar config key whose field carries a numeric bound: {flat_key: (ge, le, strict)}.
+
+    Walks nested models only; list sections (media_servers, download_clients) are JSON rows
+    validated by their own PUTs and are not walked. `strict` is True when the field uses gt/lt,
+    which clamp_stored_bounds cannot honour (it skips such keys with a warning).
+    """
+    found: Dict[str, tuple] = {}
+    for name, field in model.model_fields.items():
+        key = f"{prefix}{name}"
+        nested = _model_of(field.annotation)
+        if nested is not None:
+            found.update(bounded_scalar_keys(nested, f"{key}."))
+            continue
+        low = high = None
+        strict = False
+        for meta in field.metadata:
+            if isinstance(meta, Ge):
+                low = meta.ge
+            elif isinstance(meta, Le):
+                high = meta.le
+            elif isinstance(meta, (Gt, Lt)):
+                strict = True
+        if low is not None or high is not None or strict:
+            found[key] = (low, high, strict)
+    return found
 
 
 def _deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
@@ -731,6 +773,46 @@ class ConfigManager:
             f"{history_scrubbed} history entries scrubbed (schema v{SECRETS_SCHEMA_VERSION})"
         )
         return True
+
+    async def clamp_stored_bounds(self, db: AsyncSession) -> int:
+        """Pull stored numeric rows back inside their field's ge/le bounds (audit B4-1, D1-6).
+
+        Runs at startup before the strict loader: a bound added to the model would otherwise make an
+        existing database fail to load and drop the install into setup mode. Writes through
+        _update_key so history records the change, logs one warning per row, is idempotent, and
+        returns the number of rows changed. Rows that are not numeric are left to the loader.
+        """
+        marker = await db.execute(select(Configuration).where(Configuration.key == "_migrated"))
+        if not marker.scalar_one_or_none():
+            return 0
+        changed = 0
+        for key, (low, high, strict) in bounded_scalar_keys().items():
+            if strict:
+                logger.warning(f"Config {key} has a strict bound the startup clamp cannot apply; skipped")
+                continue
+            row = (await db.execute(select(Configuration).where(Configuration.key == key))).scalar_one_or_none()
+            if row is None or row.value_type not in ("integer", "float"):
+                continue
+            try:
+                value = deserialize_value(row.value, row.value_type)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            clamped = value
+            if low is not None and value < low:
+                clamped = low
+            if high is not None and value > high:
+                clamped = high
+            if clamped == value:
+                continue
+            clamped = type(value)(clamped)
+            logger.warning(f"Config {key} = {value} is outside {low}..{high}; stored {clamped} (audit B4-1/D1-6)")
+            await self._update_key(key, clamped, db, user_id=None)
+            changed += 1
+        if changed:
+            await db.commit()
+        return changed
 
     async def _reload_services(self, section_name: str, config: SpeedarrConfig):
         """

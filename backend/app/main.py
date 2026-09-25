@@ -203,6 +203,12 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await config_manager.encrypt_stored_secrets(db)
 
+    # Pull stored numeric settings back inside their bounds (audit B4-1, D1-6). Also before the
+    # strict loader: a value outside a bound would otherwise fail to load and start the app in
+    # setup mode.
+    async with AsyncSessionLocal() as db:
+        await config_manager.clamp_stored_bounds(db)
+
     # Load configuration from database
     async with AsyncSessionLocal() as db:
         config = await config_manager.load_config_from_db(db)

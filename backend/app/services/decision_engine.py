@@ -125,8 +125,17 @@ class DecisionEngine:
             return alloc
 
         inactive = [c for c in clients if c not in active]
-        active_pool = 1.0 - safety_net_fraction * len(inactive)
-        alloc = {c: available * safety_net_fraction for c in inactive}
+        net = safety_net_fraction
+        if inactive and net * len(inactive) > 1.0:
+            # The idle nets alone would exceed the pool (many idle clients, or a fraction above one
+            # from a database written before the server-side bound). Never hand out more than the
+            # pool: the idle clients split it and the active clients get nothing before the floor
+            # (audit B4-1).
+            net = 1.0 / len(inactive)
+            logger.debug(f"{direction}: safety nets exceed the pool; idle clients split it, "
+                         "active clients get the floor")
+        active_pool = max(0.0, 1.0 - net * len(inactive))
+        alloc = {c: available * net for c in inactive}
         weights = split_weights(active, percents)
         for c in active:
             alloc[c] = available * active_pool * weights[c]

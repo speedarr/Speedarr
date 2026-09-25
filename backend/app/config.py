@@ -161,8 +161,8 @@ class DownloadBandwidthConfig(BaseModel):
 
     # Single active allocation (inactive client gets safety net %)
     inactive_safety_net_percent: int = Field(
-        5,
-        description="Minimum % for inactive client (allows activity detection)"
+        5, ge=0, le=20,
+        description="Minimum % for inactive client (allows activity detection); 0-20"
     )
 
     # Time-based schedule for alternate download settings
@@ -198,8 +198,11 @@ class StreamBandwidthConfig(BaseModel):
     """Stream bandwidth calculation configuration."""
     bandwidth_calculation: str = Field("auto", description="auto or manual")
     manual_per_stream: float = Field(15, description="Bandwidth per stream if manual")
-    overhead_percent: int = Field(100, description="Protocol overhead percentage")
-    download_reserve_percent: int = Field(20, description="Percentage of stream bandwidth reserved from downloads for TCP ACKs")
+    overhead_percent: int = Field(100, ge=0, le=300, description="Protocol overhead percentage (0-300)")
+    download_reserve_percent: int = Field(
+        20, ge=0, le=100,
+        description="Percentage of stream bandwidth reserved from downloads for TCP ACKs (0-100)"
+    )
 
 
 class BandwidthConfig(BaseModel):
