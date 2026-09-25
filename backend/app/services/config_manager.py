@@ -933,7 +933,11 @@ class ConfigManager:
         # This handles removal of legacy configs
 
         # Get all current keys
-        result = await db.execute(select(Configuration).where(~Configuration.key.startswith("_")))
+        # autoescape: without it `_` is a LIKE wildcard, the negation matched no row and this step
+        # had never removed anything (audit NEW-1).
+        result = await db.execute(
+            select(Configuration).where(~Configuration.key.startswith("_", autoescape=True))
+        )
         existing_keys = {row.key for row in result.scalars().all()}
 
         # Flatten new config
