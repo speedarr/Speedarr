@@ -11,7 +11,10 @@ from app.database import get_db
 from app.api.auth import get_current_user, require_auth_if_private
 from app.models.user import User
 from app.services.config_manager import ConfigManager
-from app.config import SpeedarrConfig, DownloadClientConfig, MediaServerConfig, mask_value, mask_stored, REDACTED
+from app.config import (
+    SpeedarrConfig, DownloadClientConfig, MediaServerConfig, mask_value, mask_stored, moved_secret,
+    moved_secret_message, REDACTED,
+)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -67,7 +70,11 @@ class TestConnectionResponse(BaseModel):
 
 
 def _same_address(supplied, saved) -> bool:
-    """True when a caller-supplied address is the stored one (trailing slashes ignored)."""
+    """True when a caller-supplied address is the stored one (trailing slashes ignored).
+
+    Both must be non-empty: a test with no address uses the stored one. The save-side rule
+    (config.moved_secret, audit NEW-5) compares differently on purpose: there, empty == empty.
+    """
     return bool(supplied) and bool(saved) and supplied.rstrip("/") == saved.rstrip("/")
 
 
@@ -1338,6 +1345,11 @@ async def update_download_clients(
             client_id = client_data.get("id")
             existing = existing_clients.get(client_id) if client_id else None
 
+            # A masked secret stays with the address it was saved with (audit NEW-5)
+            moved = moved_secret(DownloadClientConfig, existing.model_dump() if existing else None, client_data, merge=False)
+            if moved:
+                raise ValueError(moved_secret_message(f'Download client "{client_data.get("name") or client_id}"', moved[1]))
+
             # Preserve password if masked (but allow empty string to clear it)
             if client_data.get("password") == "***REDACTED***":
                 if existing and existing.password:
@@ -1481,6 +1493,10 @@ async def update_media_servers(
         for data in update_request.servers:
             sid = data.get("id")
             prev = existing.get(sid) if sid else None
+            # A masked secret stays with the address it was saved with (audit NEW-5)
+            moved = moved_secret(MediaServerConfig, prev.model_dump() if prev else None, data, merge=False)
+            if moved:
+                raise ValueError(moved_secret_message(f'Media server "{data.get("name") or sid}"', moved[1]))
             # Preserve masked secrets
             if data.get("token") == "***REDACTED***":
                 data["token"] = prev.token if prev and prev.token else ""

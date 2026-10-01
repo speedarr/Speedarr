@@ -4,6 +4,8 @@
 
 This is a field-by-field reference for the Settings page. Settings is admin-only — anyone not logged in as an admin is redirected away from it.
 
+Saved passwords, API keys, tokens and other secrets are never shown again; their fields say the value is set. A saved secret only goes to the address it was saved with: to move a server, client, Gotify or ntfy server, or SNMP host or port to a new address, type its secret again. Otherwise the save, or Test Connection, is refused.
+
 ## General
 
 ### Throttling Control

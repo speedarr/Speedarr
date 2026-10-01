@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Marker for fields whose values are secrets; the registry at the end of this module is derived from it.
 SENSITIVE = {"sensitive": True}
+# Marker for fields that say where a stored secret is sent; a save may not change one while it keeps
+# the secret (audit NEW-5).
+ADDRESS = {"address": True}
 # The one placeholder every settings response uses for a secret, and the writer reads as "keep the stored value".
 REDACTED = "***REDACTED***"
 # Bump when a field gains the marker so encrypt_stored_secrets re-runs for that field's existing rows.
@@ -29,7 +32,7 @@ SECRETS_SCHEMA_VERSION = 1
 
 class PlexConfig(BaseModel):
     """Plex Media Server configuration."""
-    url: str = ""  # http://192.168.1.100:32400
+    url: str = Field("", json_schema_extra=ADDRESS)  # http://192.168.1.100:32400
     token: str = Field("", json_schema_extra=SENSITIVE)  # X-Plex-Token
     include_lan_streams: bool = Field(
         default=False,
@@ -43,7 +46,7 @@ class MediaServerConfig(BaseModel):
     name: str = Field("Plex", description="Display name for this server")
     type: str = Field("plex", description="Server type: plex, emby, jellyfin")
     enabled: bool = True
-    url: str = ""
+    url: str = Field("", json_schema_extra=ADDRESS)
     token: str = Field("", json_schema_extra=SENSITIVE)        # Plex (X-Plex-Token)
     api_key: str = Field("", json_schema_extra=SENSITIVE)      # Emby / Jellyfin
     include_lan_streams: bool = Field(
@@ -82,7 +85,7 @@ class MediaServerConfig(BaseModel):
 
 class QBittorrentConfig(BaseModel):
     """qBittorrent service configuration."""
-    url: str
+    url: str = Field(..., json_schema_extra=ADDRESS)
     username: str
     password: str = Field(..., json_schema_extra=SENSITIVE)
     enabled: bool = True
@@ -90,7 +93,7 @@ class QBittorrentConfig(BaseModel):
 
 class SABnzbdConfig(BaseModel):
     """SABnzbd service configuration."""
-    url: str
+    url: str = Field(..., json_schema_extra=ADDRESS)
     api_key: str = Field(..., json_schema_extra=SENSITIVE)
     enabled: bool = True
     max_speed_mbps: float = Field(
@@ -106,7 +109,7 @@ class DownloadClientConfig(BaseModel):
     type: str = Field(..., description="Client type: qbittorrent, sabnzbd, nzbget, transmission, deluge")
     name: str = Field(..., description="Display name for this client")
     enabled: bool = True
-    url: str
+    url: str = Field(..., json_schema_extra=ADDRESS)
     # Auth fields (used by different clients)
     username: Optional[str] = None
     password: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
@@ -121,8 +124,8 @@ class DownloadClientConfig(BaseModel):
 class SNMPConfig(BaseModel):
     """SNMP monitoring configuration (v2c only)."""
     enabled: bool = False
-    host: str = ""
-    port: int = 161
+    host: str = Field("", json_schema_extra=ADDRESS)
+    port: int = Field(161, json_schema_extra=ADDRESS)
     version: str = "v2c"  # Only v2c is supported
     community: str = Field("public", json_schema_extra=SENSITIVE)  # SNMP v2c community string
     interface: str = ""  # Interface name or SNMP index
@@ -265,7 +268,7 @@ class TelegramNotificationConfig(BaseModel):
 class GotifyNotificationConfig(BaseModel):
     """Gotify notification configuration."""
     enabled: bool = False
-    server_url: Optional[str] = None
+    server_url: Optional[str] = Field(None, json_schema_extra=ADDRESS)
     app_token: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     priority: int = Field(5, ge=0, le=10, description="Message priority (0-10)")
     events: List[str] = Field(default_factory=lambda: [
@@ -277,7 +280,7 @@ class GotifyNotificationConfig(BaseModel):
 class NtfyNotificationConfig(BaseModel):
     """ntfy notification configuration."""
     enabled: bool = False
-    server_url: str = Field("https://ntfy.sh", description="ntfy server URL")
+    server_url: str = Field("https://ntfy.sh", description="ntfy server URL", json_schema_extra=ADDRESS)
     topic: Optional[str] = Field(None, json_schema_extra=SENSITIVE)
     priority: int = Field(3, ge=1, le=5, description="Message priority (1-5)")
     events: List[str] = Field(default_factory=lambda: [
@@ -773,20 +776,25 @@ def _unwrap_annotation(annotation):
     return (None, False)
 
 
-def _collect_sensitive_paths(model_cls, prefix=()):
+def _marked(field, flag: str) -> bool:
+    extra = field.json_schema_extra
+    return isinstance(extra, dict) and bool(extra.get(flag))
+
+
+def _collect_marked_paths(model_cls, flag: str, prefix=()):
     paths = set()
     for name, field in model_cls.model_fields.items():
-        extra = field.json_schema_extra
-        if isinstance(extra, dict) and extra.get("sensitive"):
+        if _marked(field, flag):
             paths.add(prefix + (name,))
             continue
         inner, is_list = _unwrap_annotation(field.annotation)
         if inner is not None:
-            paths |= _collect_sensitive_paths(inner, prefix + ((name, "[]") if is_list else (name,)))
+            paths |= _collect_marked_paths(inner, flag, prefix + ((name, "[]") if is_list else (name,)))
     return paths
 
 
-SENSITIVE_PATHS = frozenset(_collect_sensitive_paths(SpeedarrConfig))
+SENSITIVE_PATHS = frozenset(_collect_marked_paths(SpeedarrConfig, "sensitive"))
+ADDRESS_PATHS = frozenset(_collect_marked_paths(SpeedarrConfig, "address"))
 SECRET_LEAF_NAMES = frozenset(path[-1] for path in SENSITIVE_PATHS)
 
 
@@ -879,3 +887,63 @@ def mask_stored(key: str, value_str: Optional[str], value_type: str) -> Optional
             return value_str
         return json.dumps(mask_value(key, parsed))
     return mask_value(key, value_str)
+
+
+# ---------------------------------------------------------------------------
+# A stored secret stays with the address it was saved with (audit NEW-5)
+#
+# The save-side twin of the Test Connection pin (T1-2): a save that keeps a stored secret (the masked
+# placeholder came back, or a section save left it out) may not change the address beside it.
+# ---------------------------------------------------------------------------
+
+_SECTION_LABELS = {
+    "notifications.gotify": "Gotify", "notifications.ntfy": "ntfy", "snmp": "SNMP",
+    "plex": "Plex", "qbittorrent": "qBittorrent", "sabnzbd": "SABnzbd",
+}
+_SECRET_LABELS = {"api_key": "API key", "community": "community string"}
+_ADDRESS_LABELS = {"url": "URL", "server_url": "server URL"}
+
+
+def _address_value(value) -> str:
+    return "" if value is None else str(value).rstrip("/")
+
+
+def moved_secret(model_cls, stored: Optional[dict], incoming: dict, merge: bool, prefix=()):
+    """(path, secret, address) for the first stored secret a save would keep beside a changed address.
+
+    A secret is kept when the caller sends the masked placeholder or, for a section save (`merge`, the
+    payload is merged onto the stored section), leaves it out; a typed or cleared secret is not kept,
+    and an empty stored one has nothing to protect. Addresses compare with trailing slashes ignored;
+    an empty address is a value like any other. Nested models are walked, lists are not (each list
+    entry is checked by its own save). None when the save moves no secret.
+    """
+    stored = stored or {}
+    addresses = [n for n, f in model_cls.model_fields.items() if _marked(f, "address")]
+    if addresses:
+        def after(name):
+            return incoming.get(name, stored.get(name)) if merge else incoming.get(name)
+        changed = [a for a in addresses if _address_value(after(a)) != _address_value(stored.get(a))]
+        kept = [n for n, f in model_cls.model_fields.items()
+                if _marked(f, "sensitive") and stored.get(n)
+                and (incoming.get(n) == REDACTED or (merge and n not in incoming))]
+        if changed and kept:
+            return prefix, kept[0], changed[0]
+    for name, field in model_cls.model_fields.items():
+        inner, is_list = _unwrap_annotation(field.annotation)
+        if inner is not None and not is_list and isinstance(incoming.get(name), dict):
+            found = moved_secret(inner, stored.get(name), incoming[name], merge, prefix + (name,))
+            if found:
+                return found
+    return None
+
+
+def moved_secret_message(where: str, secret: str, address: Optional[str] = None) -> str:
+    """'Gotify: enter the app token to change the server URL'; without an address, '... its address'."""
+    target = f"the {_ADDRESS_LABELS.get(address, address)}" if address else "its address"
+    return f"{where}: enter the {_SECRET_LABELS.get(secret, secret.replace('_', ' '))} to change {target}"
+
+
+def section_label(path) -> str:
+    """('notifications', 'gotify') -> 'Gotify'; an unlisted path is shown dotted."""
+    dotted = ".".join(path)
+    return _SECTION_LABELS.get(dotted, dotted)

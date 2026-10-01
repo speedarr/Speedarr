@@ -82,13 +82,14 @@ async def test_partial_payload_merges_with_the_current_section(cm, db):
 
 
 async def test_placeholder_keeps_the_stored_secret_row_and_adds_no_history(cm, db):
-    await cm.update_section("snmp", {"community": "AUDITMARK-snmp"}, db)
+    await cm.update_section("snmp", {"community": "AUDITMARK-snmp", "host": "router"}, db)
     before = await _value(db, "snmp.community")
     count = await _history_count(db)
-    cfg = await cm.update_section("snmp", {"community": REDACTED, "host": "router"}, db)
+    # (a host change beside the placeholder is refused, audit NEW-5, so this save changes the interface)
+    cfg = await cm.update_section("snmp", {"community": REDACTED, "interface": "eth0"}, db)
     assert await _value(db, "snmp.community") == before
-    assert cfg.snmp.community == "AUDITMARK-snmp" and cfg.snmp.host == "router"
-    assert await _history_count(db) == count + 1        # only snmp.host
+    assert cfg.snmp.community == "AUDITMARK-snmp" and cfg.snmp.interface == "eth0"
+    assert await _history_count(db) == count + 1        # only snmp.interface
 
 
 async def test_placeholder_with_nothing_stored_is_skipped_not_stored(cm, db):

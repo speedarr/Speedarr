@@ -31,6 +31,9 @@ from app.config import (
     decrypt_value,
     looks_like_fernet_token,
     section_model,
+    moved_secret,
+    moved_secret_message,
+    section_label,
     SECRETS_SCHEMA_VERSION,
     REDACTED,
 )
@@ -430,6 +433,11 @@ class ConfigManager:
 
         # Merge the payload onto the current section; a masked placeholder means "the stored value".
         current = await self._current_section(section_name, db)
+        # A kept secret may not follow a changed address (audit NEW-5).
+        moved = moved_secret(model_cls, current, config_data, merge=True, prefix=(section_name,))
+        if moved:
+            path, secret, address = moved
+            raise ValueError(moved_secret_message(section_label(path), secret, address))
         merged = _deep_merge(current, config_data)
         incoming_flat = flatten_dict({section_name: config_data})
         current_flat = flatten_dict({section_name: current})
