@@ -41,6 +41,15 @@ class RateLimiter:
         self._blocked: Dict[str, datetime] = {}  # IP -> blocked until
         self._lock = asyncio.Lock()
 
+    def _sweep(self, now: datetime) -> None:
+        """Drop identifiers with no attempt inside the window and blocks that have expired, so rotating
+        peers cannot grow the two dicts without bound (audit B1-2, merged T1-6). Caller holds the lock."""
+        cutoff = now.timestamp() - self.window_seconds
+        for identifier in [k for k, stamps in self._requests.items() if not stamps or stamps[-1] <= cutoff]:
+            del self._requests[identifier]
+        for identifier in [k for k, until in self._blocked.items() if until <= now]:
+            del self._blocked[identifier]
+
     async def is_allowed(self, identifier: str) -> tuple[bool, int]:
         """
         Check if a request is allowed.
@@ -53,6 +62,7 @@ class RateLimiter:
         """
         async with self._lock:
             now = datetime.now(timezone.utc)
+            self._sweep(now)
 
             # Check if blocked
             if identifier in self._blocked:

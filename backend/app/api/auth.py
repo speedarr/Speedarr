@@ -21,19 +21,14 @@ security = HTTPBearer(auto_error=False)
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP from request, handling proxy headers."""
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    """The connecting address, which is what the login rate limit keys on (audit B1-2).
 
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-
-    if request.client:
-        return request.client.host
-
-    return ""
+    Forwarded headers are not read here. uvicorn's proxy-headers middleware already rewrites the
+    client address from X-Forwarded-For when the peer is listed in FORWARDED_ALLOW_IPS (loopback by
+    default); honouring the header from any other peer let a caller pick a fresh identity per
+    request and never hit the limit.
+    """
+    return request.client.host if request.client else ""
 
 
 class LoginRequest(BaseModel):

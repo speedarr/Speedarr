@@ -111,6 +111,7 @@ All of these are optional — Speedarr runs fine with none of them set.
 | `AUTH__SECRET_KEY` | JWT signing key for authentication | Auto-generated and saved to `/data/.jwt_secret` if unset |
 | `CONFIG_ENCRYPTION_KEY` | Fernet key used to encrypt stored secrets (passwords, tokens, API keys, webhook URLs) at rest | Auto-generated and saved to `/data/.encryption_key` if unset |
 | `DEBUG` | `true` forces Debug-level logging regardless of the Log Level setting, and turns on SQL query logging | `false` |
+| `FORWARDED_ALLOW_IPS` | Comma-separated addresses of reverse proxies whose `X-Forwarded-For` header Speedarr trusts, so the login rate limit sees the real client instead of the proxy. Set it to your proxy's address; `*` trusts every peer, which is only safe when the proxy is the only thing that can reach the port. | `127.0.0.1` |
 
 The generated keys live in your data folder alongside the database, so make sure they're covered by whatever you use for [backups](operations.md#backups).
 

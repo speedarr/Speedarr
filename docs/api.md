@@ -17,7 +17,7 @@ Speedarr supports two ways to authenticate:
 - **API key** — created in [Settings › Integrations](settings.md#integrations), with a name and an optional expiry. Send it as the `X-API-Key` header. A key carries the same privileges as the admin account — there's no read-only or scoped key type. Revoking a key takes effect immediately: the next request with it is rejected. The full key is shown when you generate it, and any admin session can copy it again from the key list.
 - **Browser session** — `POST /api/auth/login` with `{username, password}` returns a JWT. Send it as `Authorization: Bearer <token>` on later requests. Sessions last 24 hours.
 
-Only `POST /api/auth/login` is rate-limited: 5 attempts per 60 seconds, then a 5-minute block per client IP. No other endpoint is rate-limited.
+Only `POST /api/auth/login` is rate-limited: 5 attempts per 60 seconds, then a 5-minute block per connecting address. Behind a reverse proxy, set `FORWARDED_ALLOW_IPS` to the proxy's address (see [environment variables](install.md#environment-variables)) so the limit sees the real client rather than the proxy. No other endpoint is rate-limited.
 
 ## What "Require login" changes
 
