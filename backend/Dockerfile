@@ -79,6 +79,10 @@ RUN useradd -r -s /sbin/nologin speedarr \
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 RUN chmod 644 /etc/supervisor/conf.d/supervisord.conf
 
+# Copy the FATAL-state event listener (audit I1-2)
+COPY docker/fatal_exit.py /usr/local/bin/speedarr-fatal-exit.py
+RUN chmod 755 /usr/local/bin/speedarr-fatal-exit.py
+
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh
