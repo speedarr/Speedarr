@@ -104,14 +104,21 @@ The shipped compose file has this commented out already, ready to uncomment and 
 
 ### Environment variables
 
-All of these are optional — Speedarr runs fine with none of them set.
+All of these are optional — Speedarr runs fine with none of them set. Set them under `environment:` on the service in `docker-compose.yml`, the same way as [PUID and PGID](#puid-and-pgid). A `.env` file next to the compose file isn't passed into the container: the shipped compose file has no `env_file:`, so Compose only uses `.env` to fill in `${...}` placeholders.
+
+```yaml
+services:
+  speedarr:
+    environment:
+      - FORWARDED_ALLOW_IPS=172.18.0.0/16
+```
 
 | Variable | What it does | Default |
 |---|---|---|
 | `AUTH__SECRET_KEY` | JWT signing key for authentication | Auto-generated and saved to `/data/.jwt_secret` if unset |
 | `CONFIG_ENCRYPTION_KEY` | Fernet key used to encrypt stored secrets (passwords, tokens, API keys, webhook URLs) at rest | Auto-generated and saved to `/data/.encryption_key` if unset |
 | `DEBUG` | `true` forces Debug-level logging regardless of the Log Level setting, and turns on SQL query logging | `false` |
-| `FORWARDED_ALLOW_IPS` | Comma-separated addresses of reverse proxies whose `X-Forwarded-For` header Speedarr trusts, so the login rate limit sees the real client instead of the proxy. Set it to your proxy's address; `*` trusts every peer, which is only safe when the proxy is the only thing that can reach the port. | `127.0.0.1` |
+| `FORWARDED_ALLOW_IPS` | Comma-separated addresses or CIDR ranges (such as `172.18.0.0/16`) of reverse proxies whose `X-Forwarded-For` header Speedarr trusts, so the login rate limit sees the real client instead of the proxy. Set it to your proxy's address or its Docker network; `*` trusts every peer, which is only safe when the proxy is the only thing that can reach the port. Left unset behind a proxy, every login arrives from the proxy's address and all of them share one rate-limit bucket; Docker Desktop installs see a single peer address for every client in the same way. | `127.0.0.1` |
 
 The generated keys live in your data folder alongside the database, so make sure they're covered by whatever you use for [backups](operations.md#backups).
 
