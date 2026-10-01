@@ -66,6 +66,18 @@ class TestConnectionResponse(BaseModel):
     details: Optional[Dict[str, Any]] = None
 
 
+def _same_address(supplied, saved) -> bool:
+    """True when a caller-supplied address is the stored one (trailing slashes ignored)."""
+    return bool(supplied) and bool(saved) and supplied.rstrip("/") == saved.rstrip("/")
+
+
+def _pinned(secret_name: str) -> TestConnectionResponse:
+    """The refusal for a test that would carry a stored secret to a different address (audit T1-2)."""
+    return TestConnectionResponse(
+        success=False, message=f"Enter the {secret_name} to test a different address"
+    )
+
+
 class HistoryEntry(BaseModel):
     """Configuration change history entry."""
 
@@ -302,23 +314,24 @@ async def test_connection(
             url = config_data.get("url")
             token = config_data.get("token")
 
-            # If use_existing or token is masked, resolve from saved server
-            # (covers both legacy plex.* [synthesized id "plex"] and new media_servers entries)
-            if test_request.use_existing or token == "***REDACTED***":
+            # A stored token goes only to the stored address (audit T1-2): with the masked
+            # placeholder or use_existing, the saved server's URL is the only target. A typed
+            # token is never pinned.
+            if test_request.use_existing or token == REDACTED:
                 saved = resolve_test_media_server(
                     app_config.get_all_media_servers(), "plex", config_data.get("id")
                 )
-                if saved and saved.token:
-                    token = saved.token
-                    if not url:
-                        url = saved.url
-                else:
+                if not (saved and saved.token):
                     return TestConnectionResponse(
                         success=False,
                         message="No Plex token configured. Please enter a token.",
                     )
+                if url and not _same_address(url, saved.url):
+                    return _pinned("token")
+                token = saved.token
+                url = saved.url
 
-            # Fall back to saved url if still missing
+            # Typed token, no address sent: test the saved server
             if not url:
                 _srv = resolve_test_media_server(
                     app_config.get_all_media_servers(), "plex", config_data.get("id")
@@ -355,13 +368,17 @@ async def test_connection(
             username = config_data.get("username", "")
             password = config_data.get("password", "")
 
-            # Resolve masked password from the saved config; username and password
-            # are otherwise optional (qBittorrent supports auth bypass / proxies)
-            if test_request.use_existing or password == "***REDACTED***":
+            # Resolve a masked or omitted password from the saved client and pin the test to the
+            # saved address (audit T1-2); username and password are otherwise optional
+            # (qBittorrent supports auth bypass / proxies)
+            if test_request.use_existing or password == REDACTED:
                 existing = _find_existing_client(app_config, config_data.get("id"), "qbittorrent")
-                if existing and existing.password and password in ("", "***REDACTED***"):
+                if existing and existing.password and password in ("", REDACTED):
+                    if url and not _same_address(url, existing.url):
+                        return _pinned("password")
                     password = existing.password
-                elif password == "***REDACTED***":
+                    url = url or existing.url
+                elif password == REDACTED:
                     return TestConnectionResponse(
                         success=False,
                         message="No qBittorrent password configured. Please enter a password.",
@@ -392,19 +409,21 @@ async def test_connection(
             url = config_data.get("url", "")
             api_key = config_data.get("api_key", "")
 
-            # Get existing client config for use_existing
-            if test_request.use_existing or api_key == "***REDACTED***":
+            # A stored API key goes only to the stored address (audit T1-2)
+            if test_request.use_existing or api_key == REDACTED:
                 existing = _find_existing_client(app_config, config_data.get("id"), "sabnzbd")
-                if existing:
-                    if not url:
-                        url = existing.url
-                    if existing.api_key and api_key in ("", "***REDACTED***"):
-                        api_key = existing.api_key
-                elif api_key == "***REDACTED***":
+                if existing and existing.api_key and api_key in ("", REDACTED):
+                    if url and not _same_address(url, existing.url):
+                        return _pinned("API key")
+                    api_key = existing.api_key
+                    url = url or existing.url
+                elif api_key == REDACTED:
                     return TestConnectionResponse(
                         success=False,
                         message="No SABnzbd API key configured. Please enter an API key.",
                     )
+                if existing and not url:
+                    url = existing.url      # typed key, no address: test the saved server
 
             if not url or not api_key:
                 return TestConnectionResponse(
@@ -432,12 +451,15 @@ async def test_connection(
             username = config_data.get("username", "")
             password = config_data.get("password", "")
 
-            # Get existing client config for use_existing
-            if test_request.use_existing or password == "***REDACTED***":
+            # A stored password goes only to the stored address (audit T1-2)
+            if test_request.use_existing or password == REDACTED:
                 existing = _find_existing_client(app_config, config_data.get("id"), "nzbget")
                 if existing and existing.password:
+                    if url and not _same_address(url, existing.url):
+                        return _pinned("password")
                     password = existing.password
-                elif password == "***REDACTED***":
+                    url = url or existing.url
+                elif password == REDACTED:
                     return TestConnectionResponse(
                         success=False,
                         message="No NZBGet password configured. Please enter a password.",
@@ -475,12 +497,15 @@ async def test_connection(
             username = config_data.get("username", "")
             password = config_data.get("password", "")
 
-            # Get existing client config for use_existing
-            if test_request.use_existing or password == "***REDACTED***":
+            # A stored password goes only to the stored address (audit T1-2)
+            if test_request.use_existing or password == REDACTED:
                 existing = _find_existing_client(app_config, config_data.get("id"), "transmission")
                 if existing and existing.password:
+                    if url and not _same_address(url, existing.url):
+                        return _pinned("password")
                     password = existing.password
-                elif password == "***REDACTED***":
+                    url = url or existing.url
+                elif password == REDACTED:
                     return TestConnectionResponse(
                         success=False,
                         message="No Transmission password configured. Please enter a password.",
@@ -517,12 +542,15 @@ async def test_connection(
             url = config_data.get("url", "")
             password = config_data.get("password", "")
 
-            # Get existing client config for use_existing
-            if test_request.use_existing or password == "***REDACTED***":
+            # A stored password goes only to the stored address (audit T1-2)
+            if test_request.use_existing or password == REDACTED:
                 existing = _find_existing_client(app_config, config_data.get("id"), "deluge")
                 if existing and existing.password:
+                    if url and not _same_address(url, existing.url):
+                        return _pinned("password")
                     password = existing.password
-                elif password == "***REDACTED***":
+                    url = url or existing.url
+                elif password == REDACTED:
                     return TestConnectionResponse(
                         success=False,
                         message="No Deluge password configured. Please enter a password.",
@@ -683,10 +711,14 @@ async def test_connection(
             server_url = config_data.get("server_url")
             app_token = config_data.get("app_token")
 
-            # If use_existing or values are masked, use the saved config
-            if test_request.use_existing or app_token == "***REDACTED***":
-                if app_config.notifications.gotify.app_token:
-                    app_token = app_config.notifications.gotify.app_token
+            # A stored app token goes only to the stored server (audit T1-2)
+            if test_request.use_existing or app_token == REDACTED:
+                saved = app_config.notifications.gotify
+                if saved.app_token:
+                    if server_url and not _same_address(server_url, saved.server_url):
+                        return _pinned("app token")
+                    app_token = saved.app_token
+                    server_url = server_url or saved.server_url
             if not server_url:
                 server_url = app_config.notifications.gotify.server_url
 
@@ -817,14 +849,17 @@ async def test_connection(
 
             url = config_data.get("url")
             api_key = config_data.get("api_key")
-            # Reuse saved api_key if masked / use_existing
-            if test_request.use_existing or api_key == "***REDACTED***":
+            # Reuse a saved api_key if masked / use_existing, pinned to the saved address (audit T1-2)
+            if test_request.use_existing or api_key == REDACTED:
                 existing = next(
                     (s for s in app_config.get_all_media_servers()
                      if s.type == service and (config_data.get("id") in (None, s.id))),
                     None,
                 )
+                if existing and url and not _same_address(url, existing.url):
+                    return _pinned("API key")
                 api_key = existing.api_key if existing else None
+                url = url or (existing.url if existing else None)
             if not url or not api_key:
                 return TestConnectionResponse(success=False, message="Missing required fields: url and api_key")
             client = create_media_server(MediaServerConfig(
