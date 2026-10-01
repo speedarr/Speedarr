@@ -72,7 +72,7 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
     try {
       const chartResponse = await apiClient.getBandwidthChartData({
         hours: timeRange.hours,
-        interval_minutes: 1,
+        interval_minutes: dataInterval === 'raw' ? 0 : dataInterval,   // audit B3-1
       });
 
       setRawData(chartResponse.data);
@@ -111,7 +111,7 @@ export const StreamCountChart: React.FC<StreamCountChartProps> = ({ timeRange, d
     fetchData();
     const interval = setInterval(fetchData, 30000); // Refresh every 30s
     return () => clearInterval(interval);
-  }, [timeRange.hours]);
+  }, [timeRange.hours, dataInterval]);
 
   // Calculate zoomed duration for XAxis formatting
   const zoomedDurationHours = useMemo(() => {

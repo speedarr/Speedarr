@@ -435,10 +435,10 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
   const fetchData = useCallback(async () => {
     setError('');
     try {
-      // Fetch chart data with per-datapoint limits
+      // The API averages rows into the interval on screen (audit B3-1); 0 asks for every row.
       const chartResponse = await apiClient.getBandwidthChartData({
         hours: timeRange.hours,
-        interval_minutes: 1,
+        interval_minutes: dataInterval === 'raw' ? 0 : dataInterval,
       });
 
       setRawData(chartResponse.data);
@@ -453,7 +453,7 @@ export const BandwidthChart: React.FC<BandwidthChartProps> = ({
     } finally {
       setIsInitialLoad(false);
     }
-  }, [timeRange.hours]);
+  }, [timeRange.hours, dataInterval]);
 
   // Memoize transformed chart data - depends on aggregated data and visibleSeries for scaling
   const transformedData = useMemo(() => {

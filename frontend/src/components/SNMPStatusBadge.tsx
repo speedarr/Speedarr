@@ -23,8 +23,8 @@ export const SNMPStatusBadge: React.FC = () => {
           return;
         }
 
-        // Check if recent SNMP data exists
-        const chartData = await apiClient.getBandwidthChartData({ hours: 1 });
+        // Raw rows on purpose (audit B3-1): a bucketed point never carries null, and the check below relies on it.
+        const chartData = await apiClient.getBandwidthChartData({ hours: 1, interval_minutes: 0 });
 
         if (chartData.data && chartData.data.length > 0) {
           // Check if any recent data points have SNMP values

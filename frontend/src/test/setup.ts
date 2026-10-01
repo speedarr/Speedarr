@@ -38,3 +38,13 @@ Element.prototype.matches = function matches(this: Element, selector: string): b
 if (typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = () => {};
 }
+
+// jsdom has no ResizeObserver; Recharts' ResponsiveContainer constructs one on mount. A no-op keeps
+// the chart components renderable, and the chart tests only assert on the requests they make.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
