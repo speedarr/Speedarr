@@ -1,11 +1,11 @@
 # Core Framework
 fastapi==0.141.1
-starlette==1.6.0
-uvicorn[standard]==0.52.4
+starlette==1.7.0
+uvicorn[standard]==0.54.0
 python-multipart==0.0.32
 
 # Database (SQLite for single-container)
-sqlalchemy==2.0.52
+sqlalchemy==2.1.1
 aiosqlite==0.22.1
 
 # HTTP Client
@@ -17,7 +17,7 @@ pydantic-settings==2.15.0
 pyyaml==6.0.3
 
 # Authentication
-PyJWT==2.14.0
+PyJWT==2.15.0
 bcrypt==5.0.0
 cryptography==50.0.1                  # Fernet config encryption (app/config.py), not only auth
 
