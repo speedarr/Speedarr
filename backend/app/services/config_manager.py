@@ -351,7 +351,12 @@ class ConfigManager:
 
             return config
         except Exception as e:
-            logger.error(f"Failed to construct SpeedarrConfig from database: {e}")
+            if isinstance(e, ValidationError):
+                # Location and message only: str(e) echoes input_value, which holds decrypted secrets.
+                detail = "; ".join(f"{_loc_str(err['loc'])}: {err['msg']}" for err in e.errors())
+            else:
+                detail = str(e)
+            logger.error(f"Failed to construct SpeedarrConfig from database: {detail}")
             return None
 
     async def _read_nested(self, db: AsyncSession) -> Optional[Dict[str, Any]]:

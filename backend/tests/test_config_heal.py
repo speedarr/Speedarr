@@ -254,6 +254,22 @@ async def test_an_unhealable_database_is_left_exactly_as_it_was(cm, db, loguru_l
     assert any(m.startswith("Config could not be healed: bandwidth.download.total_limit: ") for m in errors), errors
 
 
+async def test_the_loader_error_line_never_prints_a_decrypted_secret(cm, db, loguru_lines):
+    # Final review: Pydantic's input_value echoed the half-written legacy section, password included.
+    await _drop(db, "qbittorrent")
+    await _seed(db, "qbittorrent.username", "u")
+    await _seed(db, "qbittorrent.password", encrypt_value("AUDITMARK-legacy"))
+    await _drop(db, "bandwidth.download.total_limit")
+
+    assert await cm.heal_stored_config(db) == 0
+    assert await cm.load_config_from_db(db) is None
+
+    assert not any("AUDITMARK" in m for _, m in loguru_lines)
+    errors = [m for level, m in loguru_lines if level == "ERROR"]
+    assert any(m.startswith("Failed to construct SpeedarrConfig from database: ") and "bandwidth.download.total_limit" in m
+               for m in errors), errors
+
+
 async def test_a_value_encrypted_with_another_key_is_never_healed(cm, db):
     await _seed(db, "notifications.pushover.user_key", Fernet(Fernet.generate_key()).encrypt(b"x").decode())
     await _seed(db, "system.log_level", "LOUD")
