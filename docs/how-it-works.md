@@ -128,7 +128,7 @@ If a download client stops answering, Speedarr assumes it is still running under
 
 An "unreachable" notification goes out after about six failed polls in a row, so roughly 30 s at the default interval. Media servers, download clients and SNMP all work to that count, give or take a poll. You get one when it recovers too.
 
-When Speedarr itself stops — a container restart or an update — it applies the shutdown speeds from Settings › Failsafe if you have set them, and otherwise puts every client back to the limit it was on when Speedarr first polled it. The shutdown speeds are deliberately skipped while throttling is off, since being off means hands off. Clients still get put back to their normal speeds in that case — just not the configured shutdown ones.
+When Speedarr itself stops — a container restart or an update — it applies the shutdown speeds from Settings › Failsafe if you have set them, and otherwise puts every client back to its normal limit. For qBittorrent, Transmission and Deluge that's the limit the client was on the first time Speedarr read it; Speedarr keeps it across restarts and settings saves, until you remove the client or change its address. SABnzbd and NZBGet go back to the speed limit saved in their own settings. A client Speedarr has never managed to read is left as it is, and the log says so. The shutdown speeds are deliberately skipped while throttling is off, since being off means hands off. Clients still get put back to their normal limits in that case — just not the configured shutdown ones.
 
 ## SNMP
 

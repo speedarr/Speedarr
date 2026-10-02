@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
 from .base import BaseDownloadClient
-from app.utils.bandwidth import bytes_per_sec_to_mbps, mbps_to_kibibytes_per_sec
+from app.utils.bandwidth import bytes_per_sec_to_mbps, kibibytes_per_sec_to_mbps, mbps_to_kibibytes_per_sec
 
 
 class NZBGetClient(BaseDownloadClient):
@@ -30,12 +30,25 @@ class NZBGetClient(BaseDownloadClient):
         return True
 
     async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
-        """Write back the limit captured on the first poll; None when nothing was captured. Raises on failure."""
-        if self._original_limits is None:
-            return None
-        download = self._original_limits.get("download_limit", 0)
-        await self.set_speed_limits(download_limit=download)
-        return {"download_limit": download, "upload_limit": 0.0}
+        """Put back the cap saved in NZBGet's own settings (DownloadRate, KiB/s; 0 = unlimited).
+
+        The `rate` command Speedarr uses is runtime-only; NZBGet's own startup applies
+        DownloadRate. The baseline is ignored. Raises on failure.
+        """
+        try:
+            options = await self._rpc_call("config")
+            rate = next(
+                (o.get("Value") for o in (options or []) if isinstance(o, dict) and o.get("Name") == "DownloadRate"),
+                None,
+            )
+            if rate is None:
+                raise ValueError("NZBGet config has no DownloadRate option")
+            kib = int(float(rate))
+            await self._rpc_call("rate", [kib])
+        except Exception as e:
+            logger.error(f"Failed to restore NZBGet speed limit: {type(e).__name__}: {e}")
+            raise
+        return {"download_limit": kibibytes_per_sec_to_mbps(kib) if kib > 0 else 0.0, "upload_limit": 0.0}
 
     def _get_auth(self) -> aiohttp.BasicAuth:
         """Get basic auth credentials."""
@@ -78,9 +91,6 @@ class NZBGetClient(BaseDownloadClient):
             # Get current speed limit
             speed_limits = await self.get_speed_limits()
 
-            # Store original limits if not already stored
-            if self._original_limits is None:
-                self._original_limits = speed_limits.copy()
 
             # NZBGet reports speed in bytes/sec
             download_speed_mbps = bytes_per_sec_to_mbps(status.get("DownloadRate", 0))
@@ -92,33 +102,20 @@ class NZBGetClient(BaseDownloadClient):
                 "downloading_count": status.get("DownloadedSizeMB", 0) > 0,
                 "download_limit": speed_limits.get("download_limit", 0),
                 "upload_limit": 0,
-                "original_download_limit": self._original_limits.get("download_limit", 0),
-                "original_upload_limit": 0,
             }
         except Exception as e:
             logger.error(f"Failed to get NZBGet stats: {e}")
             return {"active": False, "error": str(e)}
 
     async def get_speed_limits(self) -> Dict[str, float]:
-        """Get current speed limits in Mbps."""
-        try:
-            status = await self._rpc_call("status")
-            # NZBGet uses DownloadLimit in bytes/sec, 0 means unlimited
-            limit_bytes = status.get("DownloadLimit", 0)
-
-            # Convert bytes/sec to Mbps (0 means unlimited, report as 0)
-            if limit_bytes == 0:
-                download_limit = 0  # Unlimited
-            else:
-                download_limit = bytes_per_sec_to_mbps(limit_bytes)
-
-            return {
-                "download_limit": download_limit,
-                "upload_limit": 0,
-            }
-        except Exception as e:
-            logger.error(f"Failed to get NZBGet speed limits: {type(e).__name__}: {e}")
-            return {"download_limit": 0, "upload_limit": 0}
+        """Get current speed limits in Mbps (0 = unlimited). Raises on failure."""
+        status = await self._rpc_call("status")
+        # NZBGet uses DownloadLimit in bytes/sec, 0 means unlimited
+        limit_bytes = status.get("DownloadLimit", 0)
+        return {
+            "download_limit": bytes_per_sec_to_mbps(limit_bytes) if limit_bytes else 0,
+            "upload_limit": 0,
+        }
 
     async def set_speed_limits(self, download_limit: Optional[float] = None, upload_limit: Optional[float] = None):
         """Set speed limits in Mbps."""

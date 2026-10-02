@@ -8,6 +8,7 @@ from app.clients import QBittorrentClient, SABnzbdClient, create_download_client
 from app.clients.base import RestoreOutcome
 from app.config import SpeedarrConfig, FailsafeConfig
 from app.constants import HARD_MIN_MBPS
+from app.services import client_baselines
 
 
 def _figure(mbps: float) -> str:
@@ -56,12 +57,19 @@ class ControllerManager:
     Manages download clients and applies throttling decisions.
     """
 
-    def __init__(self, config: SpeedarrConfig):
+    def __init__(self, config: SpeedarrConfig, get_db_session: Optional[Callable[[], Any]] = None):
         self.config = config
         self.clients: Dict[str, Any] = {}  # client_id -> client instance
         self.client_configs: Dict[str, Any] = {}  # client_id -> client config (for type, name lookup)
         # Serializes bulk limit writes (apply vs restore/remove) - issue #78 race
         self._write_lock = asyncio.Lock()
+        # Torrent clients' normal limits, persisted per client id (audit T4-5)
+        self._get_db_session = get_db_session
+        self._baselines: Dict[str, Dict[str, Any]] = {}
+        self._baselines_loaded = False
+        self._baselines_lock = asyncio.Lock()
+        # Client ids Speedarr has written to in this process -> the url written to; never captured after
+        self._written: Dict[str, str] = {}
         self._initialize_clients()
 
     def _initialize_clients(self):
@@ -96,9 +104,90 @@ class ControllerManager:
         self.clients.clear()
         self.client_configs.clear()
 
+    async def load_baselines(self) -> None:
+        """Load the stored normal limits and drop records for clients that are gone or moved."""
+        async with self._baselines_lock:
+            await self._load_baselines_locked()
+
+    async def _load_baselines_locked(self) -> None:
+        if self._get_db_session is None:
+            return
+        try:
+            async with self._get_db_session() as db:
+                records = await client_baselines.load_baselines(db)
+                kept = client_baselines.prune_baselines(records, self.config.get_all_download_clients())
+                if kept != records:
+                    await client_baselines.save_baselines(db, kept)
+                    await db.commit()
+        except Exception as e:
+            logger.warning(f"Could not load download client baselines: {e}")
+            return
+        self._baselines = kept
+        self._baselines_loaded = True
+
+    def _mark_written(self, client_id: str, client: Any) -> None:
+        url = getattr(client, "url", "")
+        self._written[client_id] = url.rstrip("/") if isinstance(url, str) else ""
+
+    async def _capture_baseline(self, client_id: str, client: Any, client_stats: Dict[str, Any]) -> None:
+        """Record a torrent client's limits the first time Speedarr reads them, before it writes (audit T4-5)."""
+        if (
+            self._get_db_session is None
+            or getattr(client, "restores_saved_cap", True)
+            or "error" in client_stats
+            or "download_limit" not in client_stats
+            or "upload_limit" not in client_stats
+            or client_id in self._baselines
+            or client_id in self._written
+        ):
+            return
+        async with self._baselines_lock:
+            if not self._baselines_loaded:
+                await self._load_baselines_locked()
+                if not self._baselines_loaded:
+                    return
+            if client_id in self._baselines or client_id in self._written:
+                return
+            if self.clients.get(client_id) is not client:
+                return  # a reload replaced the adapter that was read; its limits are stale
+            record = client_baselines.make_record(
+                getattr(client, "url", ""), client_stats["download_limit"], client_stats["upload_limit"]
+            )
+            records = {**self._baselines, client_id: record}
+            try:
+                async with self._get_db_session() as db:
+                    await client_baselines.save_baselines(db, records)
+                    await db.commit()
+            except Exception as e:
+                logger.warning(f"Could not save the normal limits of {client_id}; retrying next poll: {e}")
+                return
+            self._baselines = records
+            logger.info(
+                f"Recorded the normal limits of {client_id} "
+                f"({describe_limits(record, self._with_upload(client_id))})"
+            )
+
+    async def _prune_baselines(self) -> None:
+        async with self._baselines_lock:
+            if not self._baselines_loaded:
+                return
+            kept = client_baselines.prune_baselines(self._baselines, self.config.get_all_download_clients())
+            if kept == self._baselines:
+                return
+            self._baselines = kept
+            try:
+                async with self._get_db_session() as db:
+                    await client_baselines.save_baselines(db, kept)
+                    await db.commit()
+            except Exception as e:
+                logger.warning(f"Could not save pruned download client baselines: {e}")
+
     async def reload_clients(self, config: SpeedarrConfig) -> Dict[str, bool]:
         """
         Reload download clients with new configuration.
+
+        The normal limits survive the rebuild; a client that is gone or now at a different
+        address loses its record and its written mark, so it is read afresh (audit T4-5).
 
         Args:
             config: New SpeedarrConfig
@@ -116,6 +205,10 @@ class ControllerManager:
 
         # Reinitialize with new config
         self._initialize_clients()
+
+        urls = {c.id: (c.url or "").rstrip("/") for c in config.get_all_download_clients()}
+        self._written = {cid: url for cid, url in self._written.items() if urls.get(cid) == url}
+        await self._prune_baselines()
 
         # Test connections
         results = await self.test_connections()
@@ -153,6 +246,11 @@ class ControllerManager:
                     client_stats["client_type"] = client_config.type
                     client_stats["client_name"] = client_config.name
                     client_stats["supports_upload"] = client_config.supports_upload
+                if "error" not in client_stats:
+                    try:
+                        await self._capture_baseline(client_id, client, client_stats)
+                    except Exception as e:
+                        logger.warning(f"Could not record the normal limits of {client_id}: {e}")
                 return (client_id, client_stats)
             except Exception as e:
                 logger.error(f"Failed to get stats from {client_id}: {e}")
@@ -213,6 +311,7 @@ class ControllerManager:
 
                 try:
                     if action == "throttle":
+                        self._mark_written(client_name, client)
                         await client.set_speed_limits(
                             download_limit=decision.get("download_limit"),
                             upload_limit=decision.get("upload_limit")
@@ -264,13 +363,15 @@ class ControllerManager:
         """The limits a torrent client goes back to; None for clients that restore their own saved cap."""
         if getattr(client, "restores_saved_cap", False):
             return None
-        return getattr(client, "_original_limits", None)
+        return self._baselines.get(client_id)
 
     async def _restore_one(
         self, client_id: str, client: Any, retries: int = 3, retry_delay: float = 1.0
     ) -> Tuple[RestoreOutcome, Optional[Dict[str, float]]]:
         """Restore one client, retrying only on an exception (audit D3-3)."""
         baseline = self._baseline_for(client_id, client)
+        if baseline is not None or getattr(client, "restores_saved_cap", False):
+            self._mark_written(client_id, client)
         for attempt in range(1, retries + 1):
             try:
                 limits = await client.restore_speed_limits(baseline)
@@ -315,14 +416,16 @@ class ControllerManager:
         """
         Set every client to unlimited (issue #78 disable semantics).
 
-        Unlike restore_all_speeds, this does not depend on captured
-        _original_limits - "disabled" means Speedarr leaves no limits behind.
+        Unlike restore_all_speeds, this does not depend on any normal limit
+        (a torrent client's recorded baseline or a usenet client's saved cap)
+        - "disabled" means Speedarr leaves no limits behind.
         Each adapter's set_unlimited() maps to its native unlimited
         (qBittorrent 0, Transmission enabled=false, Deluge -1, SABnzbd 0
         written directly bypassing the issue-#43 floor, NZBGet 0).
         """
         async def remove_client_with_retry(name: str, client: Any) -> tuple[str, bool]:
             for attempt in range(1, retries + 1):
+                self._mark_written(name, client)
                 try:
                     await client.set_unlimited()
                     logger.info(f"Removed all speed limits from {name}")
@@ -422,6 +525,7 @@ class ControllerManager:
             dl = download_limits.get(client_id)
             ul = upload_limits.get(client_id)
             baseline = self._baseline_for(client_id, client)
+            self._mark_written(client_id, client)
             for attempt in range(1, retries + 1):
                 try:
                     # Restore first so unset directions return to normal speeds,

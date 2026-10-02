@@ -1015,7 +1015,8 @@ async def complete_setup(
 
         # Initialize services
         decision_engine = DecisionEngine(config)
-        controller_manager = ControllerManager(config)
+        controller_manager = ControllerManager(config, AsyncSessionLocal)
+        await controller_manager.load_baselines()
         notification_service = NotificationService(config)
 
         # Test client connections

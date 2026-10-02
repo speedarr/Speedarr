@@ -163,9 +163,6 @@ class DelugeClient(BaseDownloadClient):
             # Get speed limits
             speed_limits = await self.get_speed_limits()
 
-            # Store original limits if not already stored
-            if self._original_limits is None:
-                self._original_limits = speed_limits.copy()
 
             return {
                 "active": status.get("download_rate", 0) > 0 or status.get("upload_rate", 0) > 0,
@@ -174,31 +171,25 @@ class DelugeClient(BaseDownloadClient):
                 "downloading_count": status.get("num_downloading", 0),
                 "download_limit": speed_limits.get("download_limit", 0),
                 "upload_limit": speed_limits.get("upload_limit", 0),
-                "original_download_limit": self._original_limits.get("download_limit", 0),
-                "original_upload_limit": self._original_limits.get("upload_limit", 0),
             }
         except Exception as e:
             logger.error(f"Failed to get Deluge stats: {e}")
             return {"active": False, "error": str(e)}
 
     async def get_speed_limits(self) -> Dict[str, float]:
-        """Get current speed limits in Mbps."""
+        """Get current speed limits in Mbps (0 = unlimited). Raises on failure."""
         await self._ensure_authenticated()
 
-        try:
-            config = await self._rpc_call("core.get_config")
+        config = await self._rpc_call("core.get_config")
 
-            # Deluge stores limits in KiB/s (1 KiB = 1024 bytes), -1 means unlimited
-            dl_limit = config.get("max_download_speed", -1)
-            ul_limit = config.get("max_upload_speed", -1)
+        # Deluge stores limits in KiB/s (1 KiB = 1024 bytes), -1 means unlimited
+        dl_limit = config.get("max_download_speed", -1)
+        ul_limit = config.get("max_upload_speed", -1)
 
-            return {
-                "download_limit": kibibytes_per_sec_to_mbps(dl_limit) if dl_limit > 0 else 0,
-                "upload_limit": kibibytes_per_sec_to_mbps(ul_limit) if ul_limit > 0 else 0,
-            }
-        except Exception as e:
-            logger.error(f"Failed to get Deluge speed limits: {e}")
-            return {"download_limit": 0, "upload_limit": 0}
+        return {
+            "download_limit": kibibytes_per_sec_to_mbps(dl_limit) if dl_limit > 0 else 0,
+            "upload_limit": kibibytes_per_sec_to_mbps(ul_limit) if ul_limit > 0 else 0,
+        }
 
     async def set_speed_limits(self, download_limit: Optional[float] = None, upload_limit: Optional[float] = None):
         """Set speed limits in Mbps."""

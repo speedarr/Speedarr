@@ -82,11 +82,3 @@ async def test_sabnzbd_restore_raises_instead_of_swallowing():
     client._api_call = AsyncMock(side_effect=aiohttp.ClientError("sab.audit.invalid/api"))
     with pytest.raises(aiohttp.ClientError):
         await client.restore_speed_limits(None)
-
-
-async def test_nzbget_restore_without_a_capture_is_nothing():
-    """Interim until Task 8 (NZBGet then reads DownloadRate)."""
-    client = NZBGetClient("nzbget_1", "NZBGet", "http://localhost:6789", "u", "p")
-    client._rpc_call = AsyncMock()
-    assert await client.restore_speed_limits(None) is None
-    client._rpc_call.assert_not_awaited()

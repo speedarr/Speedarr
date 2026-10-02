@@ -23,7 +23,6 @@ class BaseDownloadClient(ABC):
         self.name = name
         self.url = url.rstrip("/")
         self._session: Optional[aiohttp.ClientSession] = None
-        self._original_limits: Optional[Dict[str, float]] = None
 
     @property
     def session(self) -> aiohttp.ClientSession:

@@ -16,7 +16,6 @@ class QBittorrentClient:
         self.password = password
         self._session: Optional[aiohttp.ClientSession] = None
         self._authenticated = False
-        self._original_limits: Optional[Dict[str, float]] = None
 
     @property
     def session(self) -> aiohttp.ClientSession:
@@ -104,9 +103,6 @@ class QBittorrentClient:
             # Get current speed limits
             speed_limits = await self.get_speed_limits()
 
-            # Store original limits if not already stored
-            if self._original_limits is None:
-                self._original_limits = speed_limits.copy()
 
             return {
                 "active": transfer_info.get("dl_info_speed", 0) > 0 or transfer_info.get("up_info_speed", 0) > 0,
@@ -115,8 +111,6 @@ class QBittorrentClient:
                 "downloading_count": downloading_count,
                 "download_limit": speed_limits.get("download_limit", 0),
                 "upload_limit": speed_limits.get("upload_limit", 0),
-                "original_download_limit": self._original_limits.get("download_limit", 0),
-                "original_upload_limit": self._original_limits.get("upload_limit", 0),
             }
 
         except Exception as e:
@@ -124,26 +118,19 @@ class QBittorrentClient:
             return {"active": False, "error": str(e)}
 
     async def get_speed_limits(self) -> Dict[str, float]:
-        """Get current speed limits in Mbps."""
-        try:
-            response = await self._request("GET", "/api/v2/transfer/downloadLimit")
-            response.raise_for_status()
-            dl_limit_text = await response.text()
-            dl_limit_bytes = int(dl_limit_text.strip())
+        """Get current speed limits in Mbps (0 = unlimited). Raises on failure."""
+        response = await self._request("GET", "/api/v2/transfer/downloadLimit")
+        response.raise_for_status()
+        dl_limit_bytes = int((await response.text()).strip())
 
-            response = await self._request("GET", "/api/v2/transfer/uploadLimit")
-            response.raise_for_status()
-            ul_limit_text = await response.text()
-            ul_limit_bytes = int(ul_limit_text.strip())
+        response = await self._request("GET", "/api/v2/transfer/uploadLimit")
+        response.raise_for_status()
+        ul_limit_bytes = int((await response.text()).strip())
 
-            # Convert bytes/sec to Mbps (0 means unlimited in qBit)
-            return {
-                "download_limit": bytes_per_sec_to_mbps(dl_limit_bytes) if dl_limit_bytes > 0 else 0,
-                "upload_limit": bytes_per_sec_to_mbps(ul_limit_bytes) if ul_limit_bytes > 0 else 0,
-            }
-        except Exception as e:
-            logger.error(f"Failed to get speed limits: {e}")
-            return {"download_limit": 0, "upload_limit": 0}
+        return {
+            "download_limit": bytes_per_sec_to_mbps(dl_limit_bytes) if dl_limit_bytes > 0 else 0,
+            "upload_limit": bytes_per_sec_to_mbps(ul_limit_bytes) if ul_limit_bytes > 0 else 0,
+        }
 
     async def set_speed_limits(self, download_limit: Optional[float] = None, upload_limit: Optional[float] = None):
         """Set speed limits in Mbps."""

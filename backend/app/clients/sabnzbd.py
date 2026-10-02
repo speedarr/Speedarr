@@ -62,7 +62,7 @@ class SABnzbdClient:
             response = await self._api_call("queue")
 
             if not response or "queue" not in response:
-                return {"active": False}
+                raise ValueError("SABnzbd reply has no queue")
 
             # Access the nested queue object
             queue = response["queue"]

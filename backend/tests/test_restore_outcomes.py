@@ -44,6 +44,7 @@ def _manager(clients, upload=None):
     cm.clients = dict(clients)
     upload = upload or {}
     cm.client_configs = {cid: SimpleNamespace(supports_upload=upload.get(cid, True)) for cid in clients}
+    cm._baselines = {cid: a._original_limits for cid, a in clients.items() if getattr(a, "_original_limits", None) is not None}
     return cm
 
 

@@ -93,9 +93,6 @@ class TransmissionClient(BaseDownloadClient):
             # Get speed limits
             speed_limits = await self.get_speed_limits()
 
-            # Store original limits if not already stored
-            if self._original_limits is None:
-                self._original_limits = speed_limits.copy()
 
             return {
                 "active": session.get("downloadSpeed", 0) > 0 or session.get("uploadSpeed", 0) > 0,
@@ -104,32 +101,26 @@ class TransmissionClient(BaseDownloadClient):
                 "downloading_count": downloading_count,
                 "download_limit": speed_limits.get("download_limit", 0),
                 "upload_limit": speed_limits.get("upload_limit", 0),
-                "original_download_limit": self._original_limits.get("download_limit", 0),
-                "original_upload_limit": self._original_limits.get("upload_limit", 0),
             }
         except Exception as e:
             logger.error(f"Failed to get Transmission stats: {e}")
             return {"active": False, "error": str(e)}
 
     async def get_speed_limits(self) -> Dict[str, float]:
-        """Get current speed limits in Mbps."""
-        try:
-            settings = await self._rpc_call("session-get")
+        """Get current speed limits in Mbps (0 = unlimited). Raises on failure."""
+        settings = await self._rpc_call("session-get")
 
-            # Transmission uses KB/s (1 KB = 1000 bytes) for limits
-            dl_enabled = settings.get("speed-limit-down-enabled", False)
-            ul_enabled = settings.get("speed-limit-up-enabled", False)
+        # Transmission uses KB/s (1 KB = 1000 bytes) for limits
+        dl_enabled = settings.get("speed-limit-down-enabled", False)
+        ul_enabled = settings.get("speed-limit-up-enabled", False)
 
-            dl_limit_kbps = settings.get("speed-limit-down", 0) if dl_enabled else 0
-            ul_limit_kbps = settings.get("speed-limit-up", 0) if ul_enabled else 0
+        dl_limit_kbps = settings.get("speed-limit-down", 0) if dl_enabled else 0
+        ul_limit_kbps = settings.get("speed-limit-up", 0) if ul_enabled else 0
 
-            return {
-                "download_limit": kilobytes_per_sec_to_mbps(dl_limit_kbps) if dl_limit_kbps > 0 else 0,
-                "upload_limit": kilobytes_per_sec_to_mbps(ul_limit_kbps) if ul_limit_kbps > 0 else 0,
-            }
-        except Exception as e:
-            logger.error(f"Failed to get Transmission speed limits: {e}")
-            return {"download_limit": 0, "upload_limit": 0}
+        return {
+            "download_limit": kilobytes_per_sec_to_mbps(dl_limit_kbps) if dl_limit_kbps > 0 else 0,
+            "upload_limit": kilobytes_per_sec_to_mbps(ul_limit_kbps) if ul_limit_kbps > 0 else 0,
+        }
 
     async def set_speed_limits(self, download_limit: Optional[float] = None, upload_limit: Optional[float] = None):
         """Set speed limits in Mbps."""

@@ -29,7 +29,9 @@ class FailingClient(FakeClient):
 def _manager(clients):
     cm = ControllerManager.__new__(ControllerManager)   # bypass __init__/config
     cm.clients = clients
+    cm.client_configs = {}
     cm._write_lock = asyncio.Lock()
+    cm._written = {}
     return cm
 
 
