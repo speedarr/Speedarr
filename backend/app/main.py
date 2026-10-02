@@ -209,6 +209,15 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await config_manager.clamp_stored_bounds(db)
 
+    # Heal stored settings that stop the configuration loading (audit NEW-2): only the failing keys go
+    # back to their defaults, and a heal that cannot reach a loadable config changes nothing. Never
+    # fatal here: a decryption error is raised again by the loader below, which stops startup as before.
+    async with AsyncSessionLocal() as db:
+        try:
+            await config_manager.heal_stored_config(db)
+        except Exception as e:
+            logger.error(f"Config heal skipped: {e}")
+
     # Load configuration from database
     async with AsyncSessionLocal() as db:
         config = await config_manager.load_config_from_db(db)

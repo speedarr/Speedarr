@@ -3,6 +3,7 @@ Configuration management service.
 
 Handles configuration updates, database storage, and service reloads.
 """
+import copy
 import types
 import typing
 from typing import Dict, Any, Optional
@@ -10,7 +11,7 @@ from annotated_types import Ge, Gt, Le, Lt
 from pydantic import BaseModel, ValidationError
 from cryptography.fernet import InvalidToken
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, or_
 from loguru import logger
 
 from app.config import (
@@ -31,6 +32,7 @@ from app.config import (
     decrypt_value,
     looks_like_fernet_token,
     section_model,
+    _unwrap_annotation,
     moved_secret,
     moved_secret_message,
     section_label,
@@ -43,6 +45,67 @@ from app.utils.logger import set_log_level
 
 # Sections replaced by download_clients; written only through PUT /api/settings/download-clients (audit NEW-7).
 LEGACY_CLIENT_SECTIONS = ("qbittorrent", "sabnzbd")
+
+# Startup heal (audit NEW-2).
+HEAL_MAX_PASSES = 5
+DELETED = "[DELETED]"                                   # history marker for a removed row
+LIST_ROWS = ("download_clients", "media_servers")      # top-level lists stored whole as one json row each
+
+
+def _loc_str(loc) -> str:
+    return ".".join(str(part) for part in loc)
+
+
+def _is_dict_annotation(annotation) -> bool:
+    """True for Dict[...] or Optional[Dict[...]]."""
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        return len(args) == 1 and _is_dict_annotation(args[0])
+    return typing.get_origin(annotation) is dict
+
+
+def _heal_prefix(loc) -> Optional[str]:
+    """Flat key whose rows go for a validation error at `loc` (audit NEW-2).
+
+    The failing field itself when it has a default or is an entry of a dict-valued field; otherwise
+    the nearest enclosing field that has one. None when nothing up to the root has a default.
+    """
+    model, path, best, dict_valued = SpeedarrConfig, [], None, False
+    for part in loc:
+        if model is None:
+            if not dict_valued:
+                return best                      # a scalar or list field is one stored row: stop at it
+            # Inside a dict-valued field (client_percents): its entries are always optional.
+            path.append(str(part))
+            return ".".join(path)
+        field = model.model_fields.get(part) if isinstance(part, str) else None
+        if field is None:
+            return best
+        path.append(part)
+        if not field.is_required():
+            best = ".".join(path)
+        model, _ = _unwrap_annotation(field.annotation)
+        dict_valued = _is_dict_annotation(field.annotation)
+    return best
+
+
+def _list_action(loc) -> tuple:
+    """(kind, index, field) for an error inside a list row: 'row', 'entry' or 'field' (audit NEW-2)."""
+    if len(loc) < 2 or not isinstance(loc[1], int):
+        return ("row", None, None)
+    if len(loc) == 2:
+        return ("entry", loc[1], None)
+    model, _ = section_model(loc[0])
+    field = model.model_fields.get(loc[2]) if model is not None and isinstance(loc[2], str) else None
+    if field is not None and not field.is_required():
+        return ("field", loc[1], loc[2])
+    return ("entry", loc[1], None)
+
+
+def _entry_label(entry, index) -> str:
+    if isinstance(entry, dict):
+        return f"{entry.get('id') or index} {entry.get('name') or ''}".strip()
+    return str(index)
 
 # Flattened DB prefixes whose trailing segment is a per-client percent key.
 PERCENT_KEY_PREFIXES = [
@@ -268,6 +331,35 @@ class ConfigManager:
 
         Returns None if database is empty (not yet migrated).
         """
+        nested_config = await self._read_nested(db)
+        if nested_config is None:
+            return None
+
+        # Construct SpeedarrConfig from dict
+        try:
+            config = SpeedarrConfig(**nested_config)
+
+            # Read-time safety net: ensure per-client percents are keyed by client id,
+            # not type. Pure in-memory (no DB writes); the persisted rename happens once
+            # at startup via migrate_client_percent_keys.
+            normalize_client_percent_keys(config)
+
+            # Validate and log warnings
+            warnings = validate_config(config)
+            for warning in warnings:
+                logger.warning(f"Config validation: {warning}")
+
+            return config
+        except Exception as e:
+            logger.error(f"Failed to construct SpeedarrConfig from database: {e}")
+            return None
+
+    async def _read_nested(self, db: AsyncSession) -> Optional[Dict[str, Any]]:
+        """The stored configuration as the nested dict the model is built from (decrypted, unflattened).
+
+        Shared by the strict loader and the startup heal (audit NEW-2). None when not yet migrated or empty;
+        raises ValueError on a value the key cannot decrypt.
+        """
         # Check if migration has occurred
         result = await db.execute(
             select(Configuration).where(Configuration.key == "_migrated")
@@ -332,24 +424,7 @@ class ConfigManager:
                 logger.info(f"Migrating history.retention_days from dict to int: {new_retention}")
                 history_config["retention_days"] = new_retention
 
-        # Construct SpeedarrConfig from dict
-        try:
-            config = SpeedarrConfig(**nested_config)
-
-            # Read-time safety net: ensure per-client percents are keyed by client id,
-            # not type. Pure in-memory (no DB writes); the persisted rename happens once
-            # at startup via migrate_client_percent_keys.
-            normalize_client_percent_keys(config)
-
-            # Validate and log warnings
-            warnings = validate_config(config)
-            for warning in warnings:
-                logger.warning(f"Config validation: {warning}")
-
-            return config
-        except Exception as e:
-            logger.error(f"Failed to construct SpeedarrConfig from database: {e}")
-            return None
+        return nested_config
 
     async def migrate_yaml_to_db(
         self, config: SpeedarrConfig, db: AsyncSession, user_id: Optional[int] = None
@@ -825,6 +900,162 @@ class ConfigManager:
         if changed:
             await db.commit()
         return changed
+
+    async def heal_stored_config(self, db: AsyncSession) -> int:
+        """Repair stored rows that stop the configuration loading (audit NEW-2).
+
+        Runs at startup after clamp_stored_bounds, before the strict loader. Pass 0 resolves keys
+        stored both as a value and as a parent; then up to HEAL_MAX_PASSES strict builds map each
+        validation error to the smallest change that gives the field its default. All or nothing:
+        commits only when the result loads, otherwise rolls back. Never catches a decryption error.
+        Returns the number of heal actions committed.
+        """
+        marker = await db.execute(select(Configuration).where(Configuration.key == "_migrated"))
+        if not marker.scalar_one_or_none():
+            return 0
+        try:
+            actions = await self._heal_shapes(db)
+            for attempt in range(HEAL_MAX_PASSES + 1):
+                await db.flush()
+                nested = await self._read_nested(db)
+                if nested is None:
+                    await db.rollback()
+                    return 0
+                try:
+                    SpeedarrConfig(**nested)
+                    break
+                except ValidationError as e:
+                    errors = e.errors()
+                done = await self._heal_errors(errors, nested, db) if attempt < HEAL_MAX_PASSES else 0
+                if not done:
+                    for err in errors:
+                        logger.error(f"Config could not be healed: {_loc_str(err['loc'])}: {err['msg']}")
+                    await db.rollback()
+                    return 0
+                actions += done
+        except Exception:
+            await db.rollback()
+            raise
+        if not actions:
+            return 0
+        await db.commit()
+        logger.warning(
+            f"Healed {actions} stored settings that stopped the configuration loading; "
+            "they now use their defaults (audit NEW-2)"
+        )
+        return actions
+
+    async def _heal_shapes(self, db: AsyncSession) -> int:
+        """Pass 0: a key stored both as a value and as the parent of other keys (audit NEW-2, NEW-7).
+
+        unflatten_dict cannot hold both. An unset (None) value gives way to the rows under it; any
+        other value is what the model expects there, so the rows under it go.
+        """
+        rows = (await db.execute(
+            select(Configuration).where(~Configuration.key.startswith("_", autoescape=True))
+        )).scalars().all()
+        keys = {row.key: row for row in rows}
+        done = 0
+        for key in sorted(keys, key=len):
+            row = keys.get(key)
+            if row is None:
+                continue
+            children = [k for k in keys if k.startswith(key + ".")]
+            if not children:
+                continue
+            if row.value in (None, "None"):
+                await self._delete_row(keys.pop(key), db)
+                logger.warning(
+                    f"Healed config {key}: stored unset beside {len(children)} settings under it; kept those (audit NEW-2)"
+                )
+            else:
+                for child in children:
+                    await self._delete_row(keys.pop(child), db)
+                logger.warning(f"Healed config {key}: {len(children)} settings stored under a value; removed them (audit NEW-2)")
+            done += 1
+        return done
+
+    async def _heal_errors(self, errors: list, nested: Dict[str, Any], db: AsyncSession) -> int:
+        """Apply one action per distinct target in `errors`; 0 when any error has nothing to fall back to."""
+        prefixes: Dict[str, str] = {}
+        lists: Dict[str, Dict[str, Dict[Any, str]]] = {}
+        for err in errors:
+            loc = tuple(err["loc"])
+            if loc and loc[0] in LIST_ROWS:
+                kind, index, field = _list_action(loc)
+                if kind == "row":
+                    prefixes.setdefault(loc[0], err["msg"])
+                    continue
+                plan = lists.setdefault(loc[0], {"fields": {}, "entries": {}})
+                if kind == "entry":
+                    plan["entries"].setdefault(index, err["msg"])
+                else:
+                    plan["fields"].setdefault((index, field), err["msg"])
+                continue
+            prefix = _heal_prefix(loc)
+            if prefix is None:
+                return 0
+            prefixes.setdefault(prefix, err["msg"])
+
+        done = 0
+        handled: list = []
+        for prefix in sorted(prefixes, key=len):                 # a parent first; its children are covered by it
+            if any(prefix == h or prefix.startswith(h + ".") for h in handled):
+                continue
+            if await self._delete_rows(prefix, db):
+                handled.append(prefix)
+                logger.warning(f"Healed config {prefix}: {prefixes[prefix]}; it now uses its default (audit NEW-2)")
+                done += 1
+        done += await self._heal_list_rows(lists, nested, db)
+        return done
+
+    async def _heal_list_rows(self, lists: Dict[str, Dict[str, Dict[Any, str]]], nested: Dict[str, Any],
+                              db: AsyncSession) -> int:
+        """Reset a failing field inside a list entry, or remove the entry when the field has no default.
+
+        All actions on one row apply to one copy of the decrypted list (removals last, highest index
+        first) and are written once through _update_key, which re-encrypts the secret leaves.
+        """
+        done = 0
+        for row_key, plan in lists.items():
+            entries = copy.deepcopy(nested.get(row_key) or [])
+            for (index, field), msg in plan["fields"].items():
+                if index in plan["entries"] or index >= len(entries) or not isinstance(entries[index], dict):
+                    continue
+                entries[index].pop(field, None)
+                logger.warning(
+                    f"Healed config {row_key}[{_entry_label(entries[index], index)}].{field}: {msg}; "
+                    "it now uses its default (audit NEW-2)"
+                )
+                done += 1
+            for index in sorted(plan["entries"], reverse=True):
+                if index >= len(entries):
+                    continue
+                label = _entry_label(entries[index], index)
+                del entries[index]
+                logger.warning(f"Healed config {row_key}[{label}]: {plan['entries'][index]}; the entry was removed (audit NEW-2)")
+                done += 1
+            await self._update_key(row_key, entries, db, user_id=None)
+        return done
+
+    async def _delete_row(self, row: Configuration, db: AsyncSession) -> None:
+        """Delete one row, recording it in history with the old value masked when it holds a secret."""
+        secret_row = is_sensitive_key(row.key) or has_sensitive_leaves(row.key)
+        old_value = mask_stored(row.key, row.value, row.value_type) if secret_row else row.value
+        db.add(ConfigurationHistory(
+            key=row.key, old_value=old_value, new_value=DELETED, value_type=row.value_type, changed_by=None,
+        ))
+        await db.delete(row)
+
+    async def _delete_rows(self, prefix: str, db: AsyncSession) -> int:
+        """Delete `prefix` and every row under it (audit NEW-2); returns how many went."""
+        rows = (await db.execute(select(Configuration).where(or_(
+            Configuration.key == prefix,
+            Configuration.key.startswith(prefix + ".", autoescape=True),
+        )))).scalars().all()
+        for row in rows:
+            await self._delete_row(row, db)
+        return len(rows)
 
     def _fan_out_config(self, config: SpeedarrConfig) -> None:
         """Hand the freshly loaded config to every service that keeps a reference (audit T3-2).
