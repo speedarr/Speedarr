@@ -41,6 +41,9 @@ from app.models.configuration import Configuration, ConfigurationHistory
 from app.utils.logger import set_log_level
 
 
+# Sections replaced by download_clients; written only through PUT /api/settings/download-clients (audit NEW-7).
+LEGACY_CLIENT_SECTIONS = ("qbittorrent", "sabnzbd")
+
 # Flattened DB prefixes whose trailing segment is a per-client percent key.
 PERCENT_KEY_PREFIXES = [
     "bandwidth.download.client_percents.",
@@ -429,6 +432,9 @@ class ConfigManager:
             endpoint = section_name.replace("_", "-")
             raise ValueError(f"Section '{section_name}' is managed by PUT /api/settings/{endpoint}")
 
+        if section_name in LEGACY_CLIENT_SECTIONS:
+            raise ValueError(f"Section '{section_name}' is managed by PUT /api/settings/download-clients")
+
         # Merge the payload onto the current section; a masked placeholder means "the stored value".
         current = await self._current_section(section_name, db)
         # A kept secret may not follow a changed address (audit NEW-5).
@@ -496,7 +502,7 @@ class ConfigManager:
         await db.flush()
         try:
             reloaded = await self.load_config_from_db(db)
-        except ValueError as e:
+        except Exception as e:
             logger.error(f"Configuration failed to reload after save: {e}")
             reloaded = None
         if not reloaded:
