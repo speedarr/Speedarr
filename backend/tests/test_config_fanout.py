@@ -6,7 +6,6 @@ download_reserve_percent through its own reference and the engine reads restorat
 its own, so Holding Times, the Media Server Timeout and the stream overhead kept their old values
 until a restart while the API reported every section as requiring none.
 """
-import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -78,13 +77,12 @@ async def test_snmp_save_still_rebuilds_or_drops_the_monitor():
 
 
 @pytest.mark.parametrize("section", SECTIONS)
-async def test_setup_mode_singletons_are_skipped_without_error(section, caplog):
+async def test_setup_mode_singletons_are_skipped_without_error(section, loguru_lines):
     state = SimpleNamespace(config=None, polling_monitor=None, decision_engine=None,
                             controller_manager=None, notification_service=None, media_servers={})
     cm = ConfigManager(SimpleNamespace(state=state))
-    with caplog.at_level(logging.ERROR, logger="app.services.config_manager"):
-        await cm._reload_services(section, _config())
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    await cm._reload_services(section, _config())
+    assert [m for level, m in loguru_lines if level in ("ERROR", "CRITICAL")] == []
 
 
 async def test_a_failing_rebuild_no_longer_leaves_a_stale_reference():

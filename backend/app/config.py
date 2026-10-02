@@ -11,12 +11,10 @@ from cryptography.fernet import Fernet
 import base64
 import binascii
 import os
-import logging
 import uuid
 import types
 import typing
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 # Marker for fields whose values are secrets; the registry at the end of this module is derived from it.

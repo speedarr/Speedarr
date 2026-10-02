@@ -5,7 +5,6 @@ T1-3 found, next to rows that were already encrypted and history markers that mu
 """
 import inspect
 import json
-import logging
 from types import SimpleNamespace
 
 import pytest
@@ -84,12 +83,11 @@ async def _dump(db):
     return "\n".join(parts)
 
 
-async def test_migration_encrypts_clear_rows_and_scrubs_history(db, caplog):
+async def test_migration_encrypts_clear_rows_and_scrubs_history(db, loguru_lines):
     cm = await _seed_audit_shape(db)
     before = await _rows(db)
 
-    with caplog.at_level(logging.INFO, logger="app.services.config_manager"):
-        changed = await cm.encrypt_stored_secrets(db)
+    changed = await cm.encrypt_stored_secrets(db)
 
     assert changed is True
     assert "AUDITMARK" not in await _dump(db)
@@ -112,7 +110,7 @@ async def test_migration_encrypts_clear_rows_and_scrubs_history(db, caplog):
     assert hist[3][2] == REDACTED
     assert hist[4][1:] == ("a", "router")
 
-    messages = [r.getMessage() for r in caplog.records]
+    messages = [m for _, m in loguru_lines]
     assert any("Encrypted stored secrets: 4 configuration rows updated, 4 history entries scrubbed" in m
                for m in messages), messages
 

@@ -5,7 +5,6 @@ had no upper bound in the model, so a mistyped value reached the engine and the 
 alone would make an existing database with such a value fail to load and start the app in setup
 mode, so clamp_stored_bounds pulls stored rows back inside the bounds at startup, before the loader.
 """
-import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -93,15 +92,14 @@ def test_the_model_has_no_strict_bound_the_heal_pass_would_skip():
 
 # --- the heal pass -----------------------------------------------------------------------------
 
-async def test_clamp_pulls_stored_rows_to_the_bound_and_records_history(db, caplog):
+async def test_clamp_pulls_stored_rows_to_the_bound_and_records_history(db, loguru_lines):
     cm = _manager()
     await cm.migrate_yaml_to_db(_base(), db)                       # writes _migrated and every key
     await _seed(db, "bandwidth.download.inactive_safety_net_percent", 150, "integer")
     await _seed(db, "bandwidth.streams.overhead_percent", 500, "integer")
     await _seed(db, "bandwidth.streams.download_reserve_percent", 20, "integer")   # in range
 
-    with caplog.at_level(logging.WARNING, logger="app.services.config_manager"):
-        clamped = await cm.clamp_stored_bounds(db)
+    clamped = await cm.clamp_stored_bounds(db)
 
     assert clamped == 2
     assert (await _row(db, "bandwidth.download.inactive_safety_net_percent")).value == "20"
@@ -111,7 +109,7 @@ async def test_clamp_pulls_stored_rows_to_the_bound_and_records_history(db, capl
         ConfigurationHistory.key == "bandwidth.download.inactive_safety_net_percent"
     ).order_by(ConfigurationHistory.id))).scalars().all()
     assert history[-1].old_value == "150" and history[-1].new_value == "20"
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    messages = [m for level, m in loguru_lines if level == "WARNING"]
     assert any("inactive_safety_net_percent = 150 is outside 0..20; stored 20" in m for m in messages)
     assert any("overhead_percent = 500 is outside 0..300; stored 300" in m for m in messages)
     assert not any("download_reserve_percent" in m for m in messages)

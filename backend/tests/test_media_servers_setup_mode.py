@@ -12,7 +12,6 @@ complete-setup could run; the reload path's were swallowed but logged as ERROR.
   2. _reload_services must skip cleanly (no ERROR log) for every section
      when the service singletons are None.
 """
-import logging
 from types import SimpleNamespace
 
 import pytest
@@ -97,12 +96,10 @@ async def test_update_media_servers_in_setup_mode_skips_connection_test():
     ["media_servers", "plex", "qbittorrent", "bandwidth", "notifications", "system", "snmp"],
 )
 @pytest.mark.asyncio
-async def test_reload_services_skips_none_services_without_error(section, caplog):
+async def test_reload_services_skips_none_services_without_error(section, loguru_lines):
     app = SimpleNamespace(state=_setup_mode_state(config_manager=None))
     cm = ConfigManager(app)
 
-    # config_manager logs via stdlib logging (not loguru), so use caplog.
-    with caplog.at_level(logging.ERROR, logger="app.services.config_manager"):
-        await cm._reload_services(section, _config())
+    await cm._reload_services(section, _config())
 
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert [m for level, m in loguru_lines if level in ("ERROR", "CRITICAL")] == []

@@ -1,5 +1,6 @@
 """Shared fixtures for Speedarr backend tests."""
 import pytest
+from loguru import logger as loguru_logger
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.config import (
@@ -85,3 +86,12 @@ async def db():
     async with Session() as session:
         yield session
     await engine.dispose()
+
+
+@pytest.fixture
+def loguru_lines():
+    """(level name, message) of every loguru record emitted during the test."""
+    lines = []
+    sink = loguru_logger.add(lambda m: lines.append((m.record["level"].name, m.record["message"])), level="DEBUG")
+    yield lines
+    loguru_logger.remove(sink)

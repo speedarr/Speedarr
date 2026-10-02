@@ -3,7 +3,6 @@ Configuration management service.
 
 Handles configuration updates, database storage, and service reloads.
 """
-import logging
 import types
 import typing
 from typing import Dict, Any, Optional
@@ -12,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from cryptography.fernet import InvalidToken
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
+from loguru import logger
 
 from app.config import (
     SpeedarrConfig,
@@ -39,8 +39,6 @@ from app.config import (
 )
 from app.models.configuration import Configuration, ConfigurationHistory
 from app.utils.logger import set_log_level
-
-logger = logging.getLogger(__name__)
 
 
 # Flattened DB prefixes whose trailing segment is a per-client percent key.
