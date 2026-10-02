@@ -2,7 +2,8 @@
 
 SABnzbd keeps the limit in force (queue speedlimit, which Speedarr writes and which SABnzbd
 forgets on restart) apart from its saved misc.bandwidth_perc of misc.bandwidth_max, which its
-own startup applies. Restore writes the saved percent back as a bare number, as that startup does.
+own startup applies. Restore mirrors that startup: the saved percent of the saved maximum, or
+unlimited ("0") when no maximum or a 0 percent is set.
 """
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -60,12 +61,31 @@ async def test_restore_at_100_percent_writes_100():
 async def test_restore_without_bandwidth_max_reports_unlimited():
     client = _client({"bandwidth_perc": 100, "bandwidth_max": ""})
     limits = await client.restore_speed_limits(None)
-    assert _writes(client) == ["100"]
+    assert _writes(client) == ["0"]
     assert limits == {"download_limit": 0.0, "upload_limit": 0.0}
 
 
+async def test_restore_with_zero_percent_writes_zero():
+    client = _client({"bandwidth_perc": 0, "bandwidth_max": "100M"})
+    limits = await client.restore_speed_limits(None)
+    assert _writes(client) == ["0"]
+    assert limits == {"download_limit": 0.0, "upload_limit": 0.0}
+
+
+async def test_restore_with_unparseable_maximum_writes_zero():
+    client = _client({"bandwidth_perc": 50, "bandwidth_max": "fast"})
+    await client.restore_speed_limits(None)
+    assert _writes(client) == ["0"]
+
+
+async def test_restore_accepts_a_string_percent():
+    client = _client({"bandwidth_perc": "50", "bandwidth_max": "100M"})
+    await client.restore_speed_limits(None)
+    assert _writes(client) == ["50"]
+
+
 async def test_restore_ignores_any_baseline_it_is_handed():
-    client = _client({"bandwidth_perc": 40, "bandwidth_max": ""})
+    client = _client({"bandwidth_perc": 40, "bandwidth_max": "100M"})
     await client.restore_speed_limits({"download_limit": 9.0, "upload_limit": 0.0})
     assert _writes(client) == ["40"]
 

@@ -128,9 +128,9 @@ class SABnzbdClient:
     async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
         """Put back the cap saved in SABnzbd's own settings (audit T4-6).
 
-        Writes misc.bandwidth_perc as a bare percent, which is what SABnzbd's own startup
-        applies; Speedarr's API writes never touch that setting. The baseline is ignored.
-        Raises on failure.
+        Mirrors SABnzbd's startup (speed_set): the saved percent of the saved maximum,
+        unlimited when either is unset or 0. Speedarr's API writes never touch those settings.
+        The baseline is ignored. Raises on failure.
         """
         try:
             reply = await self._api_call("get_config", {"section": "misc"})
@@ -138,12 +138,14 @@ class SABnzbdClient:
             if not isinstance(misc, dict) or "bandwidth_perc" not in misc:
                 raise ValueError("SABnzbd config has no misc.bandwidth_perc")
             percent = int(float(misc["bandwidth_perc"]))
-            await self._api_call("config", {"name": "speedlimit", "value": str(percent)})
+            max_bytes = _sab_bytes(misc.get("bandwidth_max"))
+            capped = max_bytes > 0 and percent > 0
+            # A bare 1..100 is a percent of the maximum; with no maximum SABnzbd ignores it and keeps the throttle.
+            await self._api_call("config", {"name": "speedlimit", "value": str(percent) if capped else "0"})
         except Exception as e:
             logger.error(f"Failed to restore SABnzbd speed limit: {e}")
             raise
-        max_bytes = _sab_bytes(misc.get("bandwidth_max"))
-        download = bytes_per_sec_to_mbps(max_bytes * percent / 100) if max_bytes > 0 and percent > 0 else 0.0
+        download = bytes_per_sec_to_mbps(max_bytes * percent / 100) if capped else 0.0
         logger.debug(f"Restored SABnzbd to its saved cap ({percent}% of {misc.get('bandwidth_max') or 'no maximum'})")
         return {"download_limit": download, "upload_limit": 0.0}
 
