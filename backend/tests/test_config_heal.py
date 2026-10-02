@@ -270,6 +270,23 @@ async def test_the_loader_error_line_never_prints_a_decrypted_secret(cm, db, log
                for m in errors), errors
 
 
+async def test_a_database_that_already_loads_is_not_changed_by_pass_0(cm, db, loguru_lines):
+    # Old dict-format rows beside a later int leaf: unflatten_dict lets the leaf win, so it loads.
+    await _drop(db, "history.retention_days")           # re-added below so the leaf is the later row
+    await _seed(db, "history.retention_days.streams", 7, "integer")
+    await _seed(db, "history.retention_days.bandwidth", 7, "integer")
+    await _seed(db, "history.retention_days", 30, "integer")
+    assert await cm.load_config_from_db(db) is not None
+    before, history = await _rows(db), await _history_count(db)
+    loguru_lines.clear()
+
+    assert await cm.heal_stored_config(db) == 0
+
+    assert await _rows(db) == before
+    assert await _history_count(db) == history
+    assert not any("Healed" in m for _, m in loguru_lines)
+
+
 async def test_a_value_encrypted_with_another_key_is_never_healed(cm, db):
     await _seed(db, "notifications.pushover.user_key", Fernet(Fernet.generate_key()).encrypt(b"x").decode())
     await _seed(db, "system.log_level", "LOUD")

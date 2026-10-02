@@ -909,7 +909,8 @@ class ConfigManager:
     async def heal_stored_config(self, db: AsyncSession) -> int:
         """Repair stored rows that stop the configuration loading (audit NEW-2).
 
-        Runs at startup after clamp_stored_bounds, before the strict loader. Pass 0 resolves keys
+        Runs at startup after clamp_stored_bounds, before the strict loader. A database that already loads is
+        left alone. Otherwise pass 0 resolves keys
         stored both as a value and as a parent; then up to HEAL_MAX_PASSES strict builds map each
         validation error to the smallest change that gives the field its default. All or nothing:
         commits only when the result loads, otherwise rolls back. Never catches a decryption error.
@@ -919,6 +920,18 @@ class ConfigManager:
         if not marker.scalar_one_or_none():
             return 0
         try:
+            # A database that already loads is never touched. Decryption errors (ValueError) propagate.
+            try:
+                first = await self._read_nested(db)
+                if first is None:
+                    return 0
+                SpeedarrConfig(**first)
+                return 0
+            except ValueError as e:
+                if not isinstance(e, ValidationError):
+                    raise
+            except Exception:
+                pass                                     # a shape conflict unflatten_dict cannot hold
             actions = await self._heal_shapes(db)
             for attempt in range(HEAL_MAX_PASSES + 1):
                 await db.flush()
