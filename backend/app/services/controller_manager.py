@@ -2,11 +2,53 @@
 Controller manager for applying throttling decisions to download clients.
 """
 import asyncio
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 from loguru import logger
 from app.clients import QBittorrentClient, SABnzbdClient, create_download_client
+from app.clients.base import RestoreOutcome
 from app.config import SpeedarrConfig, FailsafeConfig
 from app.constants import HARD_MIN_MBPS
+
+
+def _figure(mbps: float) -> str:
+    return "unlimited" if not mbps else f"{mbps:.1f} Mbps"
+
+
+def describe_limits(limits: Dict[str, float], with_upload: bool) -> str:
+    """'DL unlimited, UL 20.0 Mbps' for the restore log lines; no UL part for download-only clients."""
+    text = f"DL {_figure(limits.get('download_limit', 0))}"
+    if with_upload:
+        text += f", UL {_figure(limits.get('upload_limit', 0))}"
+    return text
+
+
+def restore_counts(outcomes: Dict[str, RestoreOutcome]) -> str:
+    """'3 restored, 1 nothing to restore, 1 failed'."""
+    values = list(outcomes.values())
+    return (
+        f"{values.count(RestoreOutcome.RESTORED)} restored, "
+        f"{values.count(RestoreOutcome.NOTHING_TO_RESTORE)} nothing to restore, "
+        f"{values.count(RestoreOutcome.FAILED)} failed"
+    )
+
+
+def restore_message(outcomes: Dict[str, RestoreOutcome]) -> str:
+    """The restore-speeds message: what happened, naming every client that was not restored (audit D3-3)."""
+    if not outcomes:
+        return "No download clients configured"
+    total = len(outcomes)
+    restored = sum(1 for o in outcomes.values() if o is RestoreOutcome.RESTORED)
+    noun = "client" if total == 1 else "clients"
+    if restored == total:
+        return "Restored 1 client" if total == 1 else f"Restored all {total} clients"
+    parts = [f"Restored {restored} of {total} {noun}"]
+    nothing = sorted(c for c, o in outcomes.items() if o is RestoreOutcome.NOTHING_TO_RESTORE)
+    failed = sorted(c for c, o in outcomes.items() if o is RestoreOutcome.FAILED)
+    if nothing:
+        parts.append(f"nothing to restore: {', '.join(nothing)}")
+    if failed:
+        parts.append(f"failed: {', '.join(failed)}")
+    return "; ".join(parts)
 
 
 class ControllerManager:
@@ -191,9 +233,8 @@ class ControllerManager:
                         results[client_name] = True
 
                     elif action == "restore":
-                        await client.restore_speed_limits()
-                        logger.info(f"Restored {client_name} to normal speeds")
-                        results[client_name] = True
+                        outcome, _ = await self._restore_one(client_name, client)
+                        results[client_name] = outcome is RestoreOutcome.RESTORED
 
                     else:
                         logger.warning(f"Unknown action for {client_name}: {action}")
@@ -215,41 +256,60 @@ class ControllerManager:
 
             return results
 
-    async def restore_all_speeds(self, retries: int = 3, retry_delay: float = 1.0) -> Dict[str, bool]:
-        """
-        Restore all clients to normal speeds in parallel with retry logic.
+    def _with_upload(self, client_id: str) -> bool:
+        cfg = self.client_configs.get(client_id)
+        return True if cfg is None else bool(cfg.supports_upload)
 
-        Args:
-            retries: Number of retry attempts per client (default: 3)
-            retry_delay: Delay between retries in seconds (default: 1.0)
+    def _baseline_for(self, client_id: str, client: Any) -> Optional[Dict[str, float]]:
+        """The limits a torrent client goes back to; None for clients that restore their own saved cap."""
+        if getattr(client, "restores_saved_cap", False):
+            return None
+        return getattr(client, "_original_limits", None)
+
+    async def _restore_one(
+        self, client_id: str, client: Any, retries: int = 3, retry_delay: float = 1.0
+    ) -> Tuple[RestoreOutcome, Optional[Dict[str, float]]]:
+        """Restore one client, retrying only on an exception (audit D3-3)."""
+        baseline = self._baseline_for(client_id, client)
+        for attempt in range(1, retries + 1):
+            try:
+                limits = await client.restore_speed_limits(baseline)
+            except Exception as e:
+                if attempt < retries:
+                    logger.warning(f"Failed to restore {client_id} (attempt {attempt}/{retries}): {e}")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                logger.error(f"Failed to restore {client_id} after {retries} attempts: {e}")
+                return RestoreOutcome.FAILED, None
+            if limits is None:
+                logger.warning(f"Nothing to restore for {client_id}: Speedarr has never read its limits")
+                return RestoreOutcome.NOTHING_TO_RESTORE, None
+            logger.info(
+                f"Restored {client_id} to its normal limits "
+                f"({describe_limits(limits, self._with_upload(client_id))})"
+            )
+            return RestoreOutcome.RESTORED, limits
+        return RestoreOutcome.FAILED, None
+
+    async def restore_all_speeds(self, retries: int = 3, retry_delay: float = 1.0) -> Dict[str, RestoreOutcome]:
+        """
+        Put every client back to its normal limits in parallel, with retry on errors.
 
         Returns:
-            Dict mapping client names to success status
+            Dict mapping client ids to what happened: restored, nothing to restore, or failed
         """
-        async def restore_client_with_retry(name: str, client: Any) -> tuple[str, bool]:
-            for attempt in range(1, retries + 1):
-                try:
-                    await client.restore_speed_limits()
-                    logger.info(f"Restored {name} to normal speeds")
-                    return (name, True)
-                except Exception as e:
-                    if attempt < retries:
-                        logger.warning(f"Failed to restore {name} (attempt {attempt}/{retries}): {e}")
-                        await asyncio.sleep(retry_delay)
-                    else:
-                        logger.error(f"Failed to restore {name} after {retries} attempts: {e}")
-                        return (name, False)
-            return (name, False)
-
         if not self.clients:
             return {}
 
         async with self._write_lock:
-            results_list = await asyncio.gather(*[
-                restore_client_with_retry(name, client)
-                for name, client in self.clients.items()
+            items = list(self.clients.items())
+            pairs = await asyncio.gather(*[
+                self._restore_one(client_id, client, retries, retry_delay)
+                for client_id, client in items
             ])
-        return dict(results_list)
+        outcomes = {client_id: outcome for (client_id, _), (outcome, _) in zip(items, pairs)}
+        logger.info(f"Restore finished: {restore_counts(outcomes)}")
+        return outcomes
 
     async def remove_all_limits(self, retries: int = 3, retry_delay: float = 1.0) -> Dict[str, bool]:
         """
@@ -361,17 +421,19 @@ class ControllerManager:
         async def apply_to_client(client_id: str, client: Any) -> tuple[str, bool]:
             dl = download_limits.get(client_id)
             ul = upload_limits.get(client_id)
+            baseline = self._baseline_for(client_id, client)
             for attempt in range(1, retries + 1):
                 try:
                     # Restore first so unset directions return to normal speeds,
                     # then overlay the shutdown limits (None = leave unchanged)
-                    await client.restore_speed_limits()
+                    restored = await client.restore_speed_limits(baseline)
                     if dl is not None or ul is not None:
                         await client.set_speed_limits(download_limit=dl, upload_limit=ul)
+                    unset = "restored" if restored is not None else "nothing to restore"
                     logger.info(
                         f"Shutdown speeds applied to {client_id}: "
-                        f"DL={f'{dl:.1f} Mbps' if dl is not None else 'restored'}, "
-                        f"UL={f'{ul:.1f} Mbps' if ul is not None else 'restored'}"
+                        f"DL={f'{dl:.1f} Mbps' if dl is not None else unset}, "
+                        f"UL={f'{ul:.1f} Mbps' if ul is not None else unset}"
                     )
                     return (client_id, True)
                 except Exception as e:

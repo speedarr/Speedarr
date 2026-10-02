@@ -9,9 +9,11 @@ from typing import Optional, List
 from loguru import logger
 
 from app.api.auth import require_admin
+from app.clients.base import RestoreOutcome
 from app.models import User
 from app.utils.errors import ErrorCode, raise_error
 from app.database import AsyncSessionLocal
+from app.services.controller_manager import restore_message
 from app.services.throttling_state import save_throttling_disabled, clear_throttling_state
 
 router = APIRouter(prefix="/api/control", tags=["control"])
@@ -62,14 +64,14 @@ async def restore_speeds(
     """
     Manually restore all download/upload speeds to normal.
 
-    This overrides any active throttling.
+    Each client goes back to its normal limits; outcomes says restored, nothing_to_restore or failed per client.
     """
     try:
         controller_manager = request.app.state.controller_manager
         notification_service = request.app.state.notification_service
 
         # Restore speeds for all clients
-        results = await controller_manager.restore_all_speeds()
+        outcomes = await controller_manager.restore_all_speeds()
 
         # Send notification
         await notification_service.notify(
@@ -84,8 +86,9 @@ async def restore_speeds(
         stats = await controller_manager.get_client_stats()
 
         return {
-            "message": "Speeds restored successfully",
-            "results": results,
+            "message": restore_message(outcomes),
+            "results": {cid: outcome is RestoreOutcome.RESTORED for cid, outcome in outcomes.items()},
+            "outcomes": {cid: outcome.value for cid, outcome in outcomes.items()},
             "clients": stats,
             "restored_by": current_user.username
         }

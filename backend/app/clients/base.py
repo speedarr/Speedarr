@@ -2,9 +2,17 @@
 Base download client interface.
 """
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Dict, Any, Optional
 import aiohttp
 from loguru import logger
+
+
+class RestoreOutcome(str, Enum):
+    """What a restore did for one client (audit D3-3)."""
+    RESTORED = "restored"
+    NOTHING_TO_RESTORE = "nothing_to_restore"
+    FAILED = "failed"
 
 
 class BaseDownloadClient(ABC):
@@ -52,14 +60,19 @@ class BaseDownloadClient(ABC):
         """Set speed limits in Mbps."""
         pass
 
-    async def restore_speed_limits(self):
-        """Restore original speed limits."""
-        if self._original_limits:
-            await self.set_speed_limits(
-                download_limit=self._original_limits.get("download_limit"),
-                upload_limit=self._original_limits.get("upload_limit")
-            )
-            logger.debug(f"Restored {self.name} to original limits")
+    @property
+    def restores_saved_cap(self) -> bool:
+        """True when the client keeps its own saved cap apart from the limit in force (SABnzbd, NZBGet)."""
+        return False
+
+    async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
+        """Write the baseline back and return it; None when there is no baseline. Raises on failure."""
+        if baseline is None:
+            return None
+        limits = {"download_limit": baseline["download_limit"], "upload_limit": baseline["upload_limit"]}
+        await self.set_speed_limits(**limits)
+        logger.debug(f"Restored {self.name} to its normal limits")
+        return limits
 
     async def set_unlimited(self):
         """Remove all speed limits. Default: 0 maps to native unlimited."""

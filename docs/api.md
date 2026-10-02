@@ -53,7 +53,7 @@ For how a temporary limit interacts with schedules and your normal limits, see [
 | `POST /api/bandwidth/temporary-limits` | key or session | Set an override on the totals | `download_mbps` (0–100000, optional), `upload_mbps` (0–100000, optional), `duration_hours` (>0–168, optional, omit = until cleared), `source` (≤200 chars, optional) |
 | `DELETE /api/bandwidth/temporary-limits` | key or session | Clear it | none |
 | `POST /api/control/manual-throttle` | key or session | Per-client limits that override the engine | `clients: [{client_id, download_limit?, upload_limit?}]`, `duration_minutes?` (no range check, not enforced — see Conventions), `reason?`; 409 while throttling is off |
-| `POST /api/control/restore-speeds` | key or session | Everything back to normal | `reason?` |
+| `POST /api/control/restore-speeds` | key or session | Every client back to its normal limits; the response's `outcomes` says `restored`, `nothing_to_restore` or `failed` per client (`results` is `true` only for `restored`), and the next poll throttles again while throttling is on | `reason?` |
 | `POST /api/control/pause-monitoring` | key or session | Throttling off, clients unlimited | `duration_minutes?` (1–10080) |
 | `POST /api/control/resume-monitoring` | key or session | Throttling on | none |
 | `GET /api/status/current` | public unless Require login | Dashboard snapshot: throttling state, per-client speeds and limits, stream counts, bandwidth totals | none |

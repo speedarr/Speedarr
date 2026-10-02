@@ -24,6 +24,19 @@ class NZBGetClient(BaseDownloadClient):
     def client_type(self) -> str:
         return "nzbget"
 
+    @property
+    def restores_saved_cap(self) -> bool:
+        """NZBGet keeps its own saved cap (DownloadRate) apart from the limit in force."""
+        return True
+
+    async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
+        """Write back the limit captured on the first poll; None when nothing was captured. Raises on failure."""
+        if self._original_limits is None:
+            return None
+        download = self._original_limits.get("download_limit", 0)
+        await self.set_speed_limits(download_limit=download)
+        return {"download_limit": download, "upload_limit": 0.0}
+
     def _get_auth(self) -> aiohttp.BasicAuth:
         """Get basic auth credentials."""
         return aiohttp.BasicAuth(self.username, self.password)

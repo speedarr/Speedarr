@@ -108,14 +108,20 @@ class SABnzbdClient:
             logger.error(f"Failed to set SABnzbd speed limit: {e}")
             raise
 
-    async def restore_speed_limits(self):
-        """Restore original speed limit."""
+    @property
+    def restores_saved_cap(self) -> bool:
+        """SABnzbd keeps its own saved cap (misc.bandwidth_perc) apart from the limit in force."""
+        return True
+
+    async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
+        """Remove the speed limit (unlimited). Raises on failure (audit D3-3)."""
         try:
-            # Set to 0 to remove limit (unlimited)
             await self._api_call("config", {"name": "speedlimit", "value": "0"})
             logger.debug("Removed SABnzbd speed limit (unlimited)")
         except Exception as e:
             logger.error(f"Failed to restore speed limit: {e}")
+            raise
+        return {"download_limit": 0.0, "upload_limit": 0.0}
 
     async def set_unlimited(self):
         """Remove the SABnzbd speed limit (bypasses set_speed_limits' 1 KB/s floor)."""

@@ -165,14 +165,20 @@ class QBittorrentClient:
             logger.error(f"Failed to set speed limits: {e}")
             raise
 
-    async def restore_speed_limits(self):
-        """Restore original speed limits (0 = unlimited, re-applied explicitly)."""
-        if self._original_limits:
-            await self.set_speed_limits(
-                download_limit=self._original_limits["download_limit"],
-                upload_limit=self._original_limits["upload_limit"],
-            )
-            logger.debug("Restored qBittorrent to original limits")
+    @property
+    def restores_saved_cap(self) -> bool:
+        """qBittorrent's limit in force is its saved setting; the baseline comes from Speedarr."""
+        return False
+
+    async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
+        """Write the baseline back and return it; None when there is no baseline (0 = unlimited, re-applied
+        explicitly). Raises on failure. Mirrors BaseDownloadClient, which this class does not inherit."""
+        if baseline is None:
+            return None
+        limits = {"download_limit": baseline["download_limit"], "upload_limit": baseline["upload_limit"]}
+        await self.set_speed_limits(**limits)
+        logger.debug("Restored qBittorrent to its normal limits")
+        return limits
 
     async def set_unlimited(self):
         """Remove all speed limits (0 maps to qBittorrent's native unlimited).
