@@ -7,6 +7,24 @@ from loguru import logger
 from app.utils.bandwidth import bytes_per_sec_to_mbps, kibibytes_per_sec_to_mbps, mbps_to_kibibytes_per_sec
 
 
+_SIZE_SUFFIXES = "KMGT"
+
+
+def _sab_bytes(text: Any) -> float:
+    """SABnzbd size text ('112M', '500K', '1048576') -> bytes/s with 1024-based suffixes; 0 when empty or unreadable."""
+    value = str(text or "").strip().upper()
+    if not value:
+        return 0.0
+    factor = 1.0
+    if value[-1] in _SIZE_SUFFIXES:
+        factor = 1024.0 ** (_SIZE_SUFFIXES.index(value[-1]) + 1)
+        value = value[:-1]
+    try:
+        return float(value) * factor
+    except ValueError:
+        return 0.0
+
+
 class SABnzbdClient:
     """Client for interacting with SABnzbd API."""
 
@@ -14,7 +32,6 @@ class SABnzbdClient:
         self.url = url.rstrip("/")
         self.api_key = api_key
         self._session: Optional[aiohttp.ClientSession] = None
-        self._original_limit: Optional[float] = None
 
     @property
     def session(self) -> aiohttp.ClientSession:
@@ -60,10 +77,6 @@ class SABnzbdClient:
             speedlimit_bytes = float(speedlimit_abs) if speedlimit_abs else 0
             limit_mbps = bytes_per_sec_to_mbps(speedlimit_bytes) if speedlimit_bytes > 0 else 0
 
-            # Store original limit
-            if self._original_limit is None and limit_mbps > 0:
-                self._original_limit = limit_mbps
-
             queue_size = queue.get("noofslots", 0)
 
             # Determine if actually downloading based on speed, not queue status
@@ -74,7 +87,6 @@ class SABnzbdClient:
                 "active": speed_kbps > 0,
                 "download_speed": speed_mbps,
                 "download_limit": limit_mbps,
-                "original_download_limit": self._original_limit or 0,
                 "upload_speed": 0,  # SABnzbd doesn't upload
                 "upload_limit": 0,
                 "queue_size": queue_size,
@@ -114,14 +126,26 @@ class SABnzbdClient:
         return True
 
     async def restore_speed_limits(self, baseline: Optional[Dict[str, float]] = None) -> Optional[Dict[str, float]]:
-        """Remove the speed limit (unlimited). Raises on failure (audit D3-3)."""
+        """Put back the cap saved in SABnzbd's own settings (audit T4-6).
+
+        Writes misc.bandwidth_perc as a bare percent, which is what SABnzbd's own startup
+        applies; Speedarr's API writes never touch that setting. The baseline is ignored.
+        Raises on failure.
+        """
         try:
-            await self._api_call("config", {"name": "speedlimit", "value": "0"})
-            logger.debug("Removed SABnzbd speed limit (unlimited)")
+            reply = await self._api_call("get_config", {"section": "misc"})
+            misc = (reply or {}).get("config", {}).get("misc")
+            if not isinstance(misc, dict) or "bandwidth_perc" not in misc:
+                raise ValueError("SABnzbd config has no misc.bandwidth_perc")
+            percent = int(float(misc["bandwidth_perc"]))
+            await self._api_call("config", {"name": "speedlimit", "value": str(percent)})
         except Exception as e:
-            logger.error(f"Failed to restore speed limit: {e}")
+            logger.error(f"Failed to restore SABnzbd speed limit: {e}")
             raise
-        return {"download_limit": 0.0, "upload_limit": 0.0}
+        max_bytes = _sab_bytes(misc.get("bandwidth_max"))
+        download = bytes_per_sec_to_mbps(max_bytes * percent / 100) if max_bytes > 0 and percent > 0 else 0.0
+        logger.debug(f"Restored SABnzbd to its saved cap ({percent}% of {misc.get('bandwidth_max') or 'no maximum'})")
+        return {"download_limit": download, "upload_limit": 0.0}
 
     async def set_unlimited(self):
         """Remove the SABnzbd speed limit (bypasses set_speed_limits' 1 KB/s floor)."""
