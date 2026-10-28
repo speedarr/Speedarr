@@ -31,7 +31,7 @@
 - Holding times by media type, so the bandwidth from a finished stream is still there when the next one starts
 - A safety net that leaves an idle client enough room to start a download and show it wants more
 - An off switch that hands every client back to unlimited, indefinitely or on a timer
-- SNMP polling of your router, so the maths uses what your whole line is doing and not just your clients
+- SNMP polling of your router (or a FRITZ!Box over UPnP), so the maths uses what your whole line is doing and not just your clients
 - Notifications via Discord/Slack-style webhooks, Pushover, Telegram, Gotify and ntfy
 - API keys for automation, with Home Assistant and Unraid recipes in the docs
 - A dashboard with bandwidth charts, active streams and stream history, in panels you can reorder and minimise

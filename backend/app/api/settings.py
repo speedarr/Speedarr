@@ -298,6 +298,39 @@ async def update_section(
         )
 
 
+async def _test_fritzbox_connection(snmp_config) -> TestConnectionResponse:
+    """Test the FRITZ!Box UPnP source and report the synced line speed."""
+    from app.services.fritzbox_monitor import FritzBoxMonitor
+
+    monitor = FritzBoxMonitor(snmp_config)
+    try:
+        if not await monitor.test_connection():
+            return TestConnectionResponse(
+                success=False,
+                message=(
+                    "Failed to read traffic data from the FRITZ!Box. Check the host and port "
+                    "(49000) and enable Home Network > Network > Network Settings > "
+                    "\"Transmit status information over UPnP\"."
+                ),
+            )
+        try:
+            link = await monitor.get_link_info()
+        except Exception as e:
+            logger.debug(f"FRITZ!Box line speed unavailable: {e}")
+            link = None
+    finally:
+        await monitor.close()
+
+    message = "Successfully connected to FRITZ!Box"
+    if link:
+        access = f"{link['access_type']}, " if link.get("access_type") else ""
+        message += (
+            f" ({access}line speed {link['downstream_mbps']:g} Mbps down / "
+            f"{link['upstream_mbps']:g} Mbps up)"
+        )
+    return TestConnectionResponse(success=True, message=message, details={"link": link})
+
+
 @router.post("/test/{service}", response_model=TestConnectionResponse)
 async def test_connection(
     service: str,
@@ -816,6 +849,9 @@ async def test_connection(
                     success=False, message=f"Invalid SNMP configuration: {str(e)}"
                 )
 
+            if snmp_config.source == "fritzbox":
+                return await _test_fritzbox_connection(snmp_config)
+
             # Check for masked passwords
             if snmp_config.version == "v3":
                 if (
@@ -1180,6 +1216,14 @@ async def discover_snmp_interfaces(
             return {
                 "success": False,
                 "message": f"Invalid SNMP configuration: {str(e)}",
+                "interfaces": [],
+                "suggested_wan": None,
+            }
+
+        if snmp_config.source != "snmp":
+            return {
+                "success": False,
+                "message": "Interface discovery is only available for the SNMP source.",
                 "interfaces": [],
                 "suggested_wan": None,
             }

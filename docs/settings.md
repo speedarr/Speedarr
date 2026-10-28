@@ -194,15 +194,16 @@ Five cards, each with an Enable toggle, its own credential fields, a Test button
 
 | Setting | Default | What it does |
 |---|---|---|
-| Enable SNMP Monitoring | Off | Turns on router/firewall bandwidth monitoring over SNMP. Optional. |
-| SNMP Host | — | Address of your router or switch. |
-| Port | 161 | SNMP port. |
-| Community String | `public` | SNMP v2c community string. |
-| Network Interface | — | The interface to monitor, picked manually or from Discover Interfaces. |
-| Test Connection | — | Checks the SNMP host is reachable. |
-| Discover Interfaces | — | Scans for about 45 s, then runs 30 s of live traffic per interface, flagging a "Likely WAN Interface" badge on its best guess. |
+| Enable SNMP Monitoring | Off | Turns on router/firewall bandwidth monitoring. Optional. |
+| Source | SNMP | **SNMP (router / switch)** or **FRITZ!Box (UPnP)**. Switching source swaps the port between the two defaults. |
+| SNMP Host / FRITZ!Box Host | — | Address of your router or switch, or of the FRITZ!Box (usually `192.168.178.1`). |
+| Port | 161 | SNMP port; 49000 for the FRITZ!Box. |
+| Community String | `public` | SNMP v2c community string. SNMP source only. |
+| Network Interface | — | The interface to monitor, picked manually or from Discover Interfaces. SNMP source only. |
+| Test Connection | — | Checks the host is reachable. For the FRITZ!Box it also shows the line speed the box has synced at. |
+| Discover Interfaces | — | Scans for about 45 s, then runs 30 s of live traffic per interface, flagging a "Likely WAN Interface" badge on its best guess. SNMP source only. |
 
-**Notes:** SNMP v2c only. Optional — Speedarr works without it. See [SNMP](how-it-works.md#snmp).
+**Notes:** SNMP v2c only. Optional — Speedarr works without it. See [SNMP](how-it-works.md#snmp) and [FRITZ!Box](how-it-works.md#fritzbox).
 
 ## Dashboard controls
 

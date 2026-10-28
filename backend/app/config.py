@@ -1,7 +1,7 @@
 """
 Configuration management for Speedarr.
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
@@ -120,8 +120,11 @@ class DownloadClientConfig(BaseModel):
 
 
 class SNMPConfig(BaseModel):
-    """SNMP monitoring configuration (v2c only)."""
+    """WAN monitoring configuration: SNMP v2c or FRITZ!Box (UPnP IGD)."""
     enabled: bool = False
+    # "snmp": IF-MIB octet counters; "fritzbox": AVM UPnP IGD counters
+    # (no login, uses host/port only - port 49000)
+    source: Literal["snmp", "fritzbox"] = "snmp"
     host: str = Field("", json_schema_extra=ADDRESS)
     port: int = Field(161, json_schema_extra=ADDRESS)
     version: str = "v2c"  # Only v2c is supported

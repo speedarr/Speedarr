@@ -1147,11 +1147,12 @@ class ConfigManager:
                 # Rebuild or drop the SNMP monitor; the config reference itself was fanned out above
                 polling_monitor = getattr(self.app.state, "polling_monitor", None)
                 if polling_monitor is not None:
-                    from app.services.snmp_monitor import SNMPMonitor
+                    from app.services.wan_monitor import create_wan_monitor, describe_wan_monitor
 
                     if config.snmp.enabled:
-                        polling_monitor.snmp_monitor = SNMPMonitor(config.snmp)
-                        logger.info("SNMPMonitor reloaded with updated config")
+                        # SNMPMonitor or FritzBoxMonitor, depending on snmp.source
+                        polling_monitor.snmp_monitor = create_wan_monitor(config.snmp)
+                        logger.info(f"WAN monitor reloaded: {describe_wan_monitor(config.snmp)}")
                     else:
                         polling_monitor.snmp_monitor = None
                         logger.info("SNMPMonitor disabled")

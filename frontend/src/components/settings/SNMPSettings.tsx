@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PasswordInput } from './PasswordInput';
 import { apiClient } from '@/api/client';
 import { getErrorMessage } from '@/lib/utils';
@@ -14,8 +15,14 @@ import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useSettingsTab } from '@/hooks/useSettingsTab';
 import type { SNMPInterface } from '@/types';
 
+type WANSource = 'snmp' | 'fritzbox';
+
+// Default port per source, swapped in when the user switches source
+const DEFAULT_PORTS: Record<WANSource, number> = { snmp: 161, fritzbox: 49000 };
+
 interface SNMPConfig {
   enabled: boolean;
+  source?: WANSource;
   host: string;
   port: number;
   version: string;
@@ -92,6 +99,33 @@ export const SNMPSettings: React.FC = () => {
   const updateConfig = (field: keyof SNMPConfig, value: any) => {
     if (!config) return;
     setConfig({ ...config, [field]: value });
+  };
+
+  const source: WANSource = config?.source ?? 'snmp';
+  const isFritzBox = source === 'fritzbox';
+
+  // Community string set aside while the FRITZ!Box source is selected
+  const stashedCommunityRef = useRef<string | null>(null);
+
+  const changeSource = (next: WANSource) => {
+    if (!config || next === source) return;
+    // Only replace the port if it is still the other source's default
+    const port = config.port === DEFAULT_PORTS[source] ? DEFAULT_PORTS[next] : config.port;
+    // The FRITZ!Box takes no community string. Clear it, or the save would keep the stored one beside
+    // a changed host/port and be refused; switching back restores what was there.
+    let community = config.community;
+    if (next === 'fritzbox') {
+      stashedCommunityRef.current = config.community;
+      community = '';
+    } else if (stashedCommunityRef.current !== null) {
+      community = stashedCommunityRef.current;
+      stashedCommunityRef.current = null;
+    } else if (!community) {
+      community = 'public';
+    }
+    setConfig({ ...config, source: next, port, community });
+    setTestResult(null);
+    setInterfaces([]);
   };
 
   const handleTestConnection = async () => {
@@ -314,7 +348,7 @@ export const SNMPSettings: React.FC = () => {
       <CardHeader>
         <CardTitle>SNMP Network Monitoring</CardTitle>
         <CardDescription>
-          Monitor network bandwidth usage via SNMP (optional feature)
+          Monitor total WAN bandwidth usage via SNMP or a FRITZ!Box router (optional feature)
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -350,14 +384,42 @@ export const SNMPSettings: React.FC = () => {
 
           {config.enabled && (
             <>
+              <div className="space-y-2">
+                <Label htmlFor="snmp-source">Source</Label>
+                <Select value={source} onValueChange={(v) => changeSource(v as WANSource)} disabled={isSaving}>
+                  <SelectTrigger id="snmp-source" className="w-[260px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="snmp">SNMP (router / switch)</SelectItem>
+                    <SelectItem value="fritzbox">FRITZ!Box (UPnP)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  Where Speedarr reads the total WAN traffic of your network from
+                </p>
+              </div>
+
+              {isFritzBox && (
+                <Alert>
+                  <AlertDescription>
+                    FRITZ!Box routers don&apos;t offer SNMP, but report their internet traffic via UPnP without a
+                    login. In the FRITZ!Box web interface enable{' '}
+                    <strong>Home Network &gt; Network &gt; Network Settings &gt; &quot;Transmit status information over UPnP&quot;</strong>{' '}
+                    (German: <em>Heimnetz &gt; Netzwerk &gt; Netzwerkeinstellungen &gt; &quot;Statusinformationen über UPnP übertragen&quot;</em>).
+                    Test Connection also shows your line speed as a starting point for the total bandwidth limits.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="snmp-host">SNMP Host</Label>
+                  <Label htmlFor="snmp-host">{isFritzBox ? 'FRITZ!Box Host' : 'SNMP Host'}</Label>
                   <Input
                     id="snmp-host"
                     value={config.host}
                     onChange={(e) => updateConfig('host', e.target.value)}
-                    placeholder="192.168.1.1"
+                    placeholder={isFritzBox ? '192.168.178.1' : '192.168.1.1'}
                     disabled={isSaving}
                     maxLength={255}
                   />
@@ -378,11 +440,12 @@ export const SNMPSettings: React.FC = () => {
                     disabled={isSaving}
                   />
                   <p className="text-sm text-muted-foreground">
-                    SNMP port (default: 161)
+                    {isFritzBox ? 'UPnP port (default: 49000)' : 'SNMP port (default: 161)'}
                   </p>
                 </div>
               </div>
 
+              {!isFritzBox && (
               <div className="space-y-2">
                 <Label htmlFor="snmp-community">Community String</Label>
                 <PasswordInput
@@ -396,6 +459,7 @@ export const SNMPSettings: React.FC = () => {
                   SNMP v2c community string (default: public)
                 </p>
               </div>
+              )}
 
               {/* Test Connection and Interface Discovery */}
               <div className="space-y-4">
@@ -410,6 +474,7 @@ export const SNMPSettings: React.FC = () => {
                     Test Connection
                   </Button>
 
+                  {!isFritzBox && (
                   <Button
                     onClick={handleDiscoverInterfaces}
                     disabled={isDiscovering || isSaving || !config.host || isLivePolling}
@@ -422,6 +487,7 @@ export const SNMPSettings: React.FC = () => {
                       : 'Discover Interfaces'
                     }
                   </Button>
+                  )}
                 </div>
 
                 {isDiscovering && discoveryTotal > 0 && (
@@ -468,8 +534,8 @@ export const SNMPSettings: React.FC = () => {
                 )}
               </div>
 
-              {/* Interface Selection */}
-              {interfaces.length > 0 ? (
+              {/* Interface Selection (SNMP only - the FRITZ!Box has a single WAN) */}
+              {isFritzBox ? null : interfaces.length > 0 ? (
                 <div className="space-y-2">
                   <Label>Select Network Interface</Label>
                   <p className="text-sm text-muted-foreground mb-2">
@@ -559,7 +625,7 @@ export const SNMPSettings: React.FC = () => {
 
               <Alert>
                 <AlertDescription>
-                  <strong>Note:</strong> SNMP monitoring is optional. Speedarr can function without it by relying on media server stream data and configured bandwidth limits.
+                  <strong>Note:</strong> Network monitoring is optional. Speedarr can function without it by relying on media server stream data and configured bandwidth limits.
                 </AlertDescription>
               </Alert>
             </>

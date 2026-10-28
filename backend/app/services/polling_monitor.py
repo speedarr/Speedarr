@@ -135,9 +135,9 @@ class PollingMonitor:
         # Initialize SNMP monitor if enabled
         self.snmp_monitor = None
         if self.config.snmp.enabled:
-            from app.services.snmp_monitor import SNMPMonitor
-            self.snmp_monitor = SNMPMonitor(self.config.snmp)
-            logger.info(f"SNMP monitor initialized for interface: {self.config.snmp.interface}")
+            from app.services.wan_monitor import create_wan_monitor, describe_wan_monitor
+            self.snmp_monitor = create_wan_monitor(self.config.snmp)
+            logger.info(f"WAN monitor initialized: {describe_wan_monitor(self.config.snmp)}")
         else:
             logger.info("SNMP monitoring disabled")
 
